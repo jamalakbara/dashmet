@@ -1,0 +1,53 @@
+# ── Claude & MCP ──────────────────────────────────────────────
+CLAUDE.md
+.claude/
+.mcp/
+.mcp.json
+
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.venv/
+venv/
+env/
+.env
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+
+# ── Alembic ───────────────────────────────────────────────────
+# Keep versions tracked — never ignore migrations/versions/
+
+# ── Node.js ───────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+.env.local
+.env.*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── OS ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── IDEs ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Docker ────────────────────────────────────────────────────
+postgres_data/
+
+# ── Celery runtime ────────────────────────────────────────────
+celerybeat-schedule.*

@@ -1,0 +1,13 @@
+export type Platform = "meta" | "google_ads" | "tiktok" | "google_analytics";
+export type EntityLevel = "account" | "campaign" | "adgroup" | "ad";
+export type EntityStatus = "active" | "paused" | "archived" | "deleted";
+export type Objective = "awareness" | "traffic" | "engagement" | "leads" | "app_promotion" | "sales";
+export type CreativeFormat = "image" | "video" | "carousel" | "collection" | "instant_experience" | "text";
+export type CtaType = "shop_now" | "learn_more" | "sign_up" | "book_now" | "download" | "contact_us" | "get_quote" | "subscribe" | "watch_more";
+export type BreakdownType = "age_gender" | "country" | "platform_position" | "device";
+export type TimeIncrement = "day" | "week" | "month";
+export type DatePreset = "today" | "yesterday" | "last_7d" | "last_14d" | "last_28d" | "last_30d" | "last_90d" | "this_month" | "last_month" | "this_year" | "lifetime";
+export type OrgRole = "owner" | "member";
+export type SyncJobType = "structure" | "insights_daily" | "insights_async" | "creatives" | "breakdown";
+export type SyncJobStatus = "pending" | "running" | "completed" | "failed" | "skipped";
+export type TokenType = "system_user" | "user_token";

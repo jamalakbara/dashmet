@@ -1,0 +1,585 @@
+"use client";
+
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useQueryState } from "nuqs";
+import {
+  ComposedChart,
+  Bar,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  BarChart,
+  PieChart,
+  Pie,
+  Cell,
+} from "recharts";
+import { format, parseISO } from "date-fns";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { insightsApi } from "@/lib/api/insights";
+import { queryKeys } from "@/lib/query-keys";
+import { useAccountId } from "@/hooks/use-account";
+import { useDateRange } from "@/hooks/use-date-range";
+import { METRIC_LABELS, METRIC_TYPES, CHART_COLORS } from "@/lib/constants";
+import { formatMetric, formatCurrency } from "@/lib/formatters";
+import { cn } from "@/lib/utils";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface SeriesRow {
+  date: string;
+  [key: string]: number | string | null | undefined;
+}
+
+interface EntitySeries {
+  entity: { id: string; name: string };
+  series: SeriesRow[];
+}
+
+interface BreakdownRow {
+  breakdown_value: string;
+  dimensions: Record<string, string>;
+  metrics: Record<string, number>;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const SELECTABLE_METRICS = [
+  "spend", "impressions", "reach", "clicks",
+  "ctr", "cpm", "cpc", "conversions", "roas", "cpa",
+];
+
+const LEVELS = [
+  { value: "account",  label: "Account" },
+  { value: "campaign", label: "Campaign" },
+  { value: "adgroup",  label: "Ad Group" },
+  { value: "ad",       label: "Ad" },
+];
+
+const TIME_INCREMENTS = [
+  { value: "day",   label: "Day" },
+  { value: "week",  label: "Week" },
+  { value: "month", label: "Month" },
+];
+
+const GENDER_COLORS: Record<string, string> = {
+  female:  CHART_COLORS[3],
+  male:    CHART_COLORS[0],
+  unknown: CHART_COLORS[5],
+};
+
+function formatXDate(v: unknown): string {
+  try { return format(parseISO(v as string), "MMM d"); }
+  catch { return String(v); }
+}
+
+function SkeletonChart({ height }: { height: number }) {
+  return <div className="animate-pulse rounded bg-muted" style={{ height }} />;
+}
+
+function Empty({ height = 280 }: { height?: number }) {
+  return (
+    <div
+      className="flex items-center justify-center text-sm text-muted-foreground"
+      style={{ height }}
+    >
+      No data for selected period
+    </div>
+  );
+}
+
+// ─── Segmented control ────────────────────────────────────────────────────────
+
+function SegmentControl<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="flex rounded-lg border bg-background p-0.5 gap-0.5">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          onClick={() => onChange(opt.value)}
+          className={cn(
+            "rounded-md px-2.5 py-1 text-sm transition-colors",
+            value === opt.value
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ─── Breakdown charts ─────────────────────────────────────────────────────────
+
+function AgeGenderChart({ rows, loading }: { rows: BreakdownRow[]; loading: boolean }) {
+  if (loading) return <SkeletonChart height={280} />;
+  if (!rows.length) return <Empty />;
+
+  const ages = [...new Set(rows.map((r) => r.dimensions.age))].sort();
+  const genders = [...new Set(rows.map((r) => r.dimensions.gender))];
+
+  const data = ages.map((age) => {
+    const entry: Record<string, unknown> = { age };
+    genders.forEach((g) => {
+      const row = rows.find(
+        (r) => r.dimensions.age === age && r.dimensions.gender === g
+      );
+      entry[g] = row?.metrics.spend ?? 0;
+    });
+    return entry;
+  });
+
+  return (
+    <ResponsiveContainer width="100%" height={280}>
+      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+        <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+        <YAxis type="category" dataKey="age" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={48} />
+        <Tooltip formatter={(v) => formatCurrency(v as number)} contentStyle={{ fontSize: 12 }} />
+        <Legend />
+        {genders.map((g) => (
+          <Bar key={g} dataKey={g} name={g.charAt(0).toUpperCase() + g.slice(1)} fill={GENDER_COLORS[g] ?? CHART_COLORS[2]} />
+        ))}
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function CountryChart({ rows, loading }: { rows: BreakdownRow[]; loading: boolean }) {
+  if (loading) return <SkeletonChart height={280} />;
+  if (!rows.length) return <Empty />;
+
+  const data = [...rows]
+    .sort((a, b) => (b.metrics.spend ?? 0) - (a.metrics.spend ?? 0))
+    .slice(0, 10)
+    .map((r) => ({
+      country: r.dimensions.country ?? r.breakdown_value,
+      spend: r.metrics.spend ?? 0,
+    }));
+
+  return (
+    <ResponsiveContainer width="100%" height={280}>
+      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+        <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+        <YAxis type="category" dataKey="country" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={32} />
+        <Tooltip formatter={(v) => [formatCurrency(v as number), "Spend"]} contentStyle={{ fontSize: 12 }} />
+        <Bar dataKey="spend" fill={CHART_COLORS[0]} radius={2} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function PlatformChart({ rows, loading }: { rows: BreakdownRow[]; loading: boolean }) {
+  if (loading) return <SkeletonChart height={280} />;
+  if (!rows.length) return <Empty />;
+
+  const platforms = [...new Set(rows.map((r) => r.dimensions.publisher_platform))];
+  const positions  = [...new Set(rows.map((r) => r.dimensions.platform_position))];
+
+  const data = platforms.map((platform) => {
+    const entry: Record<string, unknown> = { platform };
+    rows
+      .filter((r) => r.dimensions.publisher_platform === platform)
+      .forEach((r) => { entry[r.dimensions.platform_position] = r.metrics.spend ?? 0; });
+    return entry;
+  });
+
+  return (
+    <ResponsiveContainer width="100%" height={280}>
+      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+        <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+        <YAxis type="category" dataKey="platform" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={72} />
+        <Tooltip formatter={(v) => [formatCurrency(v as number), "Spend"]} contentStyle={{ fontSize: 12 }} />
+        <Legend />
+        {positions.map((pos, i) => (
+          <Bar key={`${pos ?? "unknown"}-${i}`} dataKey={pos} stackId="a" fill={CHART_COLORS[i % CHART_COLORS.length]} />
+        ))}
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function DeviceChart({ rows, loading }: { rows: BreakdownRow[]; loading: boolean }) {
+  if (loading) return <SkeletonChart height={280} />;
+  if (!rows.length) return <Empty />;
+
+  const data = rows.map((r) => ({
+    name:  r.dimensions.device ?? r.breakdown_value,
+    value: r.metrics.impressions ?? 0,
+  }));
+
+  return (
+    <ResponsiveContainer width="100%" height={280}>
+      <PieChart>
+        <Pie
+          data={data}
+          dataKey="value"
+          nameKey="name"
+          cx="50%"
+          cy="50%"
+          innerRadius={70}
+          outerRadius={110}
+          paddingAngle={2}
+          label={({ name, percent }) =>
+            `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
+          }
+          labelLine={false}
+        >
+          {data.map((_, i) => (
+            <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+          ))}
+        </Pie>
+        <Tooltip
+          formatter={(v) => [Number(v).toLocaleString(), "Impressions"]}
+          contentStyle={{ fontSize: 12 }}
+        />
+        <Legend />
+      </PieChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function PeriodicPage() {
+  const accountId     = useAccountId();
+  const dateRange     = useDateRange();
+
+  const [level, setLevel]               = useQueryState("level",          { defaultValue: "campaign" });
+  const [metricsStr, setMetricsStr]     = useQueryState("metrics",        { defaultValue: "spend,clicks" });
+  const [timeIncrement, setTimeIncrement] = useQueryState("time_increment", { defaultValue: "day" });
+  const [compareStr, setCompareStr]     = useQueryState("compare");
+  const [activeBreakdown, setActiveBreakdown] = useQueryState("breakdown", { defaultValue: "age_gender" });
+
+  const [chartType, setChartType] = useState<"line" | "bar">("line");
+
+  const metrics        = metricsStr.split(",").filter(Boolean).slice(0, 2);
+  const comparePrev    = compareStr === "true";
+  const isAccountLevel = level === "account";
+
+  // ── Timeseries ──
+  const { data: tsRes, isLoading } = useQuery({
+    queryKey: queryKeys.timeseries(accountId ?? "", dateRange, level, metrics, timeIncrement),
+    queryFn: () =>
+      insightsApi.timeseries({
+        account_id: accountId!,
+        ...dateRange,
+        level,
+        metrics: metrics.join(","),
+        time_increment: timeIncrement,
+        compare_previous: comparePrev,
+      }),
+    enabled: !!accountId,
+    staleTime: 15 * 60 * 1000,
+  });
+
+  // ── Breakdown ──
+  const { data: bdRes, isLoading: bdLoading } = useQuery({
+    queryKey: queryKeys.breakdown(accountId ?? "", dateRange, activeBreakdown ?? ""),
+    queryFn: () =>
+      insightsApi.breakdown({
+        account_id: accountId!,
+        ...dateRange,
+        breakdown_type: activeBreakdown!,
+        level: "account",
+      }),
+    enabled: !!accountId && !!activeBreakdown,
+    staleTime: 30 * 60 * 1000,
+  });
+
+  // ── Build chart data ──
+  const tsData                           = tsRes?.data?.data;
+  const flatSeries: SeriesRow[]          = tsData?.series ?? [];
+  const prevSeries: SeriesRow[]          = tsData?.previous_series ?? [];
+  const seriesByEntity: EntitySeries[]   = (tsData?.series_by_entity ?? []).slice(0, 10);
+  const bdRows: BreakdownRow[]           = bdRes?.data?.data?.rows ?? [];
+
+  let chartData: Record<string, unknown>[] = [];
+  if (isAccountLevel) {
+    chartData = flatSeries.map((row, idx) => {
+      const entry: Record<string, unknown> = { date: row.date };
+      metrics.forEach((m) => { entry[m] = row[m] ?? null; });
+      if (comparePrev && prevSeries[idx]) {
+        metrics.forEach((m) => { entry[`prev_${m}`] = prevSeries[idx][m] ?? null; });
+      }
+      return entry;
+    });
+  } else {
+    const dateMap = new Map<string, Record<string, unknown>>();
+    seriesByEntity.forEach(({ entity, series }) => {
+      series.forEach((row) => {
+        if (!dateMap.has(row.date)) dateMap.set(row.date, { date: row.date });
+        dateMap.get(row.date)![entity.id] = row[metrics[0]] ?? null;
+      });
+    });
+    chartData = Array.from(dateMap.values()).sort(
+      (a, b) => (a.date as string).localeCompare(b.date as string)
+    );
+  }
+
+  function toggleMetric(m: string) {
+    if (metrics.includes(m)) {
+      if (metrics.length === 1) return;
+      setMetricsStr(metrics.filter((x) => x !== m).join(","));
+    } else {
+      setMetricsStr((metrics.length >= 2 ? [metrics[0], m] : [...metrics, m]).join(","));
+    }
+  }
+
+  if (!accountId) {
+    return (
+      <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+        No account selected.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* ── Controls ── */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={level} onValueChange={(v) => setLevel(v)}>
+          <SelectTrigger className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {LEVELS.map((l) => (
+              <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Popover>
+          <PopoverTrigger className="flex h-8 items-center gap-1.5 rounded-lg border border-input bg-transparent px-2.5 text-sm whitespace-nowrap transition-colors hover:bg-accent">
+            Metrics: {metrics.map((m) => METRIC_LABELS[m] ?? m).join(" + ")}
+          </PopoverTrigger>
+          <PopoverContent className="w-52 p-3">
+            <p className="mb-2 text-xs text-muted-foreground">Select up to 2</p>
+            <div className="space-y-1.5">
+              {SELECTABLE_METRICS.map((m) => (
+                <label key={m} className="flex cursor-pointer items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={metrics.includes(m)}
+                    onCheckedChange={() => toggleMetric(m)}
+                  />
+                  {METRIC_LABELS[m] ?? m}
+                </label>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        <SegmentControl
+          options={TIME_INCREMENTS}
+          value={timeIncrement}
+          onChange={(v) => setTimeIncrement(v)}
+        />
+
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <Switch
+            checked={comparePrev}
+            onCheckedChange={(v) => setCompareStr(v ? "true" : null)}
+          />
+          Compare prev. period
+        </label>
+      </div>
+
+      {/* ── Main Chart ── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium">
+              {isAccountLevel
+                ? metrics.map((m) => METRIC_LABELS[m] ?? m).join(" vs ")
+                : `${METRIC_LABELS[metrics[0]] ?? metrics[0]} by ${LEVELS.find((l) => l.value === level)?.label ?? level}`}
+            </CardTitle>
+            <SegmentControl
+              options={[{ value: "line", label: "Line" }, { value: "bar", label: "Bar" }]}
+              value={chartType}
+              onChange={setChartType}
+            />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <SkeletonChart height={360} />
+          ) : chartData.length === 0 ? (
+            <Empty height={360} />
+          ) : (
+            <ResponsiveContainer width="100%" height={360}>
+              <ComposedChart data={chartData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={formatXDate}
+                  tick={{ fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={false}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  yAxisId="left"
+                  tickFormatter={(v) => formatMetric(v, METRIC_TYPES[metrics[0]] ?? "number")}
+                  tick={{ fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={64}
+                />
+                {isAccountLevel && metrics[1] && (
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tickFormatter={(v) => formatMetric(v, METRIC_TYPES[metrics[1]] ?? "number")}
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={64}
+                  />
+                )}
+                <Tooltip
+                  formatter={(v, name) => {
+                    const s = String(name);
+                    const m = s.replace("prev_", "");
+                    const label = s.startsWith("prev_")
+                      ? `${METRIC_LABELS[m] ?? m} (prev)`
+                      : (METRIC_LABELS[m] ?? METRIC_LABELS[s] ?? s);
+                    return [formatMetric(v as number, METRIC_TYPES[m] ?? "number"), label];
+                  }}
+                  labelFormatter={formatXDate}
+                  contentStyle={{ fontSize: 12 }}
+                />
+                <Legend
+                  formatter={(name) => {
+                    const s = String(name);
+                    const m = s.replace("prev_", "");
+                    return s.startsWith("prev_")
+                      ? `${METRIC_LABELS[m] ?? m} (prev. period)`
+                      : (METRIC_LABELS[m] ?? METRIC_LABELS[s] ?? s);
+                  }}
+                />
+
+                {isAccountLevel
+                  ? metrics.map((m, i) =>
+                      chartType === "bar" ? (
+                        <Bar key={m} dataKey={m} yAxisId="left" fill={CHART_COLORS[i]} opacity={0.85} />
+                      ) : (
+                        <Line
+                          key={m}
+                          type="monotone"
+                          dataKey={m}
+                          yAxisId={i === 1 && metrics[1] ? "right" : "left"}
+                          stroke={CHART_COLORS[i]}
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                        />
+                      )
+                    )
+                  : seriesByEntity.map((e, i) =>
+                      chartType === "bar" ? (
+                        <Bar
+                          key={e.entity.id}
+                          dataKey={e.entity.id}
+                          name={e.entity.name}
+                          yAxisId="left"
+                          fill={CHART_COLORS[i % CHART_COLORS.length]}
+                          opacity={0.85}
+                        />
+                      ) : (
+                        <Line
+                          key={e.entity.id}
+                          type="monotone"
+                          dataKey={e.entity.id}
+                          name={e.entity.name}
+                          yAxisId="left"
+                          stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                        />
+                      )
+                    )}
+
+                {isAccountLevel &&
+                  comparePrev &&
+                  metrics.map((m, i) => (
+                    <Line
+                      key={`prev_${m}`}
+                      type="monotone"
+                      dataKey={`prev_${m}`}
+                      yAxisId={i === 1 && metrics[1] ? "right" : "left"}
+                      stroke={CHART_COLORS[i]}
+                      strokeWidth={1.5}
+                      strokeDasharray="4 4"
+                      dot={false}
+                      opacity={0.5}
+                    />
+                  ))}
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Breakdown ── */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium">Breakdown</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Tabs
+            value={activeBreakdown ?? "age_gender"}
+            onValueChange={(v) => setActiveBreakdown(v)}
+          >
+            <TabsList>
+              <TabsTrigger value="age_gender">Age & Gender</TabsTrigger>
+              <TabsTrigger value="country">Country</TabsTrigger>
+              <TabsTrigger value="platform_position">Platform</TabsTrigger>
+              <TabsTrigger value="device">Device</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="age_gender" className="mt-4">
+              <AgeGenderChart rows={bdRows} loading={bdLoading} />
+            </TabsContent>
+            <TabsContent value="country" className="mt-4">
+              <CountryChart rows={bdRows} loading={bdLoading} />
+            </TabsContent>
+            <TabsContent value="platform_position" className="mt-4">
+              <PlatformChart rows={bdRows} loading={bdLoading} />
+            </TabsContent>
+            <TabsContent value="device" className="mt-4">
+              <DeviceChart rows={bdRows} loading={bdLoading} />
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
