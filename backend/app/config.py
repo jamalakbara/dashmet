@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     # Encryption (for platform tokens at rest)
     ENCRYPTION_KEY: str
 
+    # TikTok OAuth
+    TIKTOK_APP_ID: str = ""
+    TIKTOK_APP_SECRET: str = ""
+    TIKTOK_REDIRECT_URI: str = "http://localhost:8000/api/v1/connections/tiktok/oauth/callback"
+    FRONTEND_URL: str = "http://localhost:3000"
+
     # CORS
     CORS_ORIGINS: str = "http://localhost:3000"
 

@@ -533,7 +533,7 @@ def get_table(
     per_page: int = 25,
     date_preset: Optional[str] = None,
 ) -> tuple[list[dict], int]:
-    assert_account_belongs_to_org(db, account_id, org_id)
+    account = assert_account_belongs_to_org(db, account_id, org_id)
 
     sort_col = sort_by if sort_by in VALID_SORT_COLUMNS else "spend"
     if sort_col in {"spend", "impressions", "clicks", "ctr", "cpm", "cpc", "roas", "cpa", "conversions"}:
@@ -552,7 +552,7 @@ def get_table(
 
     sql = sql_template.format(sort_col=sort_col, sort_dir=sort_dir)
 
-    platform_id = "meta"
+    platform_id = account.platform_id
 
     rows = db.execute(
         text(sql),

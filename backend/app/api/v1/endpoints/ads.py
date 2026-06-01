@@ -6,6 +6,7 @@ from sqlalchemy.orm import joinedload
 
 from app.api.deps import CurrentUser, DbSession
 from app.exceptions import ForbiddenError, NotFoundError
+from app.models.platform import Account
 from app.models.structure import Ad
 from app.schemas.campaigns import AdResponse, CreativeResponse
 from app.schemas.common import DataResponse, PaginatedResponse, build_pagination, calculate_offset
@@ -79,8 +80,13 @@ def get_creative(ad_id: str, current_user: CurrentUser, db: DbSession):
             }
         )
 
-    from workers.tasks.creatives import sync_creative
-    sync_creative.delay(ad_id)
+    account = db.get(Account, ad.account_id)
+    if account and account.platform_id == "tiktok":
+        from workers.tasks.tiktok_creatives import sync_tiktok_creative
+        sync_tiktok_creative.delay(ad_id)
+    else:
+        from workers.tasks.creatives import sync_creative
+        sync_creative.delay(ad_id)
 
     from fastapi.responses import JSONResponse
     return JSONResponse(

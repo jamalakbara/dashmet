@@ -112,7 +112,7 @@ def sync_insights_daily_all(self):
     from app.models.platform import Account
 
     with get_worker_db() as db:
-        accounts = db.query(Account).filter(Account.account_status == "active").all()
+        accounts = db.query(Account).filter(Account.account_status == "active", Account.platform_id == "meta").all()
         for account in accounts:
             sync_insights_for_account.delay(str(account.id))
         logger.info(f"Enqueued insights sync for {len(accounts)} accounts")

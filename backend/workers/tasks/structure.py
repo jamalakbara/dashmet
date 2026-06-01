@@ -205,7 +205,7 @@ def sync_structure_all(self):
     with get_worker_db() as db:
         accounts = (
             db.query(Account)
-            .filter(Account.account_status == "active")
+            .filter(Account.account_status == "active", Account.platform_id == "meta")
             .all()
         )
         for account in accounts:

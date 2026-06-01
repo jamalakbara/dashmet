@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { accountsApi } from "@/lib/api/accounts";
 import { queryKeys } from "@/lib/query-keys";
+import { PlatformBadge } from "@/components/shared/platform-badge";
 
 interface Account {
   id: string;
@@ -70,6 +71,9 @@ export function AccountSwitcher() {
     >
       <SelectTrigger className="w-48">
         <ChevronsUpDown className="size-3.5 text-muted-foreground" />
+        {selectedAccount && (
+          <PlatformBadge platform={selectedAccount.platform} size="sm" />
+        )}
         <span className="truncate text-sm">
           {selectedAccount?.name ?? "Select account"}
         </span>
@@ -77,7 +81,10 @@ export function AccountSwitcher() {
       <SelectContent align="start">
         {accounts.map((acc) => (
           <SelectItem key={acc.id} value={acc.id}>
-            {acc.name}
+            <div className="flex items-center gap-2">
+              <PlatformBadge platform={acc.platform} size="sm" />
+              <span className="truncate">{acc.name}</span>
+            </div>
           </SelectItem>
         ))}
       </SelectContent>

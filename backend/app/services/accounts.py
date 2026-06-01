@@ -139,6 +139,32 @@ def create_connection(
     return conn
 
 
+def create_tiktok_connection(
+    db: Session,
+    org_id: str,
+    user_id: str,
+    access_token: str,
+    refresh_token: str,
+    token_expires_at,
+) -> PlatformConnection:
+    from datetime import datetime, timezone
+    encrypted_access = encrypt_token(access_token)
+    encrypted_refresh = encrypt_token(refresh_token)
+    conn = PlatformConnection(
+        organization_id=uuid.UUID(org_id),
+        platform_id="tiktok",
+        access_token=encrypted_access,
+        refresh_token=encrypted_refresh,
+        token_expires_at=token_expires_at,
+        token_type="oauth2",
+        scopes=["ads_read", "reporting"],
+        connected_by_user_id=uuid.UUID(user_id),
+        is_active=True,
+    )
+    db.add(conn)
+    return conn
+
+
 def disconnect_connection(
     db: Session, connection_id: str, org_id: str
 ) -> None:

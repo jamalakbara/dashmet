@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { formatDistanceToNow } from "date-fns";
-import { CheckCircle2, XCircle, Plug } from "lucide-react";
+import { CheckCircle2, XCircle, Plug, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,10 +42,11 @@ interface Connection {
 
 const PLATFORMS = [
   {
-    key:   "meta",
-    name:  "Meta Ads",
-    icon:  "M",
-    color: "bg-blue-600",
+    key:       "meta",
+    name:      "Meta Ads",
+    icon:      "M",
+    color:     "bg-blue-600",
+    auth_type: "token" as const,
     instructions: `Create a System User token in Meta Business Manager:
 1. Go to Business Settings → Users → System Users
 2. Create or select a System User with "Ads" access
@@ -53,18 +55,20 @@ const PLATFORMS = [
 4. Paste the generated token below.`,
   },
   {
-    key:   "google_ads",
-    name:  "Google Ads",
-    icon:  "G",
-    color: "bg-red-500",
-    instructions: "Google Ads integration coming soon.",
+    key:       "tiktok",
+    name:      "TikTok Ads",
+    icon:      "T",
+    color:     "bg-black",
+    auth_type: "oauth" as const,
+    instructions: undefined,
   },
   {
-    key:   "tiktok",
-    name:  "TikTok Ads",
-    icon:  "T",
-    color: "bg-black",
-    instructions: "TikTok Ads integration coming soon.",
+    key:       "google_ads",
+    name:      "Google Ads",
+    icon:      "G",
+    color:     "bg-red-500",
+    auth_type: "soon" as const,
+    instructions: undefined,
   },
 ];
 
@@ -76,12 +80,32 @@ function PlatformIcon({ platform }: { platform: typeof PLATFORMS[0] }) {
   );
 }
 
-export default function ConnectionsSettingsPage() {
+function ConnectionsSettingsPageInner() {
   const qc = useQueryClient();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [connectingPlatform, setConnectingPlatform] = useState<typeof PLATFORMS[0] | null>(null);
   const [disconnectId, setDisconnectId] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectSuccess, setConnectSuccess] = useState(false);
+  const [oauthLoading, setOauthLoading] = useState(false);
+
+  // Handle return from TikTok OAuth callback
+  useEffect(() => {
+    const tiktokStatus = searchParams.get("tiktok");
+    if (tiktokStatus === "connected") {
+      qc.invalidateQueries({ queryKey: ["connections"] });
+      qc.invalidateQueries({ queryKey: queryKeys.accounts() });
+      setConnectSuccess(true);
+      setTimeout(() => setConnectSuccess(false), 4000);
+      router.replace(pathname);
+    } else if (tiktokStatus === "error") {
+      setConnectError("TikTok connection failed. Please try again.");
+      router.replace(pathname);
+    }
+  }, [searchParams, qc, router, pathname]);
 
   const { data: connectionsRes, isLoading } = useQuery({
     queryKey: ["connections"],
@@ -129,6 +153,21 @@ export default function ConnectionsSettingsPage() {
     });
   }
 
+  async function handleOAuthConnect(platform: typeof PLATFORMS[0]) {
+    setOauthLoading(true);
+    setConnectError(null);
+    try {
+      const res = await connectionsApi.initiateTikTokOAuth();
+      const authUrl = res.data?.data?.auth_url;
+      if (authUrl) {
+        window.location.href = authUrl;
+      }
+    } catch {
+      setConnectError("Could not initiate TikTok OAuth. Please try again.");
+      setOauthLoading(false);
+    }
+  }
+
   function openConnect(platform: typeof PLATFORMS[0]) {
     setConnectingPlatform(platform);
     setConnectError(null);
@@ -138,6 +177,18 @@ export default function ConnectionsSettingsPage() {
 
   return (
     <div className="space-y-4">
+      {connectSuccess && !connectingPlatform && (
+        <Alert>
+          <AlertDescription>
+            Platform connected successfully. Ad accounts are being imported…
+          </AlertDescription>
+        </Alert>
+      )}
+      {connectError && !connectingPlatform && (
+        <Alert variant="destructive">
+          <AlertDescription>{connectError}</AlertDescription>
+        </Alert>
+      )}
       {isLoading
         ? Array.from({ length: 3 }).map((_, i) => (
             <Card key={i}>
@@ -193,14 +244,23 @@ export default function ConnectionsSettingsPage() {
                       >
                         Disconnect
                       </Button>
-                    ) : (
+                    ) : platform.auth_type === "soon" ? (
+                      <Button size="sm" disabled>
+                        Coming soon
+                      </Button>
+                    ) : platform.auth_type === "oauth" ? (
                       <Button
                         size="sm"
-                        onClick={() => openConnect(platform)}
-                        disabled={platform.key !== "meta"}
+                        onClick={() => handleOAuthConnect(platform)}
+                        disabled={oauthLoading}
                       >
+                        <ExternalLink className="size-3.5" />
+                        {oauthLoading ? "Redirecting…" : "Connect"}
+                      </Button>
+                    ) : (
+                      <Button size="sm" onClick={() => openConnect(platform)}>
                         <Plug className="size-3.5" />
-                        {platform.key === "meta" ? "Connect" : "Coming soon"}
+                        Connect
                       </Button>
                     )}
                   </div>
@@ -287,5 +347,13 @@ export default function ConnectionsSettingsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function ConnectionsSettingsPage() {
+  return (
+    <Suspense>
+      <ConnectionsSettingsPageInner />
+    </Suspense>
   );
 }
