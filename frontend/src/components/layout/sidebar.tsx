@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { BarChart2, Table, TrendingUp, Image, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/stores/ui-store";
@@ -15,7 +15,15 @@ const NAV_ITEMS = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { sidebarCollapsed } = useUIStore();
+
+  const sharedParams = new URLSearchParams();
+  ["account_id", "date_preset", "date_start", "date_end"].forEach(key => {
+    const v = searchParams.get(key);
+    if (v) sharedParams.set(key, v);
+  });
+  const sharedQuery = sharedParams.toString();
 
   return (
     <aside
@@ -36,7 +44,7 @@ export function Sidebar() {
         {NAV_ITEMS.map(({ label, href, icon: Icon }) => (
           <Link
             key={href}
-            href={href}
+            href={sharedQuery ? `${href}?${sharedQuery}` : href}
             className={cn(
               "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
               pathname === href

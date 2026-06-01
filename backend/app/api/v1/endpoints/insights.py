@@ -123,6 +123,13 @@ def table(
         per_page=per_page,
         date_preset=preset,
     )
+
+    if level == "ad":
+        from workers.tasks.creatives import sync_creative
+        for row in rows:
+            if not row.get("creative_preview"):
+                sync_creative.delay(row["id"])
+
     return PaginatedResponse(
         data=rows,
         pagination=build_pagination(total, page, per_page),

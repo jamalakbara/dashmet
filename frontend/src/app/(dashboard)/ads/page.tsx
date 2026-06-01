@@ -450,6 +450,13 @@ export default function AdsPage() {
     },
     enabled: !!accountId,
     staleTime: 15 * 60 * 1000,
+    refetchInterval: (query) => {
+      const pages = query.state.data?.pages ?? [];
+      const hasEmpty = pages.some((p) =>
+        (p.data?.data ?? []).some((ad: Ad) => !ad.creative_preview)
+      );
+      return hasEmpty ? 5000 : false;
+    },
   });
 
   const allRows: Ad[] = data?.pages.flatMap((p) => p.data?.data ?? []) ?? [];

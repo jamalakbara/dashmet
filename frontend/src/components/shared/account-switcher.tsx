@@ -9,7 +9,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { accountsApi } from "@/lib/api/accounts";
 import { queryKeys } from "@/lib/query-keys";
@@ -52,6 +51,7 @@ export function AccountSwitcher() {
   }, [data, accounts.length, polling]);
 
   const effectiveId = accountId ?? accounts[0]?.id ?? null;
+  const selectedAccount = accounts.find(a => a.id === effectiveId) ?? null;
 
   if (isLoading) {
     return <div className="h-8 w-48 animate-pulse rounded-lg bg-muted" />;
@@ -70,7 +70,9 @@ export function AccountSwitcher() {
     >
       <SelectTrigger className="w-48">
         <ChevronsUpDown className="size-3.5 text-muted-foreground" />
-        <SelectValue placeholder="Select account" />
+        <span className="truncate text-sm">
+          {selectedAccount?.name ?? "Select account"}
+        </span>
       </SelectTrigger>
       <SelectContent align="start">
         {accounts.map((acc) => (

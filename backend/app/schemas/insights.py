@@ -32,7 +32,10 @@ class VsPrevious(BaseModel):
 class TopCampaignRow(BaseModel):
     id: str
     name: str
+    status: Optional[str] = None
     spend: Optional[float] = None
+    impressions: Optional[int] = None
+    ctr: Optional[float] = None
     conversions: Optional[float] = None
     roas: Optional[float] = None
 

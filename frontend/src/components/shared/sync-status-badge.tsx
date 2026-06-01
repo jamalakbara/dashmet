@@ -47,40 +47,23 @@ export function SyncStatusBadge() {
   >;
 
   const hasRunning = Object.values(jobs).some((j) => j.status === "running");
-  // A failed/timed_out job only counts as a hard failure if it's NOT stale.
-  // Stale failures (e.g. an old async job that hasn't retried yet) show as a
-  // warning (yellow) rather than blocking the badge with red.
-  const hasFailed = Object.values(jobs).some(
-    (j) => (j.status === "failed" || j.status === "timed_out") && !j.is_stale
-  );
-  const hasWarning =
-    !hasFailed &&
-    Object.values(jobs).some(
-      (j) => (j.status === "failed" || j.status === "timed_out") && j.is_stale
-    );
   const lastRun = Object.values(jobs)
     .map((j) => j.last_run_at)
     .filter(Boolean)
     .sort()
     .at(-1);
 
-  const color: DotColor = hasFailed
-    ? "red"
-    : hasRunning || hasWarning
-    ? "yellow"
-    : "green";
-  const label = hasFailed
-    ? "Sync failed"
-    : hasRunning
+  const color: DotColor = hasRunning ? "yellow" : lastRun ? "green" : "gray";
+  const label = hasRunning
     ? "Syncing…"
     : lastRun
     ? `Updated ${formatDistanceToNow(new Date(lastRun), { addSuffix: true })}`
-    : "Never synced";
+    : null;
 
   return (
     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
       <StatusDot color={color} />
-      <span>{label}</span>
+      {label && <span>{label}</span>}
     </div>
   );
 }

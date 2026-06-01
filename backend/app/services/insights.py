@@ -134,7 +134,12 @@ TOP_CAMPAIGNS_SQL = """
 SELECT
     c.id::text          AS id,
     c.name              AS name,
+    c.status            AS status,
     SUM(md.spend)       AS spend,
+    SUM(md.impressions) AS impressions,
+    CASE WHEN SUM(md.impressions) > 0
+        THEN SUM(md.clicks)::float / SUM(md.impressions) * 100
+        ELSE NULL END   AS ctr,
     SUM(conv.value)     AS conversions,
     CASE WHEN SUM(md.spend) > 0
         THEN SUM(rev.value) / SUM(md.spend)
@@ -227,7 +232,10 @@ def get_overview(
             {
                 "id": r["id"],
                 "name": r["name"],
+                "status": r["status"],
                 "spend": _safe_float(r["spend"]),
+                "impressions": _safe_int(r["impressions"]),
+                "ctr": _safe_float(r["ctr"]),
                 "conversions": _safe_float(r["conversions"]),
                 "roas": _safe_float(r["roas"]),
             }
@@ -493,6 +501,18 @@ TABLE_SQL_AD = TABLE_SQL.replace(
     "    ag.id::text         AS entity_adgroup_id,\n"
     "    camp.name           AS entity_campaign_name,\n"
     "    camp.id::text       AS entity_campaign_id,",
+).replace(
+    "LEFT JOIN campaigns camp ON camp.id = c.campaign_id",
+    "LEFT JOIN campaigns camp ON camp.id = c.campaign_id\n"
+    "LEFT JOIN creatives cr ON cr.id = c.creative_id",
+).replace(
+    "    COUNT(*) OVER()     AS total_count",
+    "    cr.thumbnail_url    AS cr_thumbnail_url,\n"
+    "    cr.image_url        AS cr_image_url,\n"
+    "    cr.format           AS cr_format,\n"
+    "    cr.title            AS cr_title,\n"
+    "    cr.cta_type         AS cr_cta_type,\n"
+    "    COUNT(*) OVER()     AS total_count",
 )
 
 
@@ -565,6 +585,13 @@ def get_table(
             "adgroup_id": r.get("entity_adgroup_id"),
             "campaign_name": r.get("entity_campaign_name"),
             "campaign_id": r.get("entity_campaign_id"),
+            "creative_preview": {
+                "thumbnail_url": r.get("cr_thumbnail_url"),
+                "image_url": r.get("cr_image_url"),
+                "format": r.get("cr_format"),
+                "title": r.get("cr_title"),
+                "cta_type": r.get("cr_cta_type"),
+            } if (r.get("cr_thumbnail_url") or r.get("cr_image_url")) else None,
             "metrics": {
                 "spend": _safe_float(r.get("spend")),
                 "impressions": _safe_int(r.get("impressions")),

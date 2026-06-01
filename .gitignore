@@ -51,3 +51,8 @@ postgres_data/
 
 # ── Celery runtime ────────────────────────────────────────────
 celerybeat-schedule.*
+celerybeat.pid
+
+# ── Misc ──────────────────────────────────────────────────────
+*.log
+*.tmp

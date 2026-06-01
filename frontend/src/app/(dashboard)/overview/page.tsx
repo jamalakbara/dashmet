@@ -283,7 +283,7 @@ export default function OverviewPage() {
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="text-sm font-medium">Top campaigns</CardTitle>
           <Link
-            href="/table?level=campaign"
+            href={`/table?level=campaign${accountId ? `&account_id=${accountId}` : ""}`}
             className="flex items-center gap-1 text-xs text-primary hover:underline"
           >
             View all <ArrowRight className="size-3" />

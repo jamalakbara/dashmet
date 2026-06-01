@@ -386,7 +386,7 @@ export default function TablePage() {
   const rows: TableRow[]  = res?.data?.data ?? [];
   const pagination        = res?.data?.pagination;
   const total: number     = pagination?.total ?? 0;
-  const totalPages        = Math.ceil(total / PER_PAGE) || 1;
+  const totalPages        = pagination?.total_pages ?? (Math.ceil(total / PER_PAGE) || 1);
 
   function handleSort(col: ColDef) {
     if (!col.sortable) return;
