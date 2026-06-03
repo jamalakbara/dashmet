@@ -71,7 +71,7 @@
 |---|---|---|---|
 | Structure sync | `sync.structure` | Fetches campaigns, ad sets, ads | Periodic (30 min) |
 | Insights sync | `sync.insights_daily` | Fetches scalar + action metrics | Periodic (15 min) |
-| Breakdown sync | `sync.insights_breakdown` | Fetches metrics split by dimension | On-demand |
+| Breakdown sync | `sync.insights_breakdown` | Fetches metrics split by dimension | Periodic (1 hr) |
 | Async job submit | `sync.async_submit` | POSTs async insights job to Meta | Periodic (60 min) for 90d/lifetime |
 | Async job poll | `sync.async_poll` | Polls `report_run_id` until complete | Periodic (2 min, conditional) |
 | Creative sync | `sync.creatives` | Fetches ad creative content | On-demand (first drill-in) |
@@ -194,11 +194,11 @@ Call 2 — unique metrics (separate call, slower):
 
 Both calls write to the same `metrics_daily` rows via upsert — they merge, not overwrite.
 
-### Breakdown fetches (on-demand only)
+### Breakdown fetches (hourly beat)
 
-Breakdowns are NOT included in the periodic sync. They are triggered when a user navigates to a breakdown view in the dashboard. The API request is made once, result cached in `metric_breakdowns`, TTL 30 minutes.
+Breakdowns are synced hourly via the `sync_breakdowns_all` beat task → `sync_breakdowns_for_account` per account. Each run fetches `last_30d` of data, covering the default UI date range. Results are stored in `metric_breakdowns` and queried directly by the breakdown API.
 
-Supported on-demand breakdowns:
+Supported breakdown dimensions:
 - `age,gender` (always fetched together as a compound)
 - `country`
 - `publisher_platform,platform_position` (always together)

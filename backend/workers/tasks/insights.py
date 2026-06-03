@@ -120,6 +120,22 @@ def sync_insights_daily_all(self):
 
 
 @celery_app.task(
+    name="workers.tasks.insights.sync_breakdowns_all",
+    bind=True,
+    max_retries=3,
+)
+def sync_breakdowns_all(self):
+    from workers.db_helpers import get_worker_db
+    from app.models.platform import Account
+
+    with get_worker_db() as db:
+        accounts = db.query(Account).filter(Account.account_status == "active", Account.platform_id == "meta").all()
+        for account in accounts:
+            sync_breakdowns_for_account.delay(str(account.id), "last_30d")
+        logger.info(f"Enqueued breakdown sync for {len(accounts)} accounts")
+
+
+@celery_app.task(
     name="workers.tasks.insights.sync_insights_for_account",
     bind=True,
     max_retries=5,
@@ -181,7 +197,6 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
     # Phase 2: commit "running" job before any Meta API call
     job_id = create_sync_job(account_id_obj, platform_id, "insights_daily")
 
-    sync_breakdowns_done = False
     try:
         total_rows = 0
         client = MetaClient(token)
@@ -377,15 +392,11 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
 
         finalize_sync_job(job_id, "completed", rows_written=total_rows)
         logger.info(f"[{account_id}] Insights sync complete: {total_rows} rows")
-        sync_breakdowns_done = True
 
     except Exception as e:
         finalize_sync_job(job_id, "failed", error=e)
         logger.error(f"[{account_id}] Insights sync failed: {e}")
         raise self.retry(exc=e)
-
-    if sync_breakdowns_done:
-        sync_breakdowns_for_account.delay(account_id, date_preset)
 
 
 def parse_insight_row(entity_type: str, entity_id: str, date: str, raw_row: dict):
@@ -459,10 +470,10 @@ BREAKDOWN_FIELDS = "impressions,clicks,spend,ctr,cpm,cpc,date_start,date_stop"
     max_retries=3,
     retry_backoff=True,
 )
-def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_7d"):
+def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_30d"):
     from workers.db_helpers import get_worker_db
     from workers.meta_client import MetaClient, MetaAPIError
-    from workers.rate_limit import apply_backoff
+    from workers.rate_limit import apply_backoff, RateLimitState
     from app.models.platform import Account, PlatformConnection
     from app.models.metrics import MetricBreakdowns
     from app.services.auth import decrypt_token
@@ -493,7 +504,8 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
                     "breakdowns": cfg["breakdowns"],
                     "limit": 500,
                 }
-                rows, _ = client.get(f"/act_{ext_id}/insights", params)
+                rows, rate_limits = client.get(f"/act_{ext_id}/insights", params)
+                RateLimitState(account_id).update_from_headers(rate_limits)
                 data = rows.get("data", [])
 
                 bd_rows = []

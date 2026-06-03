@@ -45,6 +45,10 @@ celery_app.conf.update(
             "task": "workers.tasks.insights.sync_insights_daily_all",
             "schedule": 15 * 60,  # every 15 min
         },
+        "sync-meta-breakdowns": {
+            "task": "workers.tasks.insights.sync_breakdowns_all",
+            "schedule": 60 * 60,  # every 1 hour
+        },
         "sync-meta-insights-async-submit": {
             "task": "workers.tasks.async_jobs.submit_async_jobs",
             "schedule": 6 * 60 * 60,  # every 6 hours
