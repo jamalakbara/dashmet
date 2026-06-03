@@ -406,6 +406,7 @@ def sync_tiktok_structure_for_account(self, account_id: str):
 
         from workers.tasks.tiktok_insights import sync_tiktok_insights_for_account
         sync_tiktok_insights_for_account.delay(account_id)
+        sync_tiktok_insights_for_account.delay(account_id, "last_30d", "insights_historical")
 
     except TikTokAPIError as exc:
         logger.error("TikTok API error for account %s: %s", account_id, exc)

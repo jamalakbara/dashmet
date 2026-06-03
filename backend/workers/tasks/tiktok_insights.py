@@ -62,13 +62,13 @@ def _resolve_dates(date_preset: str) -> tuple[str, str]:
     return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 
 
-def _is_stale(db, account_id: uuid.UUID) -> bool:
+def _is_stale(db, account_id: uuid.UUID, job_type: str = "insights_daily", ttl: timedelta = STALE_THRESHOLD) -> bool:
     from app.models.metrics import SyncJob
     job = (
         db.query(SyncJob)
         .filter(
             SyncJob.account_id == account_id,
-            SyncJob.job_type == "insights_daily",
+            SyncJob.job_type == job_type,
             SyncJob.status == "completed",
         )
         .order_by(SyncJob.completed_at.desc())
@@ -76,7 +76,7 @@ def _is_stale(db, account_id: uuid.UUID) -> bool:
     )
     if not job or not job.completed_at:
         return True
-    return datetime.now(timezone.utc) - job.completed_at > STALE_THRESHOLD
+    return datetime.now(timezone.utc) - job.completed_at > ttl
 
 
 @celery_app.task(
@@ -107,7 +107,7 @@ def sync_tiktok_insights_daily_all(self):
     retry_backoff_max=900,
     retry_jitter=True,
 )
-def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "last_7d"):
+def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "last_7d", job_type: str = "insights_daily"):
     from workers.db_helpers import (
         get_worker_db,
         create_sync_job,
@@ -121,7 +121,9 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
     from workers.tiktok_client import TikTokClient, TikTokAPIError
 
     account_uuid = uuid.UUID(account_id)
-    job_id = create_sync_job(account_uuid, "tiktok", "insights_daily")
+    historical_ttl = timedelta(hours=6)
+    ttl = historical_ttl if job_type == "insights_historical" else STALE_THRESHOLD
+    job_id = create_sync_job(account_uuid, "tiktok", job_type)
 
     try:
         with get_worker_db() as db:
@@ -130,7 +132,7 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
                 finalize_sync_job(job_id, "skipped")
                 return
 
-            if not _is_stale(db, account_uuid):
+            if not _is_stale(db, account_uuid, job_type, ttl):
                 finalize_sync_job(job_id, "skipped")
                 return
 

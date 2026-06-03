@@ -74,20 +74,32 @@ class MetaClient:
     def paginate(
         self, path: str, params: dict | None = None, max_pages: int = MAX_PAGES
     ) -> list[dict]:
-        """Follow paging.next and return flat list of all data items."""
+        """Follow paging cursors and return flat list of all data items."""
         all_items = []
-        data, _ = self.get(path, params)
+        current_params = dict(params) if params else {}
+        data, _ = self.get(path, current_params)
         all_items.extend(data.get("data", []))
 
         page_count = 1
-        next_url = data.get("paging", {}).get("next")
-        while next_url and page_count < max_pages:
-            resp = self._client.get(next_url)
-            resp.raise_for_status()
-            page_data = resp.json()
-            self._check_error(page_data)
-            all_items.extend(page_data.get("data", []))
-            next_url = page_data.get("paging", {}).get("next")
+        paging = data.get("paging", {})
+        after_cursor = paging.get("cursors", {}).get("after")
+        # Fall back to parsing the cursor from paging.next if cursors object absent
+        if not after_cursor and paging.get("next"):
+            import urllib.parse as _up
+            qs = _up.parse_qs(_up.urlparse(paging["next"]).query)
+            after_cursor = (qs.get("after") or [None])[0]
+
+        while after_cursor and page_count < max_pages:
+            next_params = dict(current_params)
+            next_params["after"] = after_cursor
+            data, _ = self.get(path, next_params)
+            all_items.extend(data.get("data", []))
+            paging = data.get("paging", {})
+            after_cursor = paging.get("cursors", {}).get("after")
+            if not after_cursor and paging.get("next"):
+                import urllib.parse as _up
+                qs = _up.parse_qs(_up.urlparse(paging["next"]).query)
+                after_cursor = (qs.get("after") or [None])[0]
             page_count += 1
 
         return all_items

@@ -68,6 +68,25 @@ def submit_async_job_for_account(self, account_id: str, date_preset: str = "last
             logger.info(f"[{account_id}] Async job already running/pending — skip")
             return
 
+        from datetime import timedelta
+        last_completed = (
+            db.query(SyncJob)
+            .filter(
+                SyncJob.account_id == uuid.UUID(account_id),
+                SyncJob.job_type == "insights_async",
+                SyncJob.status == "completed",
+            )
+            .order_by(SyncJob.completed_at.desc())
+            .first()
+        )
+        if last_completed and last_completed.completed_at:
+            completed = last_completed.completed_at
+            if not completed.tzinfo:
+                completed = completed.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - completed) < timedelta(hours=6):
+                logger.info(f"[{account_id}] Async job fresh — skip")
+                return
+
         account = db.get(Account, uuid.UUID(account_id))
         if not account:
             return

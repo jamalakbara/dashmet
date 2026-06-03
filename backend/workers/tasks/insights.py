@@ -127,7 +127,7 @@ def sync_insights_daily_all(self):
     retry_backoff_max=900,
     retry_jitter=True,
 )
-def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d"):
+def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d", force: bool = False):
     from workers.db_helpers import (
         get_worker_db, upsert_metrics_daily, bulk_upsert_action_stats,
         create_sync_job, finalize_sync_job,
@@ -143,7 +143,7 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
 
     # Phase 1: reads only — extract all primitives before session closes
     with get_worker_db() as db:
-        if not _is_stale(account_id, db):
+        if not force and not _is_stale(account_id, db):
             logger.info(f"[{account_id}] Insights sync skipped — fresh")
             return
 

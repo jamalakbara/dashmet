@@ -58,7 +58,22 @@ services:
       - ./backend:/app
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: celery -A workers.celery_app worker --loglevel=info --concurrency=2
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=2 --queues=default
+
+  celery-poll-worker:
+    build: ./backend
+    env_file: ./backend/.env
+    environment:
+      - DATABASE_URL=postgresql://dashmet:dashmet@host.docker.internal:5432/dashmet
+      - REDIS_URL=redis://host.docker.internal:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=1 --queues=poll
 
   celery-beat:
     build: ./backend

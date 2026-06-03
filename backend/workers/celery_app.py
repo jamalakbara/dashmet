@@ -26,6 +26,15 @@ celery_app.conf.update(
     enable_utc=True,
     task_acks_late=True,          # re-queue task if worker crashes
     worker_prefetch_multiplier=1, # one task at a time per worker (rate limit safe)
+    task_queues={
+        "default": {},
+        "poll": {},   # dedicated queue — prevents poll tasks being starved by long insight syncs
+    },
+    task_default_queue="default",
+    task_routes={
+        "workers.tasks.async_jobs.poll_async_jobs": {"queue": "poll"},
+        "workers.tasks.async_jobs.fetch_async_results": {"queue": "poll"},
+    },
     beat_schedule={
         # Meta
         "sync-meta-structure-all": {

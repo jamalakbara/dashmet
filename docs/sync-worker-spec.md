@@ -13,6 +13,7 @@
 2. [Job Types](#2-job-types)
 3. [Scheduling Strategy](#3-scheduling-strategy)
 4. [Fetch Strategy (what to call and when)](#4-fetch-strategy)
+12. [Data Freshness & First-Connect Availability](#12-data-freshness--first-connect-availability)
 5. [Rate Limit Handling](#5-rate-limit-handling)
 6. [Error Handling & Retry Logic](#6-error-handling--retry-logic)
 7. [Async Insights Jobs (Meta)](#7-async-insights-jobs-meta)
@@ -735,3 +736,54 @@ All values in environment variables or a config table per account.
 | `primary_conversion_action` | Which `action_type` = "a conversion" for this account |
 | `attribution_window` | Must match native platform setting to get 1:1 numbers |
 | `roas_action_type` | Usually `purchase`; `fb_mobile_purchase` for app-focused accounts |
+
+---
+
+## 12. Data Freshness & First-Connect Availability
+
+### Two distinct concepts
+
+**Freshness** — ongoing data staleness during normal operation. How old the data is when a user opens the dashboard on any given day.
+
+**First-connect availability** — one-time wait for a brand-new account. How long until a date range first populates after connecting a platform.
+
+These differ because freshness is controlled by Beat schedule intervals, while first-connect time is controlled by an immediate task chain that bypasses Beat entirely.
+
+### Freshness model (ongoing operation)
+
+| Date range | Data source | Staleness |
+|---|---|---|
+| Today / Yesterday / Last 7d | 15min Beat sync (`last_7d`) | ~15 min |
+| Last 14d — Meta | Days 1–7: 15min sync; Days 8–14: async 90d job | Days 8–14: up to 6hr |
+| Last 30d — Meta | Days 1–7: 15min sync; Days 8–30: async 90d job | Days 8–30: up to 6hr |
+| Last 90d — Meta | Days 1–7: 15min sync; Days 8–90: async 90d job | Days 8–90: up to 6hr |
+| Last 14d — TikTok | Days 1–7: 15min sync; Days 8–14: `insights_historical` | Days 8–14: up to 6hr |
+| Last 30d — TikTok | Days 1–7: 15min sync; Days 8–30: `insights_historical` | Days 8–30: up to 6hr |
+| Last 90d — TikTok | Not covered | N/A |
+
+### First-connect availability
+
+When an account is first connected the following chain fires immediately — no waiting for Beat:
+
+```
+sync_accounts_for_connection          → accounts imported         (~10–30s)
+  └─ sync_structure_for_account       → campaigns / adsets / ads  (~30s–3min)
+       ├─ sync_insights_for_account   → last 7d metrics            (~2–8min total)
+       ├─ submit_async_job_for_account → Meta: 90d async submitted  (parallel)
+       └─ sync_tiktok_insights...     → TikTok: last 30d sync      (parallel)
+            └─ sync_breakdowns_for_account → breakdowns            (~30s)
+```
+
+| Date range | First data after connect |
+|---|---|
+| Today / Yesterday / Last 7d | ~2–8 min |
+| Last 14d / Last 30d — Meta | ~3–15 min |
+| Last 90d — Meta | ~3–15 min |
+| Last 14d / Last 30d — TikTok | ~3–10 min |
+| Last 90d — TikTok | Not covered |
+
+### Implementation notes
+
+- `submit_async_job_for_account` has a 6hr staleness guard — safe to call on every structure sync without spamming Meta.
+- TikTok uses `job_type="insights_historical"` with a 6hr TTL, separate from `"insights_daily"` (15min TTL), so the two do not block each other.
+- The async job submit fires in parallel with the insights sync, not after. Structure sync completes first (~30s–3min), and Meta async jobs take 1–10min to process — so `camp_map` is always populated before `fetch_async_results` runs.

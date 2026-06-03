@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
+import { SyncStatusBar } from "@/components/shared/sync-status-bar";
 
 export default function DashboardLayout({
   children,
@@ -13,6 +14,9 @@ export default function DashboardLayout({
       <div className="flex flex-1 flex-col overflow-hidden">
         <Suspense fallback={<div className="h-14 shrink-0 border-b bg-card" />}>
           <Header />
+        </Suspense>
+        <Suspense fallback={null}>
+          <SyncStatusBar />
         </Suspense>
         <main className="flex-1 overflow-y-auto p-6">
           <Suspense fallback={<div className="h-full w-full animate-pulse rounded bg-muted/30" />}>

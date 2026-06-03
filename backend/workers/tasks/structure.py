@@ -3,6 +3,7 @@ Sync worker — Structure
 Fetches campaigns, ad groups, and ads from Meta API and upserts into DB.
 Schedule: every 30 minutes via Celery Beat.
 """
+import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -268,19 +269,24 @@ def sync_structure_for_account(self, account_id: str):
         apply_backoff(account_id)
         client = MetaClient(token)
 
+        _all_statuses = json.dumps([{
+            "field": "effective_status",
+            "operator": "IN",
+            "value": ["ACTIVE", "PAUSED", "ARCHIVED", "DELETED"],
+        }])
         campaigns_data = client.paginate(
             f"/act_{ext_id}/campaigns",
-            {"fields": CAMPAIGN_FIELDS, "limit": 200},
+            {"fields": CAMPAIGN_FIELDS, "filtering": _all_statuses, "limit": 200},
         )
         apply_backoff(account_id)
         adsets_data = client.paginate(
             f"/act_{ext_id}/adsets",
-            {"fields": ADSET_FIELDS, "limit": 200},
+            {"fields": ADSET_FIELDS, "filtering": _all_statuses, "limit": 200},
         )
         apply_backoff(account_id)
         ads_data = client.paginate(
             f"/act_{ext_id}/ads",
-            {"fields": AD_FIELDS, "limit": 200},
+            {"fields": AD_FIELDS, "filtering": _all_statuses, "limit": 200},
         )
 
         with get_worker_db() as db:
@@ -431,4 +437,6 @@ def sync_structure_for_account(self, account_id: str):
 
     if structure_synced:
         from workers.tasks.insights import sync_insights_for_account
+        from workers.tasks.async_jobs import submit_async_job_for_account
         sync_insights_for_account.delay(account_id)
+        submit_async_job_for_account.delay(account_id)
