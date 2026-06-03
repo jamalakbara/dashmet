@@ -27,14 +27,10 @@ import { MetricCard } from "@/components/metrics/metric-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
-import { useAccountId } from "@/hooks/use-account";
+import { useSelectedAccount } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
-import {
-  KPI_METRICS,
-  METRIC_LABELS,
-  METRIC_TYPES,
-  CHART_COLORS,
-} from "@/lib/constants";
+import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
+import { CHART_COLORS } from "@/lib/constants";
 import {
   formatMetric,
   formatCurrency,
@@ -67,6 +63,7 @@ interface TopCampaign {
   ctr: number;
   conversions: number;
   roas: number;
+  outbound_clicks?: number;
   status?: EntityStatus;
 }
 
@@ -94,8 +91,13 @@ function EmptyState({ message }: { message: string }) {
 }
 
 export default function OverviewPage() {
-  const accountId = useAccountId();
+  const { accountId, currency } = useSelectedAccount();
   const dateRange = useDateRange();
+  const { kpiMetrics, accountType } = usePlatformMetrics();
+  const isCpas = accountType === "cpas";
+  const kpiKeys = kpiMetrics.map((m) => m.key);
+  const trendMetric2 = kpiMetrics.find((m) => m.key === "conversions") ? "conversions" : "clicks";
+  const trendMetric2Label = kpiMetrics.find((m) => m.key === trendMetric2)?.label ?? trendMetric2;
 
   const [polling, setPolling] = useState(false);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -126,7 +128,7 @@ export default function OverviewPage() {
       accountId ?? "",
       dateRange,
       "account",
-      KPI_METRICS as unknown as string[],
+      kpiKeys,
       "day"
     ),
     queryFn: () =>
@@ -134,7 +136,7 @@ export default function OverviewPage() {
         account_id: accountId!,
         ...dateRange,
         level: "account",
-        metrics: KPI_METRICS.join(","),
+        metrics: kpiKeys.join(","),
         time_increment: "day",
       }),
     enabled: !!accountId,
@@ -168,13 +170,13 @@ export default function OverviewPage() {
     <div className="space-y-6">
       {/* KPI Cards — 2 rows × 4 */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        {KPI_METRICS.map((metric) => (
+        {kpiMetrics.map((metric) => (
           <MetricCard
-            key={metric}
-            label={METRIC_LABELS[metric] ?? metric}
-            value={formatMetric(summary?.[metric], METRIC_TYPES[metric])}
-            change={vsPrev[metric] ?? null}
-            sparkline={series.map((s) => (s[metric] as number) ?? 0)}
+            key={metric.key}
+            label={metric.label}
+            value={formatMetric(summary?.[metric.key], metric.type, currency)}
+            change={vsPrev[metric.key] ?? null}
+            sparkline={series.map((s) => (s[metric.key] as number) ?? 0)}
             loading={isLoading}
           />
         ))}
@@ -205,14 +207,14 @@ export default function OverviewPage() {
                     interval="preserveStartEnd"
                   />
                   <YAxis
-                    tickFormatter={(v) => formatCurrency(v)}
+                    tickFormatter={(v) => formatCurrency(v, currency)}
                     tick={{ fontSize: 11 }}
                     tickLine={false}
                     axisLine={false}
                     width={60}
                   />
                   <Tooltip
-                    formatter={(v) => [formatCurrency(v as number), "Spend"]}
+                    formatter={(v) => [formatCurrency(v as number, currency), "Spend"]}
                     labelFormatter={(l) => formatXDate(l as string)}
                     contentStyle={{ fontSize: 12 }}
                   />
@@ -230,10 +232,10 @@ export default function OverviewPage() {
           </CardContent>
         </Card>
 
-        {/* Conversions Trend */}
+        {/* Trend chart 2: conversions (Meta) or clicks (TikTok fallback) */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Conversions trend</CardTitle>
+            <CardTitle className="text-sm font-medium">{trendMetric2Label} trend</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -259,13 +261,13 @@ export default function OverviewPage() {
                     width={40}
                   />
                   <Tooltip
-                    formatter={(v) => [v as number, "Conversions"]}
+                    formatter={(v) => [v as number, trendMetric2Label]}
                     labelFormatter={(l) => formatXDate(l as string)}
                     contentStyle={{ fontSize: 12 }}
                   />
                   <Line
                     type="monotone"
-                    dataKey="conversions"
+                    dataKey={trendMetric2}
                     stroke={CHART_COLORS[1]}
                     strokeWidth={2}
                     dot={false}
@@ -299,6 +301,12 @@ export default function OverviewPage() {
           ) : topCampaigns.length === 0 ? (
             <EmptyState message="No campaigns in this period" />
           ) : (
+            <>
+            {isCpas && (
+              <div className="mx-4 mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                Conversion data (ROAS, purchases, revenue) for this account is managed by the retailer and may not be available here.
+              </div>
+            )}
             <Table>
               <TableHeader>
                 <TableRow>
@@ -307,8 +315,14 @@ export default function OverviewPage() {
                   <TableHead className="text-right">Spend</TableHead>
                   <TableHead className="text-right">Impressions</TableHead>
                   <TableHead className="text-right">CTR</TableHead>
-                  <TableHead className="text-right">Conv.</TableHead>
-                  <TableHead className="text-right">ROAS</TableHead>
+                  {isCpas ? (
+                    <TableHead className="text-right">Outbound Clicks</TableHead>
+                  ) : (
+                    <>
+                      <TableHead className="text-right">Conv.</TableHead>
+                      <TableHead className="text-right">ROAS</TableHead>
+                    </>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -325,7 +339,7 @@ export default function OverviewPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {formatCurrency(c.spend)}
+                      {formatCurrency(c.spend, currency)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {c.impressions?.toLocaleString() ?? "—"}
@@ -333,16 +347,27 @@ export default function OverviewPage() {
                     <TableCell className="text-right tabular-nums">
                       {formatPercent(c.ctr)}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {c.conversions?.toLocaleString() ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatRoas(c.roas)}
-                    </TableCell>
+                    {isCpas ? (
+                      <TableCell className="text-right tabular-nums">
+                        {c.outbound_clicks != null
+                          ? c.outbound_clicks.toLocaleString()
+                          : "—"}
+                      </TableCell>
+                    ) : (
+                      <>
+                        <TableCell className="text-right tabular-nums">
+                          {c.conversions?.toLocaleString() ?? "—"}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatRoas(c.roas)}
+                        </TableCell>
+                      </>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>

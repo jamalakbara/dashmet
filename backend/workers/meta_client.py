@@ -66,9 +66,9 @@ class MetaClient:
         """Returns (data, rate_limits)."""
         url = f"{BASE_URL}{path}" if path.startswith("/") else f"{BASE_URL}/{path}"
         resp = self._client.get(url, params=self._inject_token(params))
-        resp.raise_for_status()
         data = resp.json()
-        self._check_error(data)
+        self._check_error(data)  # parse Meta error body before raising HTTP status
+        resp.raise_for_status()
         return data, self._parse_rate_limits(resp)
 
     def paginate(

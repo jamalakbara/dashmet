@@ -1,3 +1,4 @@
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -5,6 +6,8 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
 
 from app.api.deps import CurrentUser, DbSession, OwnerUser
+
+logger = logging.getLogger(__name__)
 from app.config import settings
 from app.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.schemas.accounts import ConnectionResponse, CreateConnectionRequest
@@ -39,6 +42,20 @@ def create_connection(
     body: CreateConnectionRequest, current_user: OwnerUser, db: DbSession
 ):
     try:
+        if body.platform == "meta":
+            from workers.meta_client import MetaClient, MetaAPIError
+            import httpx
+            try:
+                MetaClient(body.access_token).get(
+                    "/me/adaccounts", {"fields": "id,name", "limit": "1"}
+                )
+            except MetaAPIError as e:
+                raise HTTPException(status_code=400, detail=f"Meta token rejected: {e}")
+            except httpx.HTTPStatusError as e:
+                raise HTTPException(status_code=400, detail=f"Meta token rejected: {e}")
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Could not verify Meta token: {e}")
+
         conn = acc_svc.create_connection(
             db,
             org_id=current_user["org_id"],
@@ -91,9 +108,9 @@ def tiktok_oauth_initiate(current_user: OwnerUser):
 
 @router.get("/tiktok/oauth/callback")
 def tiktok_oauth_callback(
+    db: DbSession,
     auth_code: str = Query(...),
     state: str = Query(...),
-    db: DbSession = None,
 ):
     from app.api.deps import redis_client
     from workers.tiktok_client import TikTokClient, TikTokAPIError
@@ -103,17 +120,19 @@ def tiktok_oauth_callback(
     redis_key = f"tiktok_oauth_state:{state}"
     stored = redis_client.get(redis_key)
     if not stored:
+        logger.error("TikTok OAuth: state not found in Redis: %s", state)
         return RedirectResponse(url=error_url)
     redis_client.delete(redis_key)
 
-    org_id, user_id = stored.decode().split(":", 1)
+    org_id, user_id = stored.split(":", 1)
 
     try:
         client = TikTokClient(access_token="")
         token_data = client.exchange_auth_code(
             settings.TIKTOK_APP_ID, settings.TIKTOK_APP_SECRET, auth_code
         )
-    except (TikTokAPIError, Exception):
+    except (TikTokAPIError, Exception) as e:
+        logger.error("TikTok token exchange failed: %s", e, exc_info=True)
         return RedirectResponse(url=error_url)
 
     access_token = token_data.get("access_token", "")
@@ -122,6 +141,7 @@ def tiktok_oauth_callback(
     advertiser_ids = token_data.get("advertiser_ids", [])
 
     if not access_token or not advertiser_ids:
+        logger.error("TikTok OAuth: missing token or advertiser_ids. token_data=%s", token_data)
         return RedirectResponse(url=error_url)
 
     token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)

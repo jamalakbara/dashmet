@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
 import {
@@ -35,6 +35,7 @@ import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useAccountId } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
+import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
 import { METRIC_LABELS, METRIC_TYPES, CHART_COLORS } from "@/lib/constants";
 import { formatMetric, formatCurrency } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
@@ -58,11 +59,6 @@ interface BreakdownRow {
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const SELECTABLE_METRICS = [
-  "spend", "impressions", "reach", "clicks",
-  "ctr", "cpm", "cpc", "conversions", "roas", "cpa",
-];
 
 const LEVELS = [
   { value: "account",  label: "Account" },
@@ -136,7 +132,7 @@ function SegmentControl<T extends string>({
 
 // ─── Breakdown charts ─────────────────────────────────────────────────────────
 
-function AgeGenderChart({ rows, loading }: { rows: BreakdownRow[]; loading: boolean }) {
+function AgeGenderChart({ rows, loading, currency }: { rows: BreakdownRow[]; loading: boolean; currency: string }) {
   if (loading) return <SkeletonChart height={280} />;
   if (!rows.length) return <Empty />;
 
@@ -158,9 +154,9 @@ function AgeGenderChart({ rows, loading }: { rows: BreakdownRow[]; loading: bool
     <ResponsiveContainer width="100%" height={280}>
       <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-        <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+        <XAxis type="number" tickFormatter={(v) => formatCurrency(v, currency)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
         <YAxis type="category" dataKey="age" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={48} />
-        <Tooltip formatter={(v) => formatCurrency(v as number)} contentStyle={{ fontSize: 12 }} />
+        <Tooltip formatter={(v) => formatCurrency(v as number, currency)} contentStyle={{ fontSize: 12 }} />
         <Legend />
         {genders.map((g) => (
           <Bar key={g} dataKey={g} name={g.charAt(0).toUpperCase() + g.slice(1)} fill={GENDER_COLORS[g] ?? CHART_COLORS[2]} />
@@ -170,7 +166,7 @@ function AgeGenderChart({ rows, loading }: { rows: BreakdownRow[]; loading: bool
   );
 }
 
-function CountryChart({ rows, loading }: { rows: BreakdownRow[]; loading: boolean }) {
+function CountryChart({ rows, loading, currency }: { rows: BreakdownRow[]; loading: boolean; currency: string }) {
   if (loading) return <SkeletonChart height={280} />;
   if (!rows.length) return <Empty />;
 
@@ -186,16 +182,16 @@ function CountryChart({ rows, loading }: { rows: BreakdownRow[]; loading: boolea
     <ResponsiveContainer width="100%" height={280}>
       <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-        <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+        <XAxis type="number" tickFormatter={(v) => formatCurrency(v, currency)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
         <YAxis type="category" dataKey="country" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={32} />
-        <Tooltip formatter={(v) => [formatCurrency(v as number), "Spend"]} contentStyle={{ fontSize: 12 }} />
+        <Tooltip formatter={(v) => [formatCurrency(v as number, currency), "Spend"]} contentStyle={{ fontSize: 12 }} />
         <Bar dataKey="spend" fill={CHART_COLORS[0]} radius={2} />
       </BarChart>
     </ResponsiveContainer>
   );
 }
 
-function PlatformChart({ rows, loading }: { rows: BreakdownRow[]; loading: boolean }) {
+function PlatformChart({ rows, loading, currency }: { rows: BreakdownRow[]; loading: boolean; currency: string }) {
   if (loading) return <SkeletonChart height={280} />;
   if (!rows.length) return <Empty />;
 
@@ -214,9 +210,9 @@ function PlatformChart({ rows, loading }: { rows: BreakdownRow[]; loading: boole
     <ResponsiveContainer width="100%" height={280}>
       <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-        <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+        <XAxis type="number" tickFormatter={(v) => formatCurrency(v, currency)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
         <YAxis type="category" dataKey="platform" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={72} />
-        <Tooltip formatter={(v) => [formatCurrency(v as number), "Spend"]} contentStyle={{ fontSize: 12 }} />
+        <Tooltip formatter={(v) => [formatCurrency(v as number, currency), "Spend"]} contentStyle={{ fontSize: 12 }} />
         <Legend />
         {positions.map((pos, i) => (
           <Bar key={`${pos ?? "unknown"}-${i}`} dataKey={pos} stackId="a" fill={CHART_COLORS[i % CHART_COLORS.length]} />
@@ -271,6 +267,7 @@ function DeviceChart({ rows, loading }: { rows: BreakdownRow[]; loading: boolean
 export default function PeriodicPage() {
   const accountId     = useAccountId();
   const dateRange     = useDateRange();
+  const { selectableMetrics, currency } = usePlatformMetrics();
 
   const [level, setLevel]               = useQueryState("level",          { defaultValue: "campaign" });
   const [metricsStr, setMetricsStr]     = useQueryState("metrics",        { defaultValue: "spend,clicks" });
@@ -281,6 +278,19 @@ export default function PeriodicPage() {
   const [chartType, setChartType] = useState<"line" | "bar">("line");
 
   const metrics        = metricsStr.split(",").filter(Boolean).slice(0, 2);
+
+  // Sanitize URL metrics when platform changes — drop keys not in the new selectable set
+  const selectableKeyStr = selectableMetrics.map((m) => m.key).join(",");
+  useEffect(() => {
+    const validKeys = new Set(selectableKeyStr.split(",").filter(Boolean));
+    const valid = metricsStr.split(",").filter((m) => m && validKeys.has(m));
+    if (valid.length === 0) {
+      setMetricsStr(selectableKeyStr.split(",").slice(0, 2).join(","));
+    } else if (valid.join(",") !== metricsStr) {
+      setMetricsStr(valid.join(","));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectableKeyStr]);
   const comparePrev    = compareStr === "true";
   const isAccountLevel = level === "account";
 
@@ -383,13 +393,13 @@ export default function PeriodicPage() {
           <PopoverContent className="w-52 p-3">
             <p className="mb-2 text-xs text-muted-foreground">Select up to 2</p>
             <div className="space-y-1.5">
-              {SELECTABLE_METRICS.map((m) => (
-                <label key={m} className="flex cursor-pointer items-center gap-2 text-sm">
+              {selectableMetrics.map((m) => (
+                <label key={m.key} className="flex cursor-pointer items-center gap-2 text-sm">
                   <Checkbox
-                    checked={metrics.includes(m)}
-                    onCheckedChange={() => toggleMetric(m)}
+                    checked={metrics.includes(m.key)}
+                    onCheckedChange={() => toggleMetric(m.key)}
                   />
-                  {METRIC_LABELS[m] ?? m}
+                  {m.label}
                 </label>
               ))}
             </div>
@@ -446,7 +456,7 @@ export default function PeriodicPage() {
                 />
                 <YAxis
                   yAxisId="left"
-                  tickFormatter={(v) => formatMetric(v, METRIC_TYPES[metrics[0]] ?? "number")}
+                  tickFormatter={(v) => formatMetric(v, METRIC_TYPES[metrics[0]] ?? "number", currency)}
                   tick={{ fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}
@@ -456,7 +466,7 @@ export default function PeriodicPage() {
                   <YAxis
                     yAxisId="right"
                     orientation="right"
-                    tickFormatter={(v) => formatMetric(v, METRIC_TYPES[metrics[1]] ?? "number")}
+                    tickFormatter={(v) => formatMetric(v, METRIC_TYPES[metrics[1]] ?? "number", currency)}
                     tick={{ fontSize: 11 }}
                     tickLine={false}
                     axisLine={false}
@@ -470,7 +480,7 @@ export default function PeriodicPage() {
                     const label = s.startsWith("prev_")
                       ? `${METRIC_LABELS[m] ?? m} (prev)`
                       : (METRIC_LABELS[m] ?? METRIC_LABELS[s] ?? s);
-                    return [formatMetric(v as number, METRIC_TYPES[m] ?? "number"), label];
+                    return [formatMetric(v as number, METRIC_TYPES[m] ?? "number", currency), label];
                   }}
                   labelFormatter={formatXDate}
                   contentStyle={{ fontSize: 12 }}
@@ -566,13 +576,13 @@ export default function PeriodicPage() {
             </TabsList>
 
             <TabsContent value="age_gender" className="mt-4">
-              <AgeGenderChart rows={bdRows} loading={bdLoading} />
+              <AgeGenderChart rows={bdRows} loading={bdLoading} currency={currency} />
             </TabsContent>
             <TabsContent value="country" className="mt-4">
-              <CountryChart rows={bdRows} loading={bdLoading} />
+              <CountryChart rows={bdRows} loading={bdLoading} currency={currency} />
             </TabsContent>
             <TabsContent value="platform_position" className="mt-4">
-              <PlatformChart rows={bdRows} loading={bdLoading} />
+              <PlatformChart rows={bdRows} loading={bdLoading} currency={currency} />
             </TabsContent>
             <TabsContent value="device" className="mt-4">
               <DeviceChart rows={bdRows} loading={bdLoading} />

@@ -51,6 +51,7 @@ def update_account_config(
             primary_conversion_action=body.primary_conversion_action,
             attribution_window=body.attribution_window,
             roas_action_type=body.roas_action_type,
+            account_type=body.account_type,
         )
         db.commit()
         account = acc_svc.get_account_with_config(db, account_id, current_user["org_id"])

@@ -83,6 +83,7 @@ class Account(UUIDPrimaryKeyMixin, Base):
         String(100), nullable=False, default="UTC"
     )
     account_status: Mapped[str] = mapped_column(String(50), nullable=False, default="active")
+    account_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="standard")
     business_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     business_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     synced_at: Mapped[Optional[datetime]] = mapped_column(

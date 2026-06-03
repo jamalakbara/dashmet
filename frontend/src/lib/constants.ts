@@ -26,8 +26,11 @@ export const METRIC_LABELS: Record<string, string> = {
   cpp:                 "CPP",
   conversions:         "Conversions",
   conversion_value:    "Conv. Value",
-  roas:                "ROAS",
-  cpa:                 "CPA",
+  roas:                     "ROAS",
+  cpa:                      "CPA",
+  outbound_clicks:          "Outbound Clicks",
+  outbound_clicks_ctr:      "Outbound CTR",
+  cost_per_outbound_click:  "Cost/Outbound Click",
 };
 
 export const METRIC_TYPES: Record<string, "currency" | "percent" | "number" | "roas"> = {
@@ -43,8 +46,11 @@ export const METRIC_TYPES: Record<string, "currency" | "percent" | "number" | "r
   cpp:              "currency",
   conversions:      "number",
   conversion_value: "currency",
-  roas:             "roas",
-  cpa:              "currency",
+  roas:                    "roas",
+  cpa:                     "currency",
+  outbound_clicks:         "number",
+  outbound_clicks_ctr:     "percent",
+  cost_per_outbound_click: "currency",
 };
 
 export const CHART_COLORS = [

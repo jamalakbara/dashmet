@@ -110,7 +110,11 @@ SELECT
         ELSE NULL END           AS roas,
     CASE WHEN SUM(conv.value) > 0
         THEN SUM(md.spend) / SUM(conv.value)
-        ELSE NULL END           AS cpa
+        ELSE NULL END           AS cpa,
+    SUM(oc.value)               AS outbound_clicks,
+    CASE WHEN SUM(md.impressions) > 0
+        THEN SUM(oc.value) / SUM(md.impressions) * 100
+        ELSE NULL END           AS outbound_clicks_ctr
 FROM metrics_daily md
 LEFT JOIN account_configs ac ON ac.account_id = md.account_id
 LEFT JOIN metric_action_stats conv
@@ -125,6 +129,12 @@ LEFT JOIN metric_action_stats rev
     AND rev.date = md.date
     AND rev.field_name = 'action_values'
     AND rev.action_type = COALESCE(ac.roas_action_type, 'purchase')
+LEFT JOIN metric_action_stats oc
+    ON oc.entity_id = md.entity_id
+    AND oc.entity_type = md.entity_type
+    AND oc.date = md.date
+    AND oc.field_name = 'outbound_clicks'
+    AND oc.action_type = 'outbound_click'
 WHERE md.account_id = :account_id
   AND md.entity_type = 'campaign'
   AND md.date BETWEEN :date_start AND :date_end
@@ -143,7 +153,8 @@ SELECT
     SUM(conv.value)     AS conversions,
     CASE WHEN SUM(md.spend) > 0
         THEN SUM(rev.value) / SUM(md.spend)
-        ELSE NULL END   AS roas
+        ELSE NULL END   AS roas,
+    SUM(oc.value)       AS outbound_clicks
 FROM metrics_daily md
 JOIN campaigns c ON c.id = md.entity_id
 LEFT JOIN account_configs ac ON ac.account_id = md.account_id
@@ -159,6 +170,12 @@ LEFT JOIN metric_action_stats rev
     AND rev.date = md.date
     AND rev.field_name = 'action_values'
     AND rev.action_type = COALESCE(ac.roas_action_type, 'purchase')
+LEFT JOIN metric_action_stats oc
+    ON oc.entity_id = md.entity_id
+    AND oc.entity_type = 'campaign'
+    AND oc.date = md.date
+    AND oc.field_name = 'outbound_clicks'
+    AND oc.action_type = 'outbound_click'
 WHERE md.account_id = :account_id
   AND md.entity_type = 'campaign'
   AND md.date BETWEEN :date_start AND :date_end
@@ -219,14 +236,19 @@ def get_overview(
             "conversion_value": curr.get("conversion_value"),
             "roas": curr.get("roas"),
             "cpa": curr.get("cpa"),
+            "outbound_clicks": curr.get("outbound_clicks"),
+            "outbound_clicks_ctr": curr.get("outbound_clicks_ctr"),
         },
         "vs_previous": {
             "spend": _pct_change(curr.get("spend"), prev.get("spend")),
             "impressions": _pct_change(curr.get("impressions"), prev.get("impressions")),
             "clicks": _pct_change(curr.get("clicks"), prev.get("clicks")),
             "ctr": _pct_change(curr.get("ctr"), prev.get("ctr")),
+            "cpm": _pct_change(curr.get("cpm"), prev.get("cpm")),
             "conversions": _pct_change(curr.get("conversions"), prev.get("conversions")),
             "roas": _pct_change(curr.get("roas"), prev.get("roas")),
+            "outbound_clicks": _pct_change(curr.get("outbound_clicks"), prev.get("outbound_clicks")),
+            "outbound_clicks_ctr": _pct_change(curr.get("outbound_clicks_ctr"), prev.get("outbound_clicks_ctr")),
         },
         "top_campaigns": [
             {
@@ -238,6 +260,7 @@ def get_overview(
                 "ctr": _safe_float(r["ctr"]),
                 "conversions": _safe_float(r["conversions"]),
                 "roas": _safe_float(r["roas"]),
+                "outbound_clicks": _safe_float(r["outbound_clicks"]),
             }
             for r in top
         ],
@@ -263,7 +286,11 @@ SELECT
     SUM(conv.value)                         AS conversions,
     CASE WHEN SUM(md.spend) > 0
         THEN SUM(rev.value) / SUM(md.spend)
-        ELSE NULL END                       AS roas
+        ELSE NULL END                       AS roas,
+    SUM(oc.value)                           AS outbound_clicks,
+    CASE WHEN SUM(md.impressions) > 0
+        THEN SUM(oc.value) / SUM(md.impressions) * 100
+        ELSE NULL END                       AS outbound_clicks_ctr
 FROM metrics_daily md
 LEFT JOIN account_configs ac ON ac.account_id = md.account_id
 LEFT JOIN metric_action_stats conv
@@ -274,6 +301,10 @@ LEFT JOIN metric_action_stats rev
     ON rev.entity_id = md.entity_id AND rev.entity_type = md.entity_type
     AND rev.date = md.date AND rev.field_name = 'action_values'
     AND rev.action_type = COALESCE(ac.roas_action_type, 'purchase')
+LEFT JOIN metric_action_stats oc
+    ON oc.entity_id = md.entity_id AND oc.entity_type = md.entity_type
+    AND oc.date = md.date AND oc.field_name = 'outbound_clicks'
+    AND oc.action_type = 'outbound_click'
 WHERE md.account_id = :account_id
   AND md.entity_type = 'campaign'
   AND md.date BETWEEN :date_start AND :date_end
@@ -363,6 +394,8 @@ def get_timeseries(
             "reach": _safe_int(r.get("reach")),
             "conversions": _safe_float(r.get("conversions")),
             "roas": _safe_float(r.get("roas")),
+            "outbound_clicks": _safe_float(r.get("outbound_clicks")),
+            "outbound_clicks_ctr": _safe_float(r.get("outbound_clicks_ctr")),
         }
 
     series = [row_to_point(r) for r in rows]

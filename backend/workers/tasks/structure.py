@@ -118,10 +118,21 @@ def sync_accounts_for_connection(self, connection_id: str, org_id: str):
 
         try:
             client = MetaClient(token)
-            ad_accounts = client.paginate(
-                "/me/adaccounts",
-                {"fields": "id,name,currency,timezone_name,account_status,business"},
-            )
+            try:
+                ad_accounts = client.paginate(
+                    "/me/adaccounts",
+                    {"fields": "id,name,currency,timezone_name,account_status,business"},
+                )
+            except MetaAPIError as e:
+                if e.code == 100:
+                    # Token lacks business_management permission — retry without business field
+                    logger.warning(f"[conn:{connection_id}] No business_management permission, fetching without business field")
+                    ad_accounts = client.paginate(
+                        "/me/adaccounts",
+                        {"fields": "id,name,currency,timezone_name,account_status"},
+                    )
+                else:
+                    raise
         except MetaAPIError as e:
             logger.error(f"[conn:{connection_id}] Failed to fetch ad accounts: {e}")
             raise self.retry(exc=e)

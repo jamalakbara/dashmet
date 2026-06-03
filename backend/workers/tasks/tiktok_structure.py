@@ -91,7 +91,7 @@ def sync_tiktok_accounts_for_connection(
         with get_worker_db() as db:
             for adv_id in advertiser_ids:
                 info = info_map.get(str(adv_id), {})
-                name = info.get("advertiser_name") or f"TikTok Account {adv_id}"
+                name = info.get("name") or info.get("advertiser_name") or f"TikTok Account {adv_id}"
                 currency = info.get("currency", "USD")
                 timezone_str = info.get("timezone", "UTC")
 
@@ -111,6 +111,8 @@ def sync_tiktok_accounts_for_connection(
                         "name": name,
                         "currency": currency,
                         "timezone": timezone_str,
+                        "account_status": "active",
+                        "platform_connection_id": uuid.UUID(connection_id),
                         "synced_at": datetime.now(timezone.utc),
                     },
                 )

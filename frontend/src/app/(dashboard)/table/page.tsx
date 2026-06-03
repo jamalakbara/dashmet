@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useQueryState, parseAsInteger } from "nuqs";
 import { useRouter } from "next/navigation";
@@ -38,6 +38,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useAccountId } from "@/hooks/use-account";
+import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
 import { useDateRange } from "@/hooks/use-date-range";
 import { useUIStore } from "@/stores/ui-store";
 import {
@@ -110,44 +111,6 @@ interface TableRow {
 
 // ─── Column definitions ───────────────────────────────────────────────────────
 
-const METRIC_COLS: ColDef[] = [
-  { key: "spend",            label: "Spend",       cell: "currency", sortable: true, defaultVisible: true,  align: "right", metricKey: "spend" },
-  { key: "impressions",      label: "Impressions", cell: "number",   sortable: true, defaultVisible: true,  align: "right", metricKey: "impressions" },
-  { key: "reach",            label: "Reach",       cell: "number",   sortable: true, defaultVisible: false, align: "right", metricKey: "reach" },
-  { key: "clicks",           label: "Clicks",      cell: "number",   sortable: true, defaultVisible: true,  align: "right", metricKey: "clicks" },
-  { key: "ctr",              label: "CTR",         cell: "percent",  sortable: true, defaultVisible: true,  align: "right", metricKey: "ctr" },
-  { key: "cpm",              label: "CPM",         cell: "currency", sortable: true, defaultVisible: false, align: "right", metricKey: "cpm" },
-  { key: "cpc",              label: "CPC",         cell: "currency", sortable: true, defaultVisible: false, align: "right", metricKey: "cpc" },
-  { key: "conversions",      label: "Conv.",       cell: "number",   sortable: true, defaultVisible: true,  align: "right", metricKey: "conversions" },
-  { key: "conversion_value", label: "Conv. Value", cell: "currency", sortable: true, defaultVisible: false, align: "right", metricKey: "conversion_value" },
-  { key: "roas",             label: "ROAS",        cell: "roas",     sortable: true, defaultVisible: true,  align: "right", metricKey: "roas" },
-  { key: "cpa",              label: "CPA",         cell: "currency", sortable: true, defaultVisible: false, align: "right", metricKey: "cpa" },
-];
-
-const COLUMNS: Record<string, ColDef[]> = {
-  campaign: [
-    { key: "name",         label: "Campaign",     cell: "name",     sortable: true,  defaultVisible: true, align: "left" },
-    { key: "status",       label: "Status",       cell: "status",   sortable: true,  defaultVisible: true, align: "left" },
-    { key: "objective",    label: "Objective",    cell: "text",     sortable: false, defaultVisible: true, align: "left" },
-    { key: "daily_budget", label: "Daily Budget", cell: "currency", sortable: true,  defaultVisible: true, align: "right" },
-    ...METRIC_COLS,
-  ],
-  adgroup: [
-    { key: "name",              label: "Ad Group",  cell: "name",     sortable: true,  defaultVisible: true,  align: "left" },
-    { key: "campaign_name",     label: "Campaign",  cell: "text",     sortable: false, defaultVisible: true,  align: "left" },
-    { key: "status",            label: "Status",    cell: "status",   sortable: true,  defaultVisible: true,  align: "left" },
-    { key: "optimization_goal", label: "Opt. Goal", cell: "text",     sortable: false, defaultVisible: true,  align: "left" },
-    { key: "bid_amount",        label: "Bid",       cell: "currency", sortable: true,  defaultVisible: false, align: "right" },
-    ...METRIC_COLS,
-  ],
-  ad: [
-    { key: "creative_preview", label: "Creative", cell: "creative", sortable: false, defaultVisible: true, align: "left" },
-    { key: "name",             label: "Ad",       cell: "name",     sortable: true,  defaultVisible: true, align: "left" },
-    { key: "status",           label: "Status",   cell: "status",   sortable: true,  defaultVisible: true, align: "left" },
-    ...METRIC_COLS,
-  ],
-};
-
 const LEVEL_TABS = [
   { value: "campaign", label: "Campaigns" },
   { value: "adgroup",  label: "Ad Groups" },
@@ -168,7 +131,7 @@ function getCellValue(row: TableRow, col: ColDef): unknown {
   return (row as unknown as Record<string, unknown>)[col.key] ?? null;
 }
 
-function renderCell(row: TableRow, col: ColDef, onDrillDown: () => void): React.ReactNode {
+function renderCell(row: TableRow, col: ColDef, onDrillDown: () => void, currency: string): React.ReactNode {
   const v = getCellValue(row, col);
 
   switch (col.cell) {
@@ -203,7 +166,7 @@ function renderCell(row: TableRow, col: ColDef, onDrillDown: () => void): React.
     case "text":
       return <span className="text-sm">{v != null ? String(v) : "—"}</span>;
     case "currency":
-      return <span className="tabular-nums">{formatCurrency(v as number)}</span>;
+      return <span className="tabular-nums">{formatCurrency(v as number, currency)}</span>;
     case "number":
       return <span className="tabular-nums">{formatNumber(v as number)}</span>;
     case "percent":
@@ -321,7 +284,43 @@ export default function TablePage() {
   const router     = useRouter();
   const accountId  = useAccountId();
   const dateRange  = useDateRange();
+  const { tableMetricDefs, currency } = usePlatformMetrics();
   const { visibleColumns, setVisibleColumns } = useUIStore();
+
+  const COLUMNS = useMemo<Record<string, ColDef[]>>(() => {
+    const metricCols: ColDef[] = tableMetricDefs.map((m) => ({
+      key:            m.key,
+      label:          m.label,
+      cell:           m.type as CellType,
+      sortable:       true,
+      defaultVisible: m.tableDefaultVisible,
+      align:          m.align,
+      metricKey:      m.key,
+    }));
+    return {
+      campaign: [
+        { key: "name",         label: "Campaign",     cell: "name",     sortable: true,  defaultVisible: true,  align: "left"  },
+        { key: "status",       label: "Status",       cell: "status",   sortable: true,  defaultVisible: true,  align: "left"  },
+        { key: "objective",    label: "Objective",    cell: "text",     sortable: false, defaultVisible: true,  align: "left"  },
+        { key: "daily_budget", label: "Daily Budget", cell: "currency", sortable: true,  defaultVisible: true,  align: "right" },
+        ...metricCols,
+      ],
+      adgroup: [
+        { key: "name",              label: "Ad Group",  cell: "name",     sortable: true,  defaultVisible: true,  align: "left"  },
+        { key: "campaign_name",     label: "Campaign",  cell: "text",     sortable: false, defaultVisible: true,  align: "left"  },
+        { key: "status",            label: "Status",    cell: "status",   sortable: true,  defaultVisible: true,  align: "left"  },
+        { key: "optimization_goal", label: "Opt. Goal", cell: "text",     sortable: false, defaultVisible: true,  align: "left"  },
+        { key: "bid_amount",        label: "Bid",       cell: "currency", sortable: true,  defaultVisible: false, align: "right" },
+        ...metricCols,
+      ],
+      ad: [
+        { key: "creative_preview", label: "Creative", cell: "creative", sortable: false, defaultVisible: true, align: "left" },
+        { key: "name",             label: "Ad",       cell: "name",     sortable: true,  defaultVisible: true, align: "left" },
+        { key: "status",           label: "Status",   cell: "status",   sortable: true,  defaultVisible: true, align: "left" },
+        ...metricCols,
+      ],
+    };
+  }, [tableMetricDefs]);
 
   // URL state
   const [level,      setLevel]      = useQueryState("level",      { defaultValue: "campaign" });
@@ -614,7 +613,7 @@ export default function TablePage() {
                               col.key === "name" && "sticky left-0 bg-card"
                             )}
                           >
-                            {renderCell(row, col, () => drillDown(row))}
+                            {renderCell(row, col, () => drillDown(row), currency)}
                           </TableCell>
                         ))}
                       </TableRow>

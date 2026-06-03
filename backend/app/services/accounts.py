@@ -47,7 +47,10 @@ def list_accounts(
     db: Session, org_id: str, page: int = 1, per_page: int = 25
 ) -> tuple[list[Account], int]:
     org_uuid = uuid.UUID(org_id)
-    q = db.query(Account).filter(Account.organization_id == org_uuid)
+    q = db.query(Account).filter(
+        Account.organization_id == org_uuid,
+        Account.account_status != "disabled",
+    )
     total = q.count()
     accounts = q.offset(calculate_offset(page, per_page)).limit(per_page).all()
     return accounts, total
@@ -67,8 +70,13 @@ def update_account_config(
     primary_conversion_action: Optional[str] = None,
     attribution_window: Optional[str] = None,
     roas_action_type: Optional[str] = None,
+    account_type: Optional[str] = None,
 ) -> AccountConfig:
     account = assert_account_belongs_to_org(db, account_id, org_id)
+
+    if account_type is not None:
+        account.account_type = account_type
+
     config = account.config
     if not config:
         config = AccountConfig(account_id=account.id)
@@ -175,5 +183,6 @@ def disconnect_connection(
         raise ForbiddenError("Connection does not belong to your organization")
     conn.is_active = False
     db.query(Account).filter(
-        Account.platform_connection_id == conn.id
+        Account.organization_id == conn.organization_id,
+        Account.platform_id == conn.platform_id,
     ).update({"account_status": "disabled"})

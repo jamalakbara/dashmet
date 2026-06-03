@@ -8,6 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { formatDistanceToNow } from "date-fns";
 import { CheckCircle2, XCircle, Plug, ExternalLink } from "lucide-react";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -98,11 +99,22 @@ function ConnectionsSettingsPageInner() {
     if (tiktokStatus === "connected") {
       qc.invalidateQueries({ queryKey: ["connections"] });
       qc.invalidateQueries({ queryKey: queryKeys.accounts() });
+      toast.success("TikTok connected. Ad accounts are being imported…");
       setConnectSuccess(true);
       setTimeout(() => setConnectSuccess(false), 4000);
+      const checkAfter = (ms: number) =>
+        setTimeout(async () => {
+          await qc.invalidateQueries({ queryKey: queryKeys.accounts() });
+          const cached = qc.getQueryData<unknown[]>(queryKeys.accounts());
+          if (ms === 12000 && (!cached || cached.length === 0)) {
+            toast.error("No TikTok accounts found. Check your token permissions and try reconnecting.");
+          }
+        }, ms);
+      checkAfter(5000);
+      checkAfter(12000);
       router.replace(pathname);
     } else if (tiktokStatus === "error") {
-      setConnectError("TikTok connection failed. Please try again.");
+      toast.error("TikTok connection failed. Please try again.");
       router.replace(pathname);
     }
   }, [searchParams, qc, router, pathname]);
@@ -123,16 +135,29 @@ function ConnectionsSettingsPageInner() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["connections"] });
       qc.invalidateQueries({ queryKey: queryKeys.accounts() });
+      toast.success("Connected. Ad accounts are being imported…");
       setConnectSuccess(true);
       reset();
       setTimeout(() => {
         setConnectingPlatform(null);
         setConnectSuccess(false);
       }, 2000);
+      const checkAfter = (ms: number) =>
+        setTimeout(async () => {
+          await qc.invalidateQueries({ queryKey: queryKeys.accounts() });
+          const cached = qc.getQueryData<unknown[]>(queryKeys.accounts());
+          if (ms === 12000 && (!cached || cached.length === 0)) {
+            toast.error("No accounts found. Your token may be invalid or missing required permissions.");
+          }
+        }, ms);
+      checkAfter(5000);
+      checkAfter(12000);
     },
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setConnectError(typeof detail === "string" ? detail : "Connection failed. Check your token.");
+      const msg = typeof detail === "string" ? detail : "Connection failed. Check your token.";
+      toast.error(msg);
+      setConnectError(msg);
     },
   });
 
@@ -140,6 +165,7 @@ function ConnectionsSettingsPageInner() {
     mutationFn: (id: string) => connectionsApi.delete(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["connections"] });
+      qc.invalidateQueries({ queryKey: queryKeys.accounts() });
       setDisconnectId(null);
     },
   });
@@ -163,6 +189,7 @@ function ConnectionsSettingsPageInner() {
         window.location.href = authUrl;
       }
     } catch {
+      toast.error("Could not initiate TikTok OAuth. Please try again.");
       setConnectError("Could not initiate TikTok OAuth. Please try again.");
       setOauthLoading(false);
     }
