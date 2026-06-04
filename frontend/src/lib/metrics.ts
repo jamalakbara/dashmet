@@ -48,6 +48,18 @@ export function getMetricsForPlatform(
   );
 }
 
+/**
+ * Metrics safe to aggregate across platforms on the combined Dashboard — i.e.
+ * scalar metrics that every platform populates identically in metrics_daily.
+ * Deliberately excludes conversions/ROAS: TikTok stores conversions under a
+ * different action field than Meta, so summing them cross-platform would
+ * undercount. Surface those only on the per-platform views.
+ */
+export const getCombinableMetrics = () =>
+  METRIC_REGISTRY.filter(
+    (m) => m.platforms.includes("meta") && m.platforms.includes("tiktok"),
+  );
+
 export const getKpiMetrics = (p: string | null | undefined, at: AccountType | null = null) =>
   getMetricsForPlatform(p, at).filter((m) => m.showInKpi);
 export const getSelectableMetrics = (p: string | null | undefined, at: AccountType | null = null) =>

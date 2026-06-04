@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, DbSession
 from app.exceptions import ForbiddenError, NotFoundError
-from app.schemas.common import DataResponse, PaginatedResponse, build_pagination
+from app.schemas.common import DataResponse, Meta, PaginatedResponse, build_pagination
 from app.schemas.insights import (
     BreakdownResponse,
     OverviewResponse,
@@ -41,6 +41,78 @@ def _resolve_dates(
             detail="Provide either date_preset or both date_start and date_end",
         )
     return ds, de, account, date_preset
+
+
+def _resolve_combined_dates(
+    account_ids_raw: str,
+    org_id: str,
+    db: Session,
+    date_preset: Optional[str],
+    date_start: Optional[date],
+    date_end: Optional[date],
+):
+    account_ids = [a.strip() for a in account_ids_raw.split(",") if a.strip()]
+    if not account_ids:
+        raise HTTPException(status_code=400, detail="Provide at least one account id in account_ids")
+
+    try:
+        accounts = [
+            acc_svc.assert_account_belongs_to_org(db, aid, org_id) for aid in account_ids
+        ]
+    except (NotFoundError, ForbiddenError) as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    tz = accounts[0].timezone if accounts else "UTC"
+    if date_preset:
+        ds, de = insights_svc.resolve_date_range(date_preset, tz)
+    elif date_start and date_end:
+        ds, de = date_start, date_end
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either date_preset or both date_start and date_end",
+        )
+    return account_ids, ds, de, date_preset
+
+
+@router.get("/combined")
+def combined(
+    account_ids: str = Query(..., description="Comma-separated account ids to combine"),
+    current_user: CurrentUser = ...,
+    db: DbSession = ...,
+    date_preset: Optional[str] = Query(None),
+    date_start: Optional[date] = Query(None),
+    date_end: Optional[date] = Query(None),
+):
+    ids, ds, de, preset = _resolve_combined_dates(
+        account_ids, current_user["org_id"], db, date_preset, date_start, date_end
+    )
+    data = insights_svc.get_combined_overview(
+        db, ids, current_user["org_id"], ds, de, date_preset=preset
+    )
+    cached_at = data.pop("cached_at", None)
+    return DataResponse(data=data, meta=Meta(cached=cached_at is not None, cached_at=cached_at))
+
+
+@router.get("/combined-timeseries")
+def combined_timeseries(
+    account_ids: str = Query(..., description="Comma-separated account ids to combine"),
+    current_user: CurrentUser = ...,
+    db: DbSession = ...,
+    date_preset: Optional[str] = Query(None),
+    date_start: Optional[date] = Query(None),
+    date_end: Optional[date] = Query(None),
+    time_increment: str = Query("day"),
+):
+    ids, ds, de, preset = _resolve_combined_dates(
+        account_ids, current_user["org_id"], db, date_preset, date_start, date_end
+    )
+    data = insights_svc.get_combined_timeseries(
+        db, ids, current_user["org_id"], ds, de,
+        time_increment=time_increment,
+        date_preset=preset,
+    )
+    return DataResponse(data=data)
 
 
 @router.get("/overview")
@@ -134,6 +206,25 @@ def table(
         data=rows,
         pagination=build_pagination(total, page, per_page),
     )
+
+
+@router.get("/engagement")
+def engagement(
+    account_id: str = Query(...),
+    current_user: CurrentUser = ...,
+    db: DbSession = ...,
+    date_preset: Optional[str] = Query(None),
+    date_start: Optional[date] = Query(None),
+    date_end: Optional[date] = Query(None),
+):
+    ds, de, account, preset = _resolve_dates(
+        account_id, current_user["org_id"], db, date_preset, date_start, date_end
+    )
+    data = insights_svc.get_engagement(
+        db, account_id, current_user["org_id"], ds, de, date_preset=preset
+    )
+    cached_at = data.pop("cached_at", None)
+    return DataResponse(data=data, meta=Meta(cached=cached_at is not None, cached_at=cached_at))
 
 
 @router.get("/breakdown")

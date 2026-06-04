@@ -30,5 +30,11 @@ export const queryKeys = {
     ["table", accountId, dateRange, level, filters] as const,
   breakdown: (accountId: string, dateRange: DateRange, type: string) =>
     ["breakdown", accountId, dateRange, type] as const,
+  engagement: (accountId: string, dateRange: DateRange) =>
+    ["engagement", accountId, dateRange] as const,
   creative: (adId: string) => ["creative", adId] as const,
+  combined: (accountIds: string[], dateRange: DateRange) =>
+    ["combined", accountIds, dateRange] as const,
+  combinedTimeseries: (accountIds: string[], dateRange: DateRange, timeIncrement: string) =>
+    ["combined-timeseries", accountIds, dateRange, timeIncrement] as const,
 };

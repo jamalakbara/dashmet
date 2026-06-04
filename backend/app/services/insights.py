@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from app.exceptions import ForbiddenError, NotFoundError
@@ -734,4 +734,379 @@ def get_breakdown(
         "level": level,
         "period": {"date_start": date_start, "date_stop": date_end, "preset": date_preset},
         "rows": breakdown_rows,
+    }
+
+
+# ─── Combined (cross-platform) insights ─────────────────────────────────────────
+#
+# Aggregates the platform-agnostic ("combinable") metric set across a user-selected
+# set of accounts. Monetary metrics may only be summed when every selected account
+# shares one currency — otherwise the caller degrades to a per-account view. The
+# conv/rev joins resolve each account's own conversion action via the per-row
+# account_configs join, so combining accounts stays correct. Meta-only fields
+# (e.g. outbound_clicks) are intentionally omitted.
+
+_COMBINED_METRIC_SELECT = """
+    SUM(md.impressions)         AS impressions,
+    SUM(md.reach)               AS reach,
+    SUM(md.clicks)              AS clicks,
+    SUM(md.spend)               AS spend,
+    CASE WHEN SUM(md.impressions) > 0
+        THEN SUM(md.clicks)::float / SUM(md.impressions) * 100
+        ELSE NULL END           AS ctr,
+    CASE WHEN SUM(md.impressions) > 0
+        THEN SUM(md.spend) / SUM(md.impressions) * 1000
+        ELSE NULL END           AS cpm,
+    CASE WHEN SUM(md.clicks) > 0
+        THEN SUM(md.spend) / SUM(md.clicks)
+        ELSE NULL END           AS cpc,
+    CASE WHEN SUM(md.impressions) > 0
+        THEN SUM(md.reach)::float / SUM(md.impressions)
+        ELSE NULL END           AS frequency,
+    SUM(conv.value)             AS conversions,
+    SUM(rev.value)              AS conversion_value,
+    CASE WHEN SUM(md.spend) > 0
+        THEN SUM(rev.value) / SUM(md.spend)
+        ELSE NULL END           AS roas,
+    CASE WHEN SUM(conv.value) > 0
+        THEN SUM(md.spend) / SUM(conv.value)
+        ELSE NULL END           AS cpa,
+    MAX(md.fetched_at)          AS cached_at
+"""
+
+_COMBINED_JOINS = """
+FROM metrics_daily md
+LEFT JOIN account_configs ac ON ac.account_id = md.account_id
+LEFT JOIN metric_action_stats conv
+    ON conv.entity_id = md.entity_id AND conv.entity_type = md.entity_type
+    AND conv.date = md.date AND conv.field_name = 'actions'
+    AND conv.action_type = COALESCE(ac.primary_conversion_action, 'purchase')
+LEFT JOIN metric_action_stats rev
+    ON rev.entity_id = md.entity_id AND rev.entity_type = md.entity_type
+    AND rev.date = md.date AND rev.field_name = 'action_values'
+    AND rev.action_type = COALESCE(ac.roas_action_type, 'purchase')
+WHERE md.account_id IN :account_ids
+  AND md.entity_type = 'campaign'
+  AND md.date BETWEEN :date_start AND :date_end
+"""
+
+COMBINED_OVERVIEW_SQL = f"SELECT{_COMBINED_METRIC_SELECT}{_COMBINED_JOINS}"
+
+COMBINED_PER_ACCOUNT_SQL = (
+    f"SELECT\n    md.account_id::text AS account_id,{_COMBINED_METRIC_SELECT}"
+    f"{_COMBINED_JOINS}\nGROUP BY md.account_id"
+)
+
+COMBINED_TIMESERIES_SQL = f"""
+SELECT
+    date_trunc(:increment, md.date)::date   AS period_date,
+    SUM(md.impressions)                     AS impressions,
+    SUM(md.reach)                           AS reach,
+    SUM(md.clicks)                          AS clicks,
+    SUM(md.spend)                           AS spend,
+    CASE WHEN SUM(md.impressions) > 0
+        THEN SUM(md.clicks)::float / SUM(md.impressions) * 100
+        ELSE NULL END                       AS ctr,
+    CASE WHEN SUM(md.impressions) > 0
+        THEN SUM(md.spend) / SUM(md.impressions) * 1000
+        ELSE NULL END                       AS cpm,
+    CASE WHEN SUM(md.clicks) > 0
+        THEN SUM(md.spend) / SUM(md.clicks)
+        ELSE NULL END                       AS cpc,
+    SUM(conv.value)                         AS conversions,
+    CASE WHEN SUM(md.spend) > 0
+        THEN SUM(rev.value) / SUM(md.spend)
+        ELSE NULL END                       AS roas
+FROM metrics_daily md
+LEFT JOIN account_configs ac ON ac.account_id = md.account_id
+LEFT JOIN metric_action_stats conv
+    ON conv.entity_id = md.entity_id AND conv.entity_type = md.entity_type
+    AND conv.date = md.date AND conv.field_name = 'actions'
+    AND conv.action_type = COALESCE(ac.primary_conversion_action, 'purchase')
+LEFT JOIN metric_action_stats rev
+    ON rev.entity_id = md.entity_id AND rev.entity_type = md.entity_type
+    AND rev.date = md.date AND rev.field_name = 'action_values'
+    AND rev.action_type = COALESCE(ac.roas_action_type, 'purchase')
+WHERE md.account_id IN :account_ids
+  AND md.entity_type = 'campaign'
+  AND md.date BETWEEN :date_start AND :date_end
+GROUP BY period_date
+ORDER BY period_date
+"""
+
+
+def _combined_summary(r) -> dict:
+    return {
+        "spend": _safe_float(r.get("spend")),
+        "impressions": _safe_int(r.get("impressions")),
+        "reach": _safe_int(r.get("reach")),
+        "frequency": _safe_float(r.get("frequency")),
+        "clicks": _safe_int(r.get("clicks")),
+        "ctr": _safe_float(r.get("ctr")),
+        "cpm": _safe_float(r.get("cpm")),
+        "cpc": _safe_float(r.get("cpc")),
+        "conversions": _safe_float(r.get("conversions")),
+        "conversion_value": _safe_float(r.get("conversion_value")),
+        "roas": _safe_float(r.get("roas")),
+        "cpa": _safe_float(r.get("cpa")),
+    }
+
+
+def _resolve_org_accounts(db: Session, account_ids: list[str], org_id: str) -> list[Account]:
+    """Validate every account belongs to the org; returns the Account rows."""
+    return [assert_account_belongs_to_org(db, a, org_id) for a in account_ids]
+
+
+def get_combined_overview(
+    db: Session,
+    account_ids: list[str],
+    org_id: str,
+    date_start: date,
+    date_end: date,
+    date_preset: Optional[str] = None,
+) -> dict:
+    accounts = _resolve_org_accounts(db, account_ids, org_id)
+    period = {"date_start": date_start, "date_stop": date_end, "preset": date_preset}
+
+    if not accounts:
+        return {
+            "combined": False,
+            "currency_mismatch": False,
+            "currency": None,
+            "currencies": [],
+            "period": period,
+            "summary": _combined_summary({}),
+            "vs_previous": {},
+            "per_account": [],
+            "account_count": 0,
+            "cached_at": None,
+        }
+
+    acc_by_id = {str(a.id): a for a in accounts}
+    uuids = [a.id for a in accounts]
+    base_params = {
+        "account_ids": uuids,
+        "date_start": date_start,
+        "date_end": date_end,
+    }
+
+    per_stmt = text(COMBINED_PER_ACCOUNT_SQL).bindparams(
+        bindparam("account_ids", expanding=True)
+    )
+    per_rows = db.execute(per_stmt, base_params).mappings().all()
+
+    per_account = []
+    cached_candidates = []
+    for r in per_rows:
+        a = acc_by_id.get(r["account_id"])
+        if r.get("cached_at"):
+            cached_candidates.append(r["cached_at"])
+        per_account.append({
+            "account_id": r["account_id"],
+            "name": a.name if a else r["account_id"],
+            "platform": a.platform_id if a else None,
+            "currency": a.currency if a else None,
+            "summary": _combined_summary(r),
+        })
+    cached_at = max(cached_candidates) if cached_candidates else None
+
+    currencies = sorted({a.currency for a in accounts})
+    combined = len(currencies) == 1
+
+    if not combined:
+        return {
+            "combined": False,
+            "currency_mismatch": True,
+            "currency": None,
+            "currencies": currencies,
+            "period": period,
+            "summary": _combined_summary({}),
+            "vs_previous": {},
+            "per_account": per_account,
+            "account_count": len(accounts),
+            "cached_at": cached_at,
+        }
+
+    agg_stmt = text(COMBINED_OVERVIEW_SQL).bindparams(
+        bindparam("account_ids", expanding=True)
+    )
+    row = db.execute(agg_stmt, base_params).mappings().first()
+    prior_start, prior_end = resolve_prior_period(date_start, date_end)
+    prior_row = db.execute(
+        agg_stmt, {**base_params, "date_start": prior_start, "date_end": prior_end}
+    ).mappings().first()
+
+    summary = _combined_summary(row) if row else _combined_summary({})
+    prev = _combined_summary(prior_row) if prior_row else {}
+
+    return {
+        "combined": True,
+        "currency_mismatch": False,
+        "currency": currencies[0],
+        "currencies": currencies,
+        "period": period,
+        "summary": summary,
+        "vs_previous": {
+            "spend": _pct_change(summary.get("spend"), prev.get("spend")),
+            "impressions": _pct_change(summary.get("impressions"), prev.get("impressions")),
+            "clicks": _pct_change(summary.get("clicks"), prev.get("clicks")),
+            "ctr": _pct_change(summary.get("ctr"), prev.get("ctr")),
+            "conversions": _pct_change(summary.get("conversions"), prev.get("conversions")),
+            "roas": _pct_change(summary.get("roas"), prev.get("roas")),
+        },
+        "per_account": per_account,
+        "account_count": len(accounts),
+        "cached_at": cached_at,
+    }
+
+
+def get_combined_timeseries(
+    db: Session,
+    account_ids: list[str],
+    org_id: str,
+    date_start: date,
+    date_end: date,
+    time_increment: str = "day",
+    date_preset: Optional[str] = None,
+) -> dict:
+    accounts = _resolve_org_accounts(db, account_ids, org_id)
+    currencies = sorted({a.currency for a in accounts}) if accounts else []
+    combined = len(currencies) == 1
+    period = {"date_start": date_start, "date_stop": date_end, "preset": date_preset}
+
+    if not accounts:
+        return {
+            "combined": False,
+            "currency_mismatch": False,
+            "currency": None,
+            "currencies": [],
+            "period": period,
+            "series": [],
+        }
+
+    pg_increment = {"day": "day", "week": "week", "month": "month"}.get(time_increment, "day")
+    stmt = text(COMBINED_TIMESERIES_SQL).bindparams(
+        bindparam("account_ids", expanding=True)
+    )
+    rows = db.execute(
+        stmt,
+        {
+            "account_ids": [a.id for a in accounts],
+            "date_start": date_start,
+            "date_end": date_end,
+            "increment": pg_increment,
+        },
+    ).mappings().all()
+
+    # Never sum monetary metrics across mixed currencies — null them out.
+    money_null = not combined
+
+    def point(r):
+        return {
+            "date": r["period_date"],
+            "spend": None if money_null else _safe_float(r.get("spend")),
+            "impressions": _safe_int(r.get("impressions")),
+            "clicks": _safe_int(r.get("clicks")),
+            "ctr": _safe_float(r.get("ctr")),
+            "cpm": None if money_null else _safe_float(r.get("cpm")),
+            "cpc": None if money_null else _safe_float(r.get("cpc")),
+            "reach": _safe_int(r.get("reach")),
+            "conversions": _safe_float(r.get("conversions")),
+            "roas": None if money_null else _safe_float(r.get("roas")),
+        }
+
+    return {
+        "combined": combined,
+        "currency_mismatch": not combined,
+        "currency": currencies[0] if combined else None,
+        "currencies": currencies,
+        "period": period,
+        "series": [point(r) for r in rows],
+    }
+
+
+# ─── Engagement (TikTok-only curated view) ──────────────────────────────────────
+#
+# TikTok stores social engagement as metric_action_stats rows with
+# field_name='actions' and action_type in (like, comment, share) — see
+# TIKTOK_ACTION_MAP in workers/tasks/tiktok_insights.py.
+
+ENGAGEMENT_TOTALS_SQL = """
+SELECT mas.action_type AS action_type, SUM(mas.value) AS value
+FROM metric_action_stats mas
+WHERE mas.account_id = :account_id
+  AND mas.field_name = 'actions'
+  AND mas.action_type IN ('like', 'comment', 'share')
+  AND mas.date BETWEEN :date_start AND :date_end
+GROUP BY mas.action_type
+"""
+
+ENGAGEMENT_IMPRESSIONS_SQL = """
+SELECT SUM(md.impressions) AS impressions, MAX(md.fetched_at) AS cached_at
+FROM metrics_daily md
+WHERE md.account_id = :account_id
+  AND md.entity_type = 'campaign'
+  AND md.date BETWEEN :date_start AND :date_end
+"""
+
+ENGAGEMENT_SERIES_SQL = """
+SELECT mas.date AS date, SUM(mas.value) AS engagements
+FROM metric_action_stats mas
+WHERE mas.account_id = :account_id
+  AND mas.field_name = 'actions'
+  AND mas.action_type IN ('like', 'comment', 'share')
+  AND mas.date BETWEEN :date_start AND :date_end
+GROUP BY mas.date
+ORDER BY mas.date
+"""
+
+
+def get_engagement(
+    db: Session,
+    account_id: str,
+    org_id: str,
+    date_start: date,
+    date_end: date,
+    date_preset: Optional[str] = None,
+) -> dict:
+    assert_account_belongs_to_org(db, account_id, org_id)
+    params = {
+        "account_id": uuid.UUID(account_id),
+        "date_start": date_start,
+        "date_end": date_end,
+    }
+
+    totals_rows = db.execute(text(ENGAGEMENT_TOTALS_SQL), params).mappings().all()
+    totals = {r["action_type"]: _safe_float(r["value"]) for r in totals_rows}
+    likes = totals.get("like")
+    comments = totals.get("comment")
+    shares = totals.get("share")
+    total_engagements = sum(v for v in (likes, comments, shares) if v is not None) or None
+
+    imp_row = db.execute(text(ENGAGEMENT_IMPRESSIONS_SQL), params).mappings().first()
+    impressions = _safe_int(imp_row.get("impressions")) if imp_row else None
+    cached_at = imp_row.get("cached_at") if imp_row else None
+
+    engagement_rate = None
+    if total_engagements and impressions:
+        engagement_rate = round(total_engagements / impressions * 100, 4)
+
+    series_rows = db.execute(text(ENGAGEMENT_SERIES_SQL), params).mappings().all()
+    series = [
+        {"date": r["date"], "engagements": _safe_float(r.get("engagements"))}
+        for r in series_rows
+    ]
+
+    return {
+        "period": {"date_start": date_start, "date_stop": date_end, "preset": date_preset},
+        "summary": {
+            "likes": likes,
+            "comments": comments,
+            "shares": shares,
+            "total_engagements": total_engagements,
+            "impressions": impressions,
+            "engagement_rate": engagement_rate,
+        },
+        "series": series,
+        "cached_at": cached_at,
     }

@@ -60,11 +60,21 @@ src/
 │   │   └── reset-password/page.tsx
 │   │
 │   ├── (dashboard)/              # Dashboard route group — with sidebar
-│   │   ├── layout.tsx            # Sidebar + header shell
-│   │   ├── overview/page.tsx
-│   │   ├── periodic/page.tsx
-│   │   ├── table/page.tsx
-│   │   └── ads/page.tsx
+│   │   ├── layout.tsx            # Sidebar + header + PlatformTabs shell
+│   │   ├── dashboard/page.tsx    # Combined cross-platform summary
+│   │   ├── meta/                 # Meta section — views render as tabs
+│   │   │   ├── page.tsx          #   bare /meta → redirect to overview
+│   │   │   ├── overview/page.tsx
+│   │   │   ├── periodic/page.tsx #   includes breakdowns (no separate route)
+│   │   │   ├── table/page.tsx
+│   │   │   └── ads/page.tsx
+│   │   └── tiktok/               # TikTok section — views render as tabs
+│   │       ├── page.tsx          #   bare /tiktok → redirect to overview
+│   │       ├── overview/page.tsx
+│   │       ├── periodic/page.tsx
+│   │       ├── table/page.tsx
+│   │       ├── ads/page.tsx
+│   │       └── engagement/page.tsx
 │   │
 │   ├── settings/
 │   │   ├── org/page.tsx          # Org name, general settings
@@ -75,14 +85,18 @@ src/
 │
 ├── components/
 │   ├── ui/                       # shadcn/ui primitives (auto-generated)
-│   ├── layout/                   # Sidebar, Header, AccountSwitcher
+│   ├── layout/                   # Sidebar, Header, PlatformTabs, AccountSwitcher
+│   ├── views/                    # Per-platform view bodies (Overview/Periodic/Table/Ads)
 │   ├── charts/                   # Recharts wrappers
-│   ├── metrics/                  # MetricCard, MetricTable, etc.
+│   ├── metrics/                  # MetricCard, MetricTable, BreakdownSection, etc.
 │   ├── ads/                      # AdCard, CreativePreview, etc.
 │   └── shared/                   # DateRangePicker, StatusBadge, etc.
 │
 ├── hooks/
-│   ├── use-account.ts            # Current selected account
+│   ├── use-account.ts            # Current selected account (scoped to route platform)
+│   ├── use-platform.ts           # Active platform from route (/meta → "meta", etc.)
+│   ├── use-platform-metrics.ts   # Platform/account-type-aware metric sets
+│   ├── use-shared-query.ts       # Carry account_id + date params across nav
 │   ├── use-date-range.ts         # Date range from URL state
 │   ├── use-insights-*.ts         # Per-view data fetching hooks
 │   └── use-sync-status.ts        # Sync status polling
@@ -97,7 +111,8 @@ src/
 │   │   └── sync.ts
 │   ├── query-keys.ts             # TanStack Query key factory
 │   ├── formatters.ts             # Currency, %, number formatters
-│   └── constants.ts              # Date presets, metric labels, colors
+│   ├── metrics.ts                # Platform/account-type metric registry
+│   └── constants.ts              # Date presets, metric labels, colors, PLATFORM_TABS
 │
 ├── stores/
 │   └── ui-store.ts               # Zustand — sidebar state, active account
@@ -112,21 +127,28 @@ src/
 
 ## 3. Routing
 
+`{platform}` ∈ `{meta, tiktok}`.
+
 | Route | Page | Auth required | Role |
 |---|---|---|---|
-| `/` | Redirect → `/overview` | ✅ | any |
+| `/` | Redirect → `/dashboard` | ✅ | any |
 | `/login` | Login | ❌ | — |
 | `/signup` | Signup | ❌ | — |
 | `/verify-email` | Email verification | ❌ | — |
 | `/forgot-password` | Request reset | ❌ | — |
 | `/reset-password` | Set new password | ❌ | — |
-| `/overview` | Overview dashboard | ✅ | any |
-| `/periodic` | Time series dashboard | ✅ | any |
-| `/table` | Metrics table | ✅ | any |
-| `/ads` | Ads content | ✅ | any |
+| `/dashboard` | Combined cross-platform summary | ✅ | any |
+| `/meta`, `/tiktok` | Redirect → `…/overview` | ✅ | any |
+| `/{platform}/overview` | Platform overview (summary) | ✅ | any |
+| `/{platform}/periodic` | Time series **+ breakdowns** | ✅ | any |
+| `/{platform}/table` | Metrics table | ✅ | any |
+| `/{platform}/ads` | Ads content | ✅ | any |
+| `/tiktok/engagement` | TikTok engagement metrics | ✅ | any |
 | `/settings/org` | Org settings | ✅ | owner |
 | `/settings/members` | Member management | ✅ | owner |
 | `/settings/connections` | Platform connections | ✅ | owner |
+
+The per-platform views (Overview · Periodic · Table · Ads, plus TikTok's Engagement) render as a **route-based tab bar** — each tab is its own route, so deep links stay shareable. Tab config is `PLATFORM_TABS` in `lib/constants.ts`. **Breakdowns are part of the Periodic view, not a separate route** (`BreakdownSection` renders at the bottom of `periodic-view.tsx`).
 
 Auth guard is a middleware (`middleware.ts`) that checks for a valid JWT cookie. Unauthenticated users are redirected to `/login`. Members trying to access owner-only settings pages see a `403` page.
 
@@ -134,25 +156,25 @@ Auth guard is a middleware (`middleware.ts`) that checks for a valid JWT cookie.
 
 ## 4. Global Layout
 
-The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed sidebar on the left and a top header. Main content scrolls independently.
+The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed sidebar on the left, a top header, and — on platform pages — a `PlatformTabs` bar below the header. Main content scrolls independently.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  HEADER                                                       │
 │  [AccountSwitcher]     [DateRangePicker]    [SyncStatus] [👤] │
 ├───────────┬──────────────────────────────────────────────────┤
+│           │  [Overview] [Periodic] [Table] [Ads]  ← tab bar   │
+│  SIDEBAR  ├──────────────────────────────────────────────────┤
 │           │                                                   │
-│  SIDEBAR  │   PAGE CONTENT                                    │
-│           │                                                   │
-│  Overview │                                                   │
-│  Periodic │                                                   │
-│  Table    │                                                   │
-│  Ads      │                                                   │
+│  Dashboard│   PAGE CONTENT (active tab)                       │
+│  Meta     │                                                   │
+│  TikTok   │                                                   │
 │           │                                                   │
 │  ───────  │                                                   │
 │  Settings │                                                   │
 │           │                                                   │
 └───────────┴───────────────────────────────────────────────────┘
+  (tab bar self-hides on the combined /dashboard)
 ```
 
 ### Header — components
@@ -189,17 +211,19 @@ The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed sidebar on the l
 ```
 [Logo / DashMet wordmark]
 
-Navigation
-  📊  Overview
-  📈  Periodic
-  📋  Table
-  🖼️  Ads Content
+  📊  Dashboard          (combined cross-platform)
+  ⬛  Meta               → /meta/overview
+  ⬛  TikTok             → /tiktok/overview
 
 ─────────────
   ⚙️  Settings
 ```
 
-Active item highlighted. Sidebar collapses to icon-only at medium viewports (still desktop-first — no hamburger menu).
+Sidebar is **4 items** — the per-platform views are reached through the `PlatformTabs` bar, not the sidebar. Clicking a platform lands on its first tab (`PLATFORM_TABS[platform][0]`, i.e. Overview). The active platform item is highlighted whenever any of its tabs is active (`pathname.startsWith('/{platform}')`). Filter params (account_id, date range) are carried across both sidebar and tab navigation by `useSharedFilterQuery()`. Collapses to icon-only at medium viewports (still desktop-first — no hamburger menu).
+
+### Platform tab bar — `PlatformTabs`
+
+`components/layout/platform-tabs.tsx` — a `<Link>`-based (route-driven, not the shadcn `Tabs` primitive) tab bar mounted once in the dashboard layout. Reads the active platform via `usePlatform()`, looks up `PLATFORM_TABS[platform]`, and renders one tab per view. Returns `null` on `/dashboard` (no platform). Active tab = exact `pathname` match.
 
 ---
 
@@ -373,7 +397,7 @@ const { data, isLoading } = useQuery({
 
 #### Breakdown section
 
-Four tabs — each fetches `GET /insights/breakdown` with the corresponding breakdown param on tab activation (lazy fetch, cached).
+Lives at the bottom of the Periodic view (`BreakdownSection`, `components/metrics/breakdown-section.tsx`) — there is **no standalone breakdowns route**. Four tabs — each fetches `GET /insights/breakdown` with the corresponding breakdown param on tab activation (lazy fetch, cached).
 
 - **Age & Gender** — grouped horizontal bar chart, grouped by age range, colored by gender
 - **Country** — horizontal bar chart sorted by spend (top 10 countries)

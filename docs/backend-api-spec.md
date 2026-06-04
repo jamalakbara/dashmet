@@ -27,7 +27,9 @@
    - [6.9 Time Series (Periodic)](#69-time-series-periodic)
    - [6.10 Table Metrics](#610-table-metrics)
    - [6.11 Breakdown](#611-breakdown)
-   - [6.12 Sync Status](#612-sync-status)
+   - [6.12 Combined Dashboard (Cross-Platform)](#612-combined-dashboard-cross-platform)
+   - [6.13 Engagement (TikTok)](#613-engagement-tiktok)
+   - [6.14 Sync Status](#614-sync-status)
 7. [Metric Field Names](#7-metric-field-names)
 8. [Enum Reference](#8-enum-reference)
 
@@ -1017,7 +1019,171 @@ Metrics split by a demographic or placement dimension. Powers breakdown charts i
 
 ---
 
-### 6.12 Sync Status
+### 6.12 Combined Dashboard (Cross-Platform)
+
+The combined endpoints aggregate metrics across a user-selected set of accounts from any platform. They are used by the `/dashboard` page.
+
+**Currency rule:** if every selected account shares one currency, monetary metrics (spend, cpm, cpc, roas, cpa) are summed. If currencies differ, the backend returns `combined: false, currency_mismatch: true` and only per-account rows — the frontend degrades to a side-by-side view.
+
+**Combinable metrics:** spend, impressions, reach, frequency, clicks, ctr, cpm, cpc (and conversions count where available). ROAS is recomputed at the aggregate level (`SUM(conv_value)/SUM(spend)`), never averaged. `conversions`/`roas` are currently tagged Meta-only in the metric registry — TikTok conversions use a different storage field and would undercount if naively combined.
+
+#### `GET /api/v1/insights/combined`
+
+Returns combined KPI summary + per-account breakdown + period-over-period deltas.
+
+**Query params**
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `account_ids` | string | ✓ | Comma-separated account UUIDs. All must belong to the caller's org. |
+| `date_preset` | string | ✓† | One of the standard presets |
+| `date_start` | date | ✓† | YYYY-MM-DD (custom range) |
+| `date_end` | date | ✓† | YYYY-MM-DD (custom range) |
+
+† Either `date_preset` or both `date_start`+`date_end` required.
+
+**Response — single currency**
+
+```json
+{
+  "data": {
+    "combined": true,
+    "currency_mismatch": false,
+    "currency": "IDR",
+    "currencies": ["IDR"],
+    "period": { "date_start": "2026-05-01", "date_stop": "2026-05-31", "preset": "last_30d" },
+    "summary": {
+      "spend": 12500000,
+      "impressions": 450000,
+      "reach": 210000,
+      "frequency": 2.14,
+      "clicks": 9800,
+      "ctr": 2.18,
+      "cpm": 27.78,
+      "cpc": 1275,
+      "conversions": 340,
+      "conversion_value": 48000000,
+      "roas": 3.84,
+      "cpa": 36765
+    },
+    "vs_previous": {
+      "spend": 4.2,
+      "impressions": -1.1,
+      "clicks": 7.8,
+      "ctr": 0.3,
+      "conversions": 12.5,
+      "roas": 8.1
+    },
+    "per_account": [
+      {
+        "account_id": "uuid",
+        "name": "Npure X Shopee",
+        "platform": "meta",
+        "currency": "IDR",
+        "summary": { "spend": 8000000, "impressions": 300000 }
+      }
+    ],
+    "account_count": 5
+  },
+  "meta": { "cached": true, "cached_at": "2026-06-04T17:23:54Z" }
+}
+```
+
+**Response — mixed currencies** (`combined: false, currency_mismatch: true`)
+
+```json
+{
+  "data": {
+    "combined": false,
+    "currency_mismatch": true,
+    "currency": null,
+    "currencies": ["IDR", "USD"],
+    "period": { ... },
+    "summary": {},
+    "vs_previous": {},
+    "per_account": [ ... ],
+    "account_count": 3
+  }
+}
+```
+
+`meta.cached_at` = the latest `fetched_at` across all included accounts. Never `now()`.
+
+---
+
+#### `GET /api/v1/insights/combined-timeseries`
+
+Daily (or weekly/monthly) trend series aggregated across all selected accounts. Same currency rule applies — monetary metrics are `null` in each series point when `currency_mismatch: true`.
+
+**Query params:** same as `combined` + `time_increment` (`day` | `week` | `month`, default `day`)
+
+**Response**
+
+```json
+{
+  "data": {
+    "combined": true,
+    "currency_mismatch": false,
+    "currency": "IDR",
+    "currencies": ["IDR"],
+    "period": { ... },
+    "series": [
+      {
+        "date": "2026-05-01",
+        "spend": 400000,
+        "impressions": 14500,
+        "reach": 7200,
+        "clicks": 320,
+        "ctr": 2.21,
+        "cpm": 27.59,
+        "cpc": 1250,
+        "conversions": 11,
+        "roas": 3.7
+      }
+    ]
+  }
+}
+```
+
+---
+
+### 6.13 Engagement (TikTok)
+
+TikTok-specific social engagement metrics (likes, comments, shares) aggregated from `metric_action_stats`. Used by the `/tiktok/engagement` curated view.
+
+#### `GET /api/v1/insights/engagement`
+
+**Query params:** `account_id` (required) + date params (preset or custom range).
+
+**Response**
+
+```json
+{
+  "data": {
+    "period": { "date_start": "2026-05-01", "date_stop": "2026-05-31", "preset": "last_30d" },
+    "summary": {
+      "likes": 6843,
+      "comments": 11279,
+      "shares": 330,
+      "total_engagements": 18452,
+      "impressions": 450000,
+      "engagement_rate": 4.1004
+    },
+    "series": [
+      { "date": "2026-05-01", "engagements": 612 },
+      { "date": "2026-05-02", "engagements": 580 }
+    ]
+  },
+  "meta": { "cached": true, "cached_at": "2026-06-04T17:23:54Z" }
+}
+```
+
+`engagement_rate` = `total_engagements / impressions × 100`. `null` when no impressions.
+`series` aggregates all three action types (like + comment + share) per day.
+
+---
+
+### 6.14 Sync Status
 
 #### `GET /api/v1/sync/status`
 

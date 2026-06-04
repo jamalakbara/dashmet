@@ -29,7 +29,9 @@ import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useSelectedAccount } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
+import { usePlatform } from "@/hooks/use-platform";
 import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
+import { useSharedFilterQuery } from "@/hooks/use-shared-query";
 import { CHART_COLORS } from "@/lib/constants";
 import {
   formatMetric,
@@ -90,8 +92,10 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
-export default function OverviewPage() {
+export function OverviewView() {
   const { accountId, currency } = useSelectedAccount();
+  const platform = usePlatform() ?? "meta";
+  const withQuery = useSharedFilterQuery();
   const dateRange = useDateRange();
   const { kpiMetrics, accountType } = usePlatformMetrics();
   const isCpas = accountType === "cpas";
@@ -183,7 +187,17 @@ export default function OverviewPage() {
       </div>
 
       {/* Trend Charts */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-muted-foreground">Trends</h2>
+          <Link
+            href={withQuery(`/${platform}/periodic`)}
+            className="flex items-center gap-1 text-xs text-primary hover:underline"
+          >
+            Open Periodic <ArrowRight className="size-3" />
+          </Link>
+        </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Spend Trend */}
         <Card>
           <CardHeader className="pb-2">
@@ -278,6 +292,7 @@ export default function OverviewPage() {
             )}
           </CardContent>
         </Card>
+        </div>
       </div>
 
       {/* Top Campaigns */}
@@ -285,7 +300,7 @@ export default function OverviewPage() {
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="text-sm font-medium">Top campaigns</CardTitle>
           <Link
-            href={`/table?level=campaign${accountId ? `&account_id=${accountId}` : ""}`}
+            href={withQuery(`/${platform}/table?level=campaign`)}
             className="flex items-center gap-1 text-xs text-primary hover:underline"
           >
             View all <ArrowRight className="size-3" />

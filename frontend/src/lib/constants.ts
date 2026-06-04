@@ -78,3 +78,28 @@ export const KPI_METRICS = [
   "conversions",
   "roas",
 ] as const;
+
+export interface PlatformTab {
+  slug: string;
+  label: string;
+}
+
+/**
+ * Single source of truth for the per-platform view tabs. Consumed by the
+ * PlatformTabs bar and by the sidebar (first slug = the platform's landing tab).
+ */
+export const PLATFORM_TABS: Record<string, PlatformTab[]> = {
+  meta: [
+    { slug: "overview", label: "Overview" },
+    { slug: "periodic", label: "Periodic" },
+    { slug: "table",    label: "Table" },
+    { slug: "ads",      label: "Ads" },
+  ],
+  tiktok: [
+    { slug: "overview",   label: "Overview" },
+    { slug: "periodic",   label: "Periodic" },
+    { slug: "table",      label: "Table" },
+    { slug: "ads",        label: "Ads" },
+    { slug: "engagement", label: "Engagement" },
+  ],
+};

@@ -142,3 +142,23 @@ class BreakdownResponse(BaseModel):
     level: str
     period: PeriodInfo
     rows: list[BreakdownRow]
+
+
+class PerAccountSummary(BaseModel):
+    account_id: str
+    name: str
+    platform: Optional[str] = None
+    currency: Optional[str] = None
+    summary: MetricsSummary
+
+
+class CombinedOverviewResponse(BaseModel):
+    combined: bool
+    currency_mismatch: bool
+    currency: Optional[str] = None
+    currencies: list[str] = []
+    period: PeriodInfo
+    summary: MetricsSummary
+    vs_previous: dict[str, Optional[float]] = {}
+    per_account: list[PerAccountSummary] = []
+    account_count: int = 0

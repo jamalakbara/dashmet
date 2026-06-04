@@ -3,7 +3,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useQueryState, parseAsInteger } from "nuqs";
-import { useRouter } from "next/navigation";
 import {
   ArrowUpDown,
   ArrowUp,
@@ -13,7 +12,7 @@ import {
   ChevronRight,
   ChevronDown,
 } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -278,10 +277,9 @@ function TablePagination({
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// ─── View ─────────────────────────────────────────────────────────────────────
 
-export default function TablePage() {
-  const router     = useRouter();
+export function TableView() {
   const accountId  = useAccountId();
   const dateRange  = useDateRange();
   const { tableMetricDefs, currency } = usePlatformMetrics();
