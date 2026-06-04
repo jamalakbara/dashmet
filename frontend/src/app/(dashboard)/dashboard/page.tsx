@@ -18,7 +18,7 @@ import { MetricCard } from "@/components/metrics/metric-card";
 import { PlatformBadge } from "@/components/shared/platform-badge";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
-import { useAccountsList } from "@/hooks/use-account";
+import { useAccountsCount } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
 import { getCombinableMetrics } from "@/lib/metrics";
 import { CHART_COLORS } from "@/lib/constants";
@@ -71,27 +71,26 @@ function EmptyState({ message }: { message: string }) {
 }
 
 export default function CombinedDashboardPage() {
-  const accounts = useAccountsList();
+  const accountCount = useAccountsCount();
   const [accountsParam] = useQueryState("accounts");
   const dateRange = useDateRange();
 
-  const allIds = accounts.map((a) => a.id);
-  const selectedIds =
-    accountsParam == null
-      ? allIds
-      : accountsParam
-          .split(",")
-          .filter(Boolean)
-          .filter((id) => allIds.includes(id));
-  const idsKey = selectedIds.join(",");
+  // null param = all org accounts (backend resolves); "" = explicitly none;
+  // "id,id" = an explicit subset. An empty account_ids sent to the backend
+  // means "combine everything".
+  const selection = accountsParam == null ? "all" : accountsParam;
+  const noneSelected = selection === "";
+  const accountIdsParam = selection === "all" ? "" : selection;
+  const idsKey = selection === "all" ? ["all"] : selection.split(",").filter(Boolean);
+  const queryEnabled = !noneSelected && (accountCount ?? 0) > 0;
 
   // The cross-platform-safe metric set (see getCombinableMetrics).
   const combinableKpis = getCombinableMetrics().filter((m) => m.showInKpi);
 
   const { data: ovRes, isLoading: ovLoading } = useQuery({
-    queryKey: queryKeys.combined(selectedIds, dateRange),
-    queryFn: () => insightsApi.combined({ account_ids: idsKey, ...dateRange }),
-    enabled: selectedIds.length > 0,
+    queryKey: queryKeys.combined(idsKey, dateRange),
+    queryFn: () => insightsApi.combined({ account_ids: accountIdsParam, ...dateRange }),
+    enabled: queryEnabled,
     staleTime: 15 * 60 * 1000,
   });
 
@@ -100,26 +99,26 @@ export default function CombinedDashboardPage() {
   const currency = ov?.currency ?? "USD";
 
   const { data: tsRes, isLoading: tsLoading } = useQuery({
-    queryKey: queryKeys.combinedTimeseries(selectedIds, dateRange, "day"),
+    queryKey: queryKeys.combinedTimeseries(idsKey, dateRange, "day"),
     queryFn: () =>
       insightsApi.combinedTimeseries({
-        account_ids: idsKey,
+        account_ids: accountIdsParam,
         ...dateRange,
         time_increment: "day",
       }),
-    enabled: selectedIds.length > 0 && isCombined,
+    enabled: queryEnabled && isCombined,
     staleTime: 15 * 60 * 1000,
   });
 
   const series: TrendPoint[] = tsRes?.data?.data?.series ?? [];
 
-  if (accounts.length === 0) {
+  if (accountCount === 0) {
     return (
       <EmptyState message="Connect an account in Settings → Connections to see combined insights." />
     );
   }
 
-  if (selectedIds.length === 0) {
+  if (noneSelected) {
     return (
       <EmptyState message="No accounts selected. Pick accounts to combine from the account picker above." />
     );

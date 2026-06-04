@@ -52,15 +52,18 @@ def _resolve_combined_dates(
     date_end: Optional[date],
 ):
     account_ids = [a.strip() for a in account_ids_raw.split(",") if a.strip()]
-    if not account_ids:
-        raise HTTPException(status_code=400, detail="Provide at least one account id in account_ids")
 
-    try:
-        accounts = [
-            acc_svc.assert_account_belongs_to_org(db, aid, org_id) for aid in account_ids
-        ]
-    except (NotFoundError, ForbiddenError) as e:
-        raise HTTPException(status_code=403, detail=str(e))
+    if account_ids:
+        try:
+            accounts = [
+                acc_svc.assert_account_belongs_to_org(db, aid, org_id) for aid in account_ids
+            ]
+        except (NotFoundError, ForbiddenError) as e:
+            raise HTTPException(status_code=403, detail=str(e))
+    else:
+        # Empty selection = all org accounts (ids are already org-scoped).
+        account_ids = [str(i) for i in acc_svc.get_org_account_ids(db, org_id)]
+        accounts = []
 
     tz = accounts[0].timezone if accounts else "UTC"
     if date_preset:

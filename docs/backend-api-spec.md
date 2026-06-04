@@ -516,7 +516,18 @@ Disconnect a platform. **Owner only.** Sets `is_active = false` on the connectio
 
 #### `GET /api/v1/accounts`
 
-List all ad accounts the authenticated user has access to.
+List ad accounts the authenticated user has access to. Supports server-side search and platform scoping so the account picker never has to load the full org (orgs can have 200–1000+ accounts).
+
+**Query params**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `search` | string | — | Case-insensitive substring match on `name`, `external_id`, **and** `business_name` (ILIKE) |
+| `platform` | string | — | Scope to one platform (`meta`, `tiktok`, …) |
+| `page` | int | 1 | Page number |
+| `per_page` | int | 25 | Page size (max 200) |
+
+Disabled accounts (`account_status = "disabled"`) are always excluded.
 
 **Response `200`**
 ```json
@@ -1035,12 +1046,14 @@ Returns combined KPI summary + per-account breakdown + period-over-period deltas
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| `account_ids` | string | ✓ | Comma-separated account UUIDs. All must belong to the caller's org. |
+| `account_ids` | string | — | Comma-separated account UUIDs (all must belong to the caller's org). **Empty/omitted = all org accounts** — lets the dashboard send "All accounts" without enumerating ids client-side. |
 | `date_preset` | string | ✓† | One of the standard presets |
 | `date_start` | date | ✓† | YYYY-MM-DD (custom range) |
 | `date_end` | date | ✓† | YYYY-MM-DD (custom range) |
 
 † Either `date_preset` or both `date_start`+`date_end` required.
+
+When `account_ids` is empty the backend resolves the org's account ids via `get_org_account_ids` (already org-scoped); explicit ids are still validated per-id. Applies to both `combined` and `combined-timeseries`.
 
 **Response — single currency**
 

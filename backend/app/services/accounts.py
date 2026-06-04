@@ -3,6 +3,7 @@ import uuid
 from typing import Optional
 
 import httpx
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.exceptions import ConflictError, ForbiddenError, NotFoundError
@@ -44,13 +45,29 @@ def assert_account_belongs_to_org(
 
 
 def list_accounts(
-    db: Session, org_id: str, page: int = 1, per_page: int = 25
+    db: Session,
+    org_id: str,
+    page: int = 1,
+    per_page: int = 25,
+    search: Optional[str] = None,
+    platform: Optional[str] = None,
 ) -> tuple[list[Account], int]:
     org_uuid = uuid.UUID(org_id)
     q = db.query(Account).filter(
         Account.organization_id == org_uuid,
         Account.account_status != "disabled",
     )
+    if platform:
+        q = q.filter(Account.platform_id == platform)
+    if search:
+        pattern = f"%{search.strip()}%"
+        q = q.filter(
+            or_(
+                Account.name.ilike(pattern),
+                Account.external_id.ilike(pattern),
+                Account.business_name.ilike(pattern),
+            )
+        )
     total = q.count()
     accounts = q.offset(calculate_offset(page, per_page)).limit(per_page).all()
     return accounts, total

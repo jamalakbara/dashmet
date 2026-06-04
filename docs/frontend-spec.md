@@ -85,15 +85,15 @@ src/
 │
 ├── components/
 │   ├── ui/                       # shadcn/ui primitives (auto-generated)
-│   ├── layout/                   # Sidebar, Header, PlatformTabs, AccountSwitcher
+│   ├── layout/                   # Sidebar, Header, PlatformTabs
 │   ├── views/                    # Per-platform view bodies (Overview/Periodic/Table/Ads)
 │   ├── charts/                   # Recharts wrappers
 │   ├── metrics/                  # MetricCard, MetricTable, BreakdownSection, etc.
 │   ├── ads/                      # AdCard, CreativePreview, etc.
-│   └── shared/                   # DateRangePicker, StatusBadge, etc.
+│   └── shared/                   # AccountSwitcher, AccountCommandList, DateRangePicker, StatusBadge, etc.
 │
 ├── hooks/
-│   ├── use-account.ts            # Current selected account (scoped to route platform)
+│   ├── use-account.ts            # Selected account + server-side account search (useAccountSearch / useAccountsCount / useSelectedAccount)
 │   ├── use-platform.ts           # Active platform from route (/meta → "meta", etc.)
 │   ├── use-platform-metrics.ts   # Platform/account-type-aware metric sets
 │   ├── use-shared-query.ts       # Carry account_id + date params across nav
@@ -180,18 +180,21 @@ The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed sidebar on the l
 ### Header — components
 
 **`AccountSwitcher`**
-- shadcn `Popover` + `Command` (combobox pattern)
-- Lists all accounts for the current org
-- Selecting updates `account_id` in URL state and triggers data refetch
-- Shows account name + platform icon badge (Meta logo, etc.)
-- Shows "No accounts connected" state with link to `/settings/connections` if empty
+- shadcn `Popover` + `Command` (cmdk combobox), **server-side searched** — never loads the whole org (200–1000+ accounts). Search hits `GET /accounts?search=&platform=`; the picker sets `shouldFilter={false}` (the server is the filter).
+- Two modes via a shared `AccountCommandList` (`components/shared/`):
+  - **Platform route** (`/meta`, `/tiktok`) → single-select, scoped to that platform. Updates `account_id`.
+  - **Combined dashboard** (`/dashboard`) → multi-select, results grouped by platform. Updates `accounts` (comma-separated). `null` param = **All accounts**, `""` = none.
+- **Pinned + Recent** groups at the top, persisted in `ui-store` (localStorage) as denormalized `accountSnapshots` so they render without re-fetching. Star icon toggles pin.
+- Rows: platform badge, **account name (primary)**, business name / external id (secondary muted line), currency, star. Name always takes priority width (`flex-1` + truncate) so long ids never squeeze it out.
+- "No accounts connected" empty state (via `useAccountsCount`); brief on-connect polling.
 
 **`DateRangePicker`**
-- shadcn `Popover` + `Calendar`
-- Left panel: preset buttons (`Last 7 days`, `Last 30 days`, `Last 90 days`, `This month`, `Last month`, `Custom range`)
-- Right panel: calendar appears only for custom range
-- Selection stored in URL params: `?date_preset=last_30d` or `?date_start=2026-05-01&date_end=2026-05-30`
-- Default: `last_30d`
+- shadcn `Popover` + `Calendar` (`react-day-picker`). **Single popover, two views** — not split panels.
+  - **Presets view**: preset buttons + a `Custom range…` item.
+  - **Custom view**: clicking `Custom range…` swaps in a range `Calendar` (future dates disabled) with a `‹ Presets` back link and a footer showing the selected range + `Cancel`/`Apply`.
+- Mutually exclusive: choosing a preset clears `date_start`/`date_end`; `Apply` sets `date_start`/`date_end` and clears `date_preset` (backend rejects both).
+- A 30-day note appears in the custom view **only when** the chosen range reaches back past 30 days (breakdowns cover ~30d; see breakdown sync).
+- Selection stored in URL: `?date_preset=last_30d` or `?date_start=2026-05-01&date_end=2026-05-30`. Default: `last_30d`. Survives nav via `useSharedFilterQuery`.
 
 **`SyncStatusBadge`**
 - Small indicator in the top-right area
@@ -656,10 +659,10 @@ KPI display card with value, label, % change badge, and optional sparkline. Used
 Tiny inline Recharts `LineChart` (no axes, no tooltip) for KPI card trends.
 
 ### `DateRangePicker`
-Popover with preset buttons + optional calendar for custom range. Syncs to URL.
+Single popover, two views: preset buttons and a `Custom range…` reveal that swaps in a `react-day-picker` range calendar (future dates disabled). Apply sets `date_start`/`date_end` and clears `date_preset`. Syncs to URL.
 
-### `AccountSwitcher`
-Combobox dropdown listing all org accounts. Syncs selected account to URL + Zustand store.
+### `AccountSwitcher` / `AccountCommandList`
+Server-side searched `cmdk` combobox (`?search=&platform=`) — single-select on platform routes, multi-select (grouped by platform) on the combined dashboard. Pinned + Recent groups persisted in `ui-store` via `accountSnapshots`. Syncs `account_id` (or `accounts`) to URL.
 
 ### `SyncStatusBadge`
 Polls sync status every 60 seconds. Shows dot indicator + last updated time. Triggers manual sync on click (owner only).
@@ -694,7 +697,8 @@ Primary state for all dashboard filters — ensures shareable, bookmarkable URLs
 
 | URL param | Used by | Example |
 |---|---|---|
-| `account_id` | All dashboard views | `?account_id=uuid` |
+| `account_id` | Platform views (Meta, TikTok) | `?account_id=uuid` |
+| `accounts` | Combined dashboard (multi-select; absent = all) | `?accounts=uuid1,uuid2` |
 | `date_preset` | All dashboard views | `?date_preset=last_30d` |
 | `date_start` | All dashboard views | `?date_start=2026-05-01` |
 | `date_end` | All dashboard views | `?date_end=2026-05-30` |
@@ -802,8 +806,9 @@ function useSyncStatus(accountId: string) {
 
 ## 11. URL State Conventions
 
-- When `date_preset` is set, `date_start` and `date_end` are ignored (preset takes precedence)
-- When `account_id` is absent from the URL, default to the first account in the list
+- `date_preset` and `date_start`/`date_end` are mutually exclusive; the picker clears one when the other is chosen. If both somehow appear, a custom range (`date_start`+`date_end`) wins (`useDateRange`).
+- When `account_id` is absent, `useSelectedAccount` resolves a default: first pinned/recent account for the platform, else the first row of the platform's first page.
+- Combined dashboard: `accounts` absent = all org accounts (sent as empty `account_ids`); `accounts=""` = none selected (empty state).
 - Changing `level` in the table resets `page` to 1 and clears `campaign_id` / `adgroup_id`
 - All URL params use snake_case (consistent with API params)
 - Boolean params: `compare=true` — absence means `false` (no `compare=false` in URL)

@@ -15,6 +15,9 @@ export type TableFilters = {
 export const queryKeys = {
   me: () => ["me"] as const,
   accounts: () => ["accounts"] as const,
+  accountsSearch: (platform: string | null, search: string) =>
+    ["accounts", "search", platform, search] as const,
+  accountsCount: () => ["accounts", "count"] as const,
   account: (id: string) => ["account", id] as const,
   syncStatus: (accountId: string) => ["sync-status", accountId] as const,
   overview: (accountId: string, dateRange: DateRange) =>
