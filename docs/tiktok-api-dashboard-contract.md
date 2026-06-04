@@ -597,7 +597,7 @@ TikTok's API supports demographic breakdowns (age, gender, country, device, and 
 |---|---|---|
 | `age` | Age groups | 13–17, 18–24, 25–34, 35–44, 45–54, 55+ |
 | `gender` | Gender | MALE, FEMALE, UNKNOWN |
-| `age_gender` | Age + Gender combined | Single request for both |
+| `age,gender` | Age + Gender combined | Single request for both |
 | `country_code` | Country | ISO country codes |
 | `platform` | Operating system | IOS, ANDROID |
 | `placement` | Ad placement | TIKTOK, PANGLE, etc. |
