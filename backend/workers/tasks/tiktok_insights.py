@@ -200,7 +200,7 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
                         continue
 
                     try:
-                        row_date = datetime.strptime(stat_date, "%Y-%m-%d").date()
+                        row_date = datetime.strptime(stat_date[:10], "%Y-%m-%d").date()
                     except ValueError:
                         continue
 

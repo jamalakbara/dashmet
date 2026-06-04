@@ -41,7 +41,7 @@ export function SyncStatusBadge() {
     return <StatusDot color="gray" />;
   }
 
-  const jobs = data.jobs as Record<
+  const jobs = (data.jobs ?? {}) as Record<
     string,
     { status: string; last_run_at: string | null; is_stale: boolean }
   >;

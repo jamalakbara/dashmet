@@ -438,5 +438,7 @@ def sync_structure_for_account(self, account_id: str):
     if structure_synced:
         from workers.tasks.insights import sync_insights_for_account
         from workers.tasks.async_jobs import submit_async_job_for_account
+        from workers.tasks.creatives import sync_creatives_for_account
         sync_insights_for_account.delay(account_id)
         submit_async_job_for_account.delay(account_id)
+        sync_creatives_for_account.delay(account_id)

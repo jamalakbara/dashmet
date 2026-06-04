@@ -149,3 +149,32 @@ def sync_creative(self, ad_id: str):
         except Exception as e:
             logger.error(f"[{ad_id}] Creative sync failed: {e}")
             raise self.retry(exc=e)
+
+
+@celery_app.task(
+    name="workers.tasks.creatives.sync_creatives_for_account",
+    bind=True,
+    max_retries=3,
+)
+def sync_creatives_for_account(self, account_id: str):
+    from workers.db_helpers import get_worker_db
+    from app.models.structure import Ad, Creative
+
+    with get_worker_db() as db:
+        ads = (
+            db.query(Ad)
+            .filter(Ad.account_id == uuid.UUID(account_id), Ad.creative_id.isnot(None))
+            .all()
+        )
+        stale_ad_ids = []
+        for ad in ads:
+            creative = db.get(Creative, ad.creative_id)
+            if not _creative_is_fresh(creative):
+                stale_ad_ids.append(str(ad.id))
+
+    for ad_id in stale_ad_ids:
+        sync_creative.delay(ad_id)
+
+    logger.info(
+        "[%s] Enqueued %s stale Meta creative syncs", account_id, len(stale_ad_ids)
+    )

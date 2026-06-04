@@ -72,7 +72,7 @@ def get_creative(ad_id: str, current_user: CurrentUser, db: DbSession):
     except ForbiddenError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
-    if ad.creative:
+    if ad.creative and ad.creative.thumbnail_url:
         return DataResponse(
             data={
                 "ad_id": str(ad.id),

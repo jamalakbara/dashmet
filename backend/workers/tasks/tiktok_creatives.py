@@ -60,19 +60,36 @@ def sync_tiktok_creative(self, ad_id: str):
                 raw_spec = {}
 
             video_id = raw_spec.get("video_id")
-            if not video_id:
+            tiktok_item_id = raw_spec.get("tiktok_item_id")
+            if not video_id and not tiktok_item_id:
                 return
 
-        with TikTokClient(access_token) as client:
-            video_infos = client.get_video_info(advertiser_id, [video_id])
+        cover_url = None
+        preview_url = None
+        video_name = None
 
-        if not video_infos:
-            return
-
-        video = video_infos[0]
-        cover_url = video.get("cover_url")
-        preview_url = video.get("preview_url")
-        video_name = video.get("video_name")
+        if video_id:
+            with TikTokClient(access_token) as client:
+                video_infos = client.get_video_info(advertiser_id, [video_id])
+            if video_infos:
+                video = video_infos[0]
+                cover_url = video.get("cover_url")
+                preview_url = video.get("preview_url")
+                video_name = video.get("video_name")
+        elif tiktok_item_id:
+            import httpx
+            try:
+                resp = httpx.get(
+                    "https://www.tiktok.com/oembed",
+                    params={"url": f"https://www.tiktok.com/video/{tiktok_item_id}"},
+                    timeout=15.0,
+                )
+                resp.raise_for_status()
+                oembed = resp.json()
+                cover_url = oembed.get("thumbnail_url")
+                video_name = oembed.get("title")
+            except Exception as exc:
+                logger.warning("oEmbed fetch failed for item %s: %s", tiktok_item_id, exc)
         now = datetime.now(timezone.utc)
 
         with get_worker_db() as db:
@@ -138,3 +155,32 @@ def sync_tiktok_creative(self, ad_id: str):
     except Exception as exc:
         logger.exception("Unexpected error fetching TikTok creative for ad %s", ad_id)
         raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="workers.tasks.tiktok_creatives.sync_tiktok_creatives_for_account",
+    bind=True,
+    max_retries=3,
+)
+def sync_tiktok_creatives_for_account(self, account_id: str):
+    from workers.db_helpers import get_worker_db
+    from app.models.structure import Ad, Creative
+
+    with get_worker_db() as db:
+        ads = (
+            db.query(Ad)
+            .filter(Ad.account_id == uuid.UUID(account_id), Ad.creative_id.isnot(None))
+            .all()
+        )
+        stale_ad_ids = []
+        for ad in ads:
+            creative = db.get(Creative, ad.creative_id)
+            if not _creative_is_fresh(creative):
+                stale_ad_ids.append(str(ad.id))
+
+    for ad_id in stale_ad_ids:
+        sync_tiktok_creative.delay(ad_id)
+
+    logger.info(
+        "[%s] Enqueued %s stale TikTok creative syncs", account_id, len(stale_ad_ids)
+    )

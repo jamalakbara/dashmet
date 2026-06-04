@@ -330,13 +330,16 @@ def sync_tiktok_structure_for_account(self, account_id: str):
                 status = TIKTOK_STATUS_MAP.get(status_raw, "active")
 
                 video_id = ad.get("video_id")
+                tiktok_item_id = ad.get("tiktok_item_id")
 
-                # Upsert stub Creative (raw_spec holds text fields + video_id for later enrichment)
+                # Upsert stub Creative. Spark Ads use tiktok_item_id (organic post);
+                # standard video ads use video_id. Both are enriched later by the creatives worker.
                 creative_id = None
-                if video_id:
-                    platform_creative_id = video_id
+                platform_creative_id = video_id or tiktok_item_id
+                if platform_creative_id:
                     raw_spec = {
                         "video_id": video_id,
+                        "tiktok_item_id": tiktok_item_id,
                         "ad_text": ad.get("ad_text"),
                         "call_to_action": ad.get("call_to_action"),
                         "landing_page_url": ad.get("landing_page_url"),
@@ -405,8 +408,10 @@ def sync_tiktok_structure_for_account(self, account_id: str):
         )
 
         from workers.tasks.tiktok_insights import sync_tiktok_insights_for_account
+        from workers.tasks.tiktok_creatives import sync_tiktok_creatives_for_account
         sync_tiktok_insights_for_account.delay(account_id)
         sync_tiktok_insights_for_account.delay(account_id, "last_30d", "insights_historical")
+        sync_tiktok_creatives_for_account.delay(account_id)
 
     except TikTokAPIError as exc:
         logger.error("TikTok API error for account %s: %s", account_id, exc)
