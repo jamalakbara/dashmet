@@ -648,6 +648,32 @@ Clicking "Connect" for Meta opens a dialog with:
 - Submit → `POST /connections` (validates token server-side before saving)
 - On success: "Connection verified. Importing ad accounts…" → closes dialog, page refreshes
 
+### `/settings/accounts`
+
+Per-account configuration list. Orgs can have 200–1000+ accounts, so the list is **server-paginated** — never the full org at once.
+
+```
+Account Type
+CPAS (Collaborative Ads) accounts show traffic metrics only — ROAS/conversions
+owned by the retailer. CPAS applies to Meta accounts only.
+
+[ 🔍 Search accounts… ]            [ All | Meta | TikTok ]
+┌──────────────────────────────────────────────────────┐
+│  ▣ Meta   Acme Ads      USD          [ Standard ▾ ]  │
+│  ▣ TikTok Beta Co       EUR                    —     │
+└──────────────────────────────────────────────────────┘
+Showing 1–20 of 123        ←  1  2  3  …  7  →
+```
+
+- **Data:** `useQuery` on `accountsApi.list({ search, platform, page, per_page: 20 })`, keyed by `queryKeys.accountsList(platform, search, page)`. `placeholderData:(prev)=>prev` keeps the list stable while typing/paging. `PAGE_SIZE = 20`.
+- **Search:** local input → `useDebounced(…, 250)` (from `hooks/use-account.ts`) → server `search` param.
+- **Platform filter:** `Tabs` (All / Meta / TikTok), single-select, value `all`/`meta`/`tiktok` → server `platform` param. `all` sends no filter.
+- Changing search or platform resets `page` to 1.
+- **Account type control is Meta-only:** Meta rows render the Standard/CPAS `Select`; non-Meta (TikTok) rows render a muted `—` (CPAS is a Meta concept; backend rejects `cpas` on non-Meta with `409`).
+- **Mutation:** `accountsApi.updateConfig(id, { account_type })`; on success invalidates the `["accounts"]` prefix (refreshes this list, picker search, and count together).
+- Footer: `PaginationBar` (shown only when `total_pages > 1`).
+- Empty state reflects filters: "No accounts match your filters." vs "No ad accounts connected yet."
+
 ---
 
 ## 8. Shared Components
@@ -663,6 +689,9 @@ Single popover, two views: preset buttons and a `Custom range…` reveal that sw
 
 ### `AccountSwitcher` / `AccountCommandList`
 Server-side searched `cmdk` combobox (`?search=&platform=`) — single-select on platform routes, multi-select (grouped by platform) on the combined dashboard. Pinned + Recent groups persisted in `ui-store` via `accountSnapshots`. Syncs `account_id` (or `accounts`) to URL.
+
+### `PaginationBar`
+Server-pagination footer: "Showing X–Y of N" + numbered page buttons (collapses to first/last with `…` past 7 pages) and prev/next. Props: `page`, `totalPages`, `total`, `perPage`, `onPage`. Used by `TableView` and `/settings/accounts`.
 
 ### `SyncStatusBadge`
 Polls sync status every 60 seconds. Shows dot indicator + last updated time. Triggers manual sync on click (owner only).

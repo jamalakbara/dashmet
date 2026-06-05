@@ -1,5 +1,9 @@
 import type { DatePreset } from "@/types/enums";
 
+/** Every platform the combined picker fans out over (grouped by these, in order).
+ *  Unconnected platforms return no accounts and their group is dropped. */
+export const SUPPORTED_PLATFORMS = ["meta", "tiktok", "google_ads", "google_analytics"] as const;
+
 export const DATE_PRESETS: { label: string; value: DatePreset }[] = [
   { label: "Today",       value: "today" },
   { label: "Yesterday",   value: "yesterday" },

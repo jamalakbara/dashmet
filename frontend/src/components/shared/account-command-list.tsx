@@ -13,7 +13,11 @@ import {
 } from "@/components/ui/command";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PlatformBadge } from "@/components/shared/platform-badge";
-import { useAccountSearch, type Account } from "@/hooks/use-account";
+import {
+  useAccountSearch,
+  useGroupedAccountSearch,
+  type Account,
+} from "@/hooks/use-account";
 import { useUIStore, type AccountSnapshot } from "@/stores/ui-store";
 import { cn } from "@/lib/utils";
 
@@ -65,7 +69,12 @@ export function AccountCommandList({
   onToggle,
 }: AccountCommandListProps) {
   const [search, setSearch] = useState("");
-  const { accounts, isFetching } = useAccountSearch(platform, search);
+  // Combined dashboard (platform null) fans out per platform; a single platform
+  // route uses one scoped query. `enabled` keeps the unused hook from fetching.
+  const isCombined = platform === null;
+  const single = useAccountSearch(platform, search, !isCombined);
+  const combined = useGroupedAccountSearch(search, isCombined);
+  const { accounts, isFetching } = isCombined ? combined : single;
 
   const snapshots = useUIStore((s) => s.accountSnapshots);
   const pinnedIds = useUIStore((s) => s.pinnedAccountIds);
@@ -90,9 +99,14 @@ export function AccountCommandList({
   const results = searching ? accounts : accounts.filter((a) => !shortcutIds.has(a.id));
 
   function pick(account: Account) {
-    recordAccount(toSnapshot(account));
-    if (mode === "single") onSelect?.(account);
-    else onToggle?.(account);
+    // Only single-select records to Recent. Recording on a multi toggle would
+    // pull the row into the Recent group and out of its platform list mid-select.
+    if (mode === "single") {
+      recordAccount(toSnapshot(account));
+      onSelect?.(account);
+    } else {
+      onToggle?.(account);
+    }
   }
 
   const isSelected = (id: string) =>

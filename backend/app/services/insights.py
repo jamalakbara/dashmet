@@ -1,7 +1,10 @@
+import calendar
 import uuid
 from datetime import date, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from dateutil.relativedelta import relativedelta
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
@@ -32,11 +35,14 @@ def resolve_date_range(
     presets = {
         "today": (today, today),
         "yesterday": (today - timedelta(days=1), today - timedelta(days=1)),
-        "last_7d": (today - timedelta(days=6), today),
-        "last_14d": (today - timedelta(days=13), today),
-        "last_28d": (today - timedelta(days=27), today),
-        "last_30d": (today - timedelta(days=29), today),
-        "last_90d": (today - timedelta(days=89), today),
+        # Rolling presets span N calendar days back through today, inclusive
+        # (e.g. on Jun 5, last_30d = May 6 .. Jun 5). Single source for the API
+        # layer AND the TikTok breakdown worker (which stores at start_date).
+        "last_7d": (today - timedelta(days=7), today),
+        "last_14d": (today - timedelta(days=14), today),
+        "last_28d": (today - timedelta(days=28), today),
+        "last_30d": (today - timedelta(days=30), today),
+        "last_90d": (today - timedelta(days=90), today),
         "this_month": (today.replace(day=1), today),
         "last_month": (
             (today.replace(day=1) - timedelta(days=1)).replace(day=1),
@@ -50,7 +56,25 @@ def resolve_date_range(
     return presets[date_preset]
 
 
+def _is_full_calendar_month(start: date, end: date) -> bool:
+    """True when [start, end] spans exactly one whole calendar month."""
+    last_day = calendar.monthrange(start.year, start.month)[1]
+    return (
+        start.day == 1
+        and start.year == end.year
+        and start.month == end.month
+        and end.day == last_day
+    )
+
+
 def resolve_prior_period(start: date, end: date) -> tuple[date, date]:
+    # Full calendar month → previous calendar month (e.g. May 1–31 → Apr 1–30).
+    if _is_full_calendar_month(start, end):
+        prior_start = start - relativedelta(months=1)
+        last_day = calendar.monthrange(prior_start.year, prior_start.month)[1]
+        prior_end = prior_start.replace(day=last_day)
+        return prior_start, prior_end
+    # Otherwise → equal-length window immediately before (rolling presets, custom spans).
     delta = (end - start).days + 1
     prior_end = start - timedelta(days=1)
     prior_start = prior_end - timedelta(days=delta - 1)
@@ -402,6 +426,7 @@ def get_timeseries(
     previous_series = None
     series_by_entity = None
 
+    prior_start = prior_end = None
     if compare_previous:
         prior_start, prior_end = resolve_prior_period(date_start, date_end)
         prior_params = {**params, "date_start": prior_start, "date_end": prior_end}
@@ -411,15 +436,9 @@ def get_timeseries(
     if level != "account":
         entity_type_map = {"campaign": "campaign", "adgroup": "adgroup", "ad": "ad"}
         entity_type = entity_type_map.get(level, "campaign")
-        entity_params = {**params, "entity_type": entity_type}
-        entity_rows = db.execute(text(TIMESERIES_BY_ENTITY_SQL), entity_params).mappings().all()
 
-        entities: dict[str, dict] = {}
-        for r in entity_rows:
-            eid = r["entity_id"]
-            if eid not in entities:
-                entities[eid] = {"entity": {"id": eid, "name": r["entity_name"] or eid}, "series": []}
-            entities[eid]["series"].append({
+        def entity_row_to_point(r):
+            return {
                 "date": r["period_date"],
                 "spend": _safe_float(r.get("spend")),
                 "impressions": _safe_int(r.get("impressions")),
@@ -429,7 +448,32 @@ def get_timeseries(
                 "cpc": _safe_float(r.get("cpc")),
                 "conversions": _safe_float(r.get("conversions")),
                 "roas": _safe_float(r.get("roas")),
-            })
+            }
+
+        entity_params = {**params, "entity_type": entity_type}
+        entity_rows = db.execute(text(TIMESERIES_BY_ENTITY_SQL), entity_params).mappings().all()
+
+        entities: dict[str, dict] = {}
+        for r in entity_rows:
+            eid = r["entity_id"]
+            if eid not in entities:
+                entities[eid] = {"entity": {"id": eid, "name": r["entity_name"] or eid}, "series": []}
+            entities[eid]["series"].append(entity_row_to_point(r))
+
+        # Per-entity previous period, aligned by date so the frontend can zip by index.
+        if compare_previous:
+            prior_entity_params = {**entity_params, "date_start": prior_start, "date_end": prior_end}
+            prior_entity_rows = db.execute(
+                text(TIMESERIES_BY_ENTITY_SQL), prior_entity_params
+            ).mappings().all()
+            prev_by_entity: dict[str, list] = {}
+            for r in prior_entity_rows:
+                prev_by_entity.setdefault(r["entity_id"], []).append(entity_row_to_point(r))
+            for eid, ent in entities.items():
+                ent["series"].sort(key=lambda p: p["date"])
+                prev_points = sorted(prev_by_entity.get(eid, []), key=lambda p: p["date"])
+                ent["previous_series"] = prev_points
+
         series_by_entity = list(entities.values())
 
     return {

@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 from sqlalchemy import (
-    String, Numeric, ForeignKey, Date, DateTime,
+    String, Text, Numeric, ForeignKey, Date, DateTime,
     UniqueConstraint, Index, func
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -104,7 +104,7 @@ class Creative(UUIDPrimaryKeyMixin, Base):
     platform_creative_id: Mapped[str] = mapped_column(String(100), nullable=False)
     name: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     format: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    title: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     body: Mapped[Optional[str]] = mapped_column(String(5000), nullable=True)
     image_url: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
     thumbnail_url: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)

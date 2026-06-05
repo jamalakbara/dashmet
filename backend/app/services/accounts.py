@@ -69,6 +69,7 @@ def list_accounts(
             )
         )
     total = q.count()
+    q = q.order_by(Account.platform_id, Account.name)
     accounts = q.offset(calculate_offset(page, per_page)).limit(per_page).all()
     return accounts, total
 
@@ -92,6 +93,8 @@ def update_account_config(
     account = assert_account_belongs_to_org(db, account_id, org_id)
 
     if account_type is not None:
+        if account_type == "cpas" and account.platform_id != "meta":
+            raise ConflictError("CPAS account type is only available for Meta accounts")
         account.account_type = account_type
 
     config = account.config

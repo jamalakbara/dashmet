@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useQueryState } from "nuqs";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueries } from "@tanstack/react-query";
 import { accountsApi } from "@/lib/api/accounts";
 import { queryKeys } from "@/lib/query-keys";
+import { SUPPORTED_PLATFORMS } from "@/lib/constants";
 import { usePlatform } from "@/hooks/use-platform";
 import { useUIStore, type AccountSnapshot } from "@/stores/ui-store";
 
@@ -37,7 +38,11 @@ export function useDebounced<T>(value: T, ms = 250): T {
  * (null = all platforms, for the combined dashboard). The whole list is never
  * loaded at once — the backend filters and caps the page.
  */
-export function useAccountSearch(platform: string | null, search: string) {
+export function useAccountSearch(
+  platform: string | null,
+  search: string,
+  enabled = true,
+) {
   const debounced = useDebounced(search.trim(), 250);
   const { data, isLoading, isFetching } = useQuery({
     queryKey: queryKeys.accountsSearch(platform, debounced),
@@ -49,10 +54,39 @@ export function useAccountSearch(platform: string | null, search: string) {
           per_page: PICKER_PAGE_SIZE,
         })
       ).data.data as Account[],
-    enabled: typeof window !== "undefined",
+    enabled: enabled && typeof window !== "undefined",
     placeholderData: (prev) => prev, // keep prior results visible while typing
   });
   return { accounts: data ?? [], isLoading, isFetching };
+}
+
+/**
+ * Combined-dashboard picker: fans out one capped query per supported platform so
+ * every connected platform is represented (a single capped page would otherwise
+ * be dominated by the platform with the most accounts). Reuses the same key +
+ * fetcher as useAccountSearch; empty (unconnected) platforms drop out naturally.
+ */
+export function useGroupedAccountSearch(search: string, enabled = true) {
+  const debounced = useDebounced(search.trim(), 250);
+  const queries = useQueries({
+    queries: SUPPORTED_PLATFORMS.map((platform) => ({
+      queryKey: queryKeys.accountsSearch(platform, debounced),
+      queryFn: async () =>
+        (
+          await accountsApi.list({
+            platform,
+            search: debounced || undefined,
+            per_page: PICKER_PAGE_SIZE,
+          })
+        ).data.data as Account[],
+      enabled: enabled && typeof window !== "undefined",
+      placeholderData: (prev: Account[] | undefined) => prev,
+    })),
+  });
+  // flatMap preserves SUPPORTED_PLATFORMS order → Meta group before TikTok, etc.
+  const accounts = queries.flatMap((q) => q.data ?? []);
+  const isFetching = queries.some((q) => q.isFetching);
+  return { accounts, isFetching };
 }
 
 /** Total connected-account count — for empty states and on-connect polling. */

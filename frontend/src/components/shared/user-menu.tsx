@@ -57,12 +57,12 @@ export function UserMenu() {
           <span className="text-xs text-muted-foreground truncate">{me?.email ?? "—"}</span>
         </div>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => router.push("/settings/org")}>
+        <DropdownMenuItem onClick={() => router.push("/settings/org")}>
           <Settings className="size-4" />
           Settings
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onSelect={handleSignOut}>
+        <DropdownMenuItem variant="destructive" onClick={handleSignOut}>
           <LogOut className="size-4" />
           Sign out
         </DropdownMenuItem>

@@ -46,6 +46,7 @@ interface SeriesRow {
 interface EntitySeries {
   entity: { id: string; name: string };
   series: SeriesRow[];
+  previous_series?: SeriesRow[];
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -147,7 +148,7 @@ export function PeriodicView() {
 
   // ── Timeseries ──
   const { data: tsRes, isLoading } = useQuery({
-    queryKey: queryKeys.timeseries(accountId ?? "", dateRange, level, metrics, timeIncrement),
+    queryKey: queryKeys.timeseries(accountId ?? "", dateRange, level, metrics, timeIncrement, comparePrev),
     queryFn: () =>
       insightsApi.timeseries({
         account_id: accountId!,
@@ -179,10 +180,14 @@ export function PeriodicView() {
     });
   } else {
     const dateMap = new Map<string, Record<string, unknown>>();
-    seriesByEntity.forEach(({ entity, series }) => {
-      series.forEach((row) => {
+    seriesByEntity.forEach(({ entity, series, previous_series }) => {
+      series.forEach((row, idx) => {
         if (!dateMap.has(row.date)) dateMap.set(row.date, { date: row.date });
-        dateMap.get(row.date)![entity.id] = row[metrics[0]] ?? null;
+        const entry = dateMap.get(row.date)!;
+        entry[entity.id] = row[metrics[0]] ?? null;
+        if (comparePrev && previous_series?.[idx]) {
+          entry[`prev_${entity.id}`] = previous_series[idx][metrics[0]] ?? null;
+        }
       });
     });
     chartData = Array.from(dateMap.values()).sort(
@@ -382,6 +387,23 @@ export function PeriodicView() {
                       dataKey={`prev_${m}`}
                       yAxisId={i === 1 && metrics[1] ? "right" : "left"}
                       stroke={CHART_COLORS[i]}
+                      strokeWidth={1.5}
+                      strokeDasharray="4 4"
+                      dot={false}
+                      opacity={0.5}
+                    />
+                  ))}
+
+                {!isAccountLevel &&
+                  comparePrev &&
+                  seriesByEntity.map((e, i) => (
+                    <Line
+                      key={`prev_${e.entity.id}`}
+                      type="monotone"
+                      dataKey={`prev_${e.entity.id}`}
+                      name={`${e.entity.name} (prev. period)`}
+                      yAxisId="left"
+                      stroke={CHART_COLORS[i % CHART_COLORS.length]}
                       strokeWidth={1.5}
                       strokeDasharray="4 4"
                       dot={false}

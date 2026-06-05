@@ -133,7 +133,8 @@ export function OverviewView() {
       dateRange,
       "account",
       kpiKeys,
-      "day"
+      "day",
+      false
     ),
     queryFn: () =>
       insightsApi.timeseries({

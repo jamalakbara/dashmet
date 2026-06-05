@@ -69,6 +69,7 @@ class TimeSeriesPoint(BaseModel):
 class TimeSeriesEntity(BaseModel):
     entity: dict[str, str]
     series: list[TimeSeriesPoint]
+    previous_series: Optional[list[TimeSeriesPoint]] = None
 
 
 class TimeSeriesResponse(BaseModel):

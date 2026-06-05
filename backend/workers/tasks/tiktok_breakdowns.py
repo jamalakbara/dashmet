@@ -6,7 +6,7 @@ Schedule: every 1 hour via Celery Beat.
 """
 import logging
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -50,13 +50,12 @@ TIKTOK_BREAKDOWN_CONFIGS = {
 }
 
 
-def _resolve_dates(date_preset: str) -> tuple[str, str]:
-    today = date.today()
-    presets = {
-        "last_7d":  (today - timedelta(7),  today - timedelta(1)),
-        "last_30d": (today - timedelta(30), today - timedelta(1)),
-    }
-    start, end = presets.get(date_preset, presets["last_30d"])
+def _resolve_dates(date_preset: str, account_timezone: str = "UTC") -> tuple[str, str]:
+    """Delegate to the single source of truth used by the API layer so the stored
+    breakdown `date` always falls inside the range the /breakdown endpoint queries.
+    Returns TikTok-API-formatted date strings (the breakdown row is stored at start)."""
+    from app.services.insights import resolve_date_range
+    start, end = resolve_date_range(date_preset, account_timezone)
     return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 
 
@@ -129,8 +128,9 @@ def sync_tiktok_breakdowns_for_account(self, account_id: str, date_preset: str =
             conn = db.get(PlatformConnection, account.platform_connection_id)
             access_token = decrypt_token(conn.access_token)
             advertiser_id = account.external_id
+            account_timezone = account.timezone
 
-        start_date, end_date = _resolve_dates(date_preset)
+        start_date, end_date = _resolve_dates(date_preset, account_timezone)
         total = 0
 
         with TikTokClient(access_token) as client:
@@ -186,6 +186,21 @@ def sync_tiktok_breakdowns_for_account(self, account_id: str, date_preset: str =
 
                 if bd_rows:
                     with get_worker_db() as db:
+                        # This task stores ONE whole-period aggregate per segment, keyed
+                        # by the period's start_date — which shifts every day. Without a
+                        # purge, each daily run leaves a new dated row and the API's
+                        # `date BETWEEN start..end` sums all of them → N× overcount.
+                        # Delete the prior aggregate for this account+type before
+                        # inserting the fresh one so exactly one set ever exists.
+                        # (Delete + insert in one transaction; only runs when we have
+                        # fresh rows, so a transient empty/failed fetch never wipes data.)
+                        db.execute(
+                            MetricBreakdowns.__table__.delete().where(
+                                MetricBreakdowns.entity_id == account_uuid,
+                                MetricBreakdowns.platform_id == "tiktok",
+                                MetricBreakdowns.breakdown_type == bd_type,
+                            )
+                        )
                         stmt = pg_insert(MetricBreakdowns).values(bd_rows)
                         stmt = stmt.on_conflict_do_update(
                             index_elements=["entity_id", "date", "breakdown_type", "breakdown_value"],
