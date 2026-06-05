@@ -7,7 +7,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from workers.celery_app import celery_app
+from workers.celery_app import celery_app, HEAVY_SOFT_TIME_LIMIT, HEAVY_TIME_LIMIT, LOCK_TTL
 
 logger = logging.getLogger(__name__)
 
@@ -110,13 +110,18 @@ def _is_stale(account_id: str, db) -> bool:
 )
 def sync_insights_daily_all(self):
     from workers.db_helpers import get_worker_db
+    from workers.dispatch import stagger_dispatch
     from app.models.platform import Account
 
     with get_worker_db() as db:
-        accounts = db.query(Account).filter(Account.account_status == "active", Account.platform_id == "meta").all()
-        for account in accounts:
-            sync_insights_for_account.delay(str(account.id))
-        logger.info(f"Enqueued insights sync for {len(accounts)} accounts")
+        pairs = [
+            (str(aid), str(cid) if cid else None)
+            for aid, cid in db.query(Account.id, Account.platform_connection_id)
+            .filter(Account.account_status == "active", Account.platform_id == "meta")
+            .all()
+        ]
+    count = stagger_dispatch(sync_insights_for_account, pairs)
+    logger.info(f"Enqueued insights sync for {count} accounts")
 
 
 @celery_app.task(
@@ -126,13 +131,18 @@ def sync_insights_daily_all(self):
 )
 def sync_breakdowns_all(self):
     from workers.db_helpers import get_worker_db
+    from workers.dispatch import stagger_dispatch
     from app.models.platform import Account
 
     with get_worker_db() as db:
-        accounts = db.query(Account).filter(Account.account_status == "active", Account.platform_id == "meta").all()
-        for account in accounts:
-            sync_breakdowns_for_account.delay(str(account.id), "last_30d")
-        logger.info(f"Enqueued breakdown sync for {len(accounts)} accounts")
+        pairs = [
+            (str(aid), str(cid) if cid else None)
+            for aid, cid in db.query(Account.id, Account.platform_connection_id)
+            .filter(Account.account_status == "active", Account.platform_id == "meta")
+            .all()
+        ]
+    count = stagger_dispatch(sync_breakdowns_for_account, pairs, extra_args=("last_30d",))
+    logger.info(f"Enqueued breakdown sync for {count} accounts")
 
 
 @celery_app.task(
@@ -142,14 +152,21 @@ def sync_breakdowns_all(self):
     retry_backoff=True,
     retry_backoff_max=900,
     retry_jitter=True,
+    soft_time_limit=HEAVY_SOFT_TIME_LIMIT,
+    time_limit=HEAVY_TIME_LIMIT,
 )
 def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d", force: bool = False):
+    from celery.exceptions import SoftTimeLimitExceeded
     from workers.db_helpers import (
         get_worker_db, upsert_metrics_daily, bulk_upsert_action_stats,
         create_sync_job, finalize_sync_job,
     )
-    from workers.meta_client import MetaClient
-    from workers.rate_limit import apply_backoff
+    from workers.meta_client import MetaClient, MetaAPIError
+    from workers.rate_limit import (
+        apply_backoff, RateLimitBackoff,
+        acquire_lock, release_lock, connection_paused_remaining,
+        pause_connection, is_meta_rate_limit_error, HARD_PAUSE_SECONDS,
+    )
     from app.models.platform import Account, PlatformConnection, AccountConfig
     from app.models.structure import Campaign, AdGroup, Ad
     from app.services.auth import decrypt_token
@@ -191,8 +208,22 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
 
         account_id_obj = account.id
         platform_id = account.platform_id
+        connection_id = str(conn.id)
         token = decrypt_token(conn.access_token)
         ext_id = account.external_id  # already has "act_" prefix
+
+    # Gate: skip the whole token while it's rate-limit paused (shared app quota)
+    paused = connection_paused_remaining(connection_id)
+    if paused > 0:
+        logger.info(f"[{account_id}] Connection paused {paused}s — rescheduling")
+        self.apply_async(args=[account_id, date_preset, force], countdown=paused)
+        return
+
+    # Overlap guard: only one insights run per account at a time
+    lock_token = acquire_lock("insights_daily", account_id, LOCK_TTL)
+    if not lock_token:
+        logger.info(f"[{account_id}] Insights sync already running — skip")
+        return
 
     # Phase 2: commit "running" job before any Meta API call
     job_id = create_sync_job(account_id_obj, platform_id, "insights_daily")
@@ -222,7 +253,7 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
 
         # ── Campaign non-unique ──────────────────────────────────────────────
         with get_worker_db() as db:
-            apply_backoff(account_id)
+            apply_backoff(account_id, connection_id)
             rows1 = client.get_insights(
                 ext_id,
                 fields=NON_UNIQUE_FIELDS,
@@ -230,6 +261,8 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
                 date_preset=date_preset,
                 time_increment=1,
                 action_attribution_windows=attribution_window,
+                account_id=account_id,
+                connection_id=connection_id,
             )
             metric_rows, action_rows = [], []
             for raw in rows1:
@@ -245,13 +278,15 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
 
         # ── Campaign unique ──────────────────────────────────────────────────
         with get_worker_db() as db:
-            apply_backoff(account_id)
+            apply_backoff(account_id, connection_id)
             rows2 = client.get_insights(
                 ext_id,
                 fields=UNIQUE_FIELDS,
                 level="campaign",
                 date_preset=date_preset,
                 time_increment=1,
+                account_id=account_id,
+                connection_id=connection_id,
             )
             unique_rows = []
             for raw in rows2:
@@ -285,7 +320,7 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
         ad_nonunique, ad_unique = [], []
 
         for platform_campaign_id in active_campaign_ids:
-            apply_backoff(account_id)
+            apply_backoff(account_id, connection_id)
             adset_nonunique.extend(client.get_insights(
                 platform_campaign_id,
                 fields=ADGROUP_NON_UNIQUE_FIELDS,
@@ -293,16 +328,20 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
                 date_preset=date_preset,
                 time_increment=1,
                 action_attribution_windows=attribution_window,
+                account_id=account_id,
+                connection_id=connection_id,
             ))
-            apply_backoff(account_id)
+            apply_backoff(account_id, connection_id)
             adset_unique.extend(client.get_insights(
                 platform_campaign_id,
                 fields=ADGROUP_UNIQUE_FIELDS,
                 level="adset",
                 date_preset=date_preset,
                 time_increment=1,
+                account_id=account_id,
+                connection_id=connection_id,
             ))
-            apply_backoff(account_id)
+            apply_backoff(account_id, connection_id)
             ad_nonunique.extend(client.get_insights(
                 platform_campaign_id,
                 fields=AD_NON_UNIQUE_FIELDS,
@@ -310,14 +349,18 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
                 date_preset=date_preset,
                 time_increment=1,
                 action_attribution_windows=attribution_window,
+                account_id=account_id,
+                connection_id=connection_id,
             ))
-            apply_backoff(account_id)
+            apply_backoff(account_id, connection_id)
             ad_unique.extend(client.get_insights(
                 platform_campaign_id,
                 fields=AD_UNIQUE_FIELDS,
                 level="ad",
                 date_preset=date_preset,
                 time_increment=1,
+                account_id=account_id,
+                connection_id=connection_id,
             ))
 
         if adset_nonunique and not adgroup_map:
@@ -393,10 +436,33 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
         finalize_sync_job(job_id, "completed", rows_written=total_rows)
         logger.info(f"[{account_id}] Insights sync complete: {total_rows} rows")
 
+    except RateLimitBackoff as b:
+        # Rate limited mid-run: reschedule the whole task (idempotent upserts).
+        # Off the error-retry budget so a throttled account isn't marked failed.
+        finalize_sync_job(job_id, "skipped")
+        logger.info(f"[{account_id}] Insights rescheduled in {b.countdown}s ({b.scope})")
+        self.apply_async(args=[account_id, date_preset, force], countdown=b.countdown)
+        return
+    except SoftTimeLimitExceeded as e:
+        finalize_sync_job(job_id, "failed", error=e)
+        logger.error(f"[{account_id}] Insights sync exceeded soft time limit")
+        return
+    except MetaAPIError as e:
+        if is_meta_rate_limit_error(e.code, e.subcode):
+            pause_connection(connection_id, HARD_PAUSE_SECONDS)
+            finalize_sync_job(job_id, "skipped")
+            logger.warning(f"[{account_id}] Meta rate-limit error (code {e.code}) — pausing connection {HARD_PAUSE_SECONDS}s")
+            self.apply_async(args=[account_id, date_preset, force], countdown=HARD_PAUSE_SECONDS)
+            return
+        finalize_sync_job(job_id, "failed", error=e)
+        logger.error(f"[{account_id}] Insights sync failed: {e}")
+        raise self.retry(exc=e)
     except Exception as e:
         finalize_sync_job(job_id, "failed", error=e)
         logger.error(f"[{account_id}] Insights sync failed: {e}")
         raise self.retry(exc=e)
+    finally:
+        release_lock("insights_daily", account_id, lock_token)
 
 
 def parse_insight_row(entity_type: str, entity_id: str, date: str, raw_row: dict):
@@ -469,11 +535,18 @@ BREAKDOWN_FIELDS = "impressions,clicks,spend,ctr,cpm,cpc,date_start,date_stop"
     bind=True,
     max_retries=3,
     retry_backoff=True,
+    soft_time_limit=HEAVY_SOFT_TIME_LIMIT,
+    time_limit=HEAVY_TIME_LIMIT,
 )
 def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_30d"):
+    from celery.exceptions import SoftTimeLimitExceeded
     from workers.db_helpers import get_worker_db
     from workers.meta_client import MetaClient, MetaAPIError
-    from workers.rate_limit import apply_backoff, RateLimitState
+    from workers.rate_limit import (
+        apply_backoff, RateLimitState, RateLimitBackoff,
+        acquire_lock, release_lock, connection_paused_remaining,
+        pause_connection, is_meta_rate_limit_error, HARD_PAUSE_SECONDS,
+    )
     from app.models.platform import Account, PlatformConnection
     from app.models.metrics import MetricBreakdowns
     from app.services.auth import decrypt_token
@@ -489,13 +562,28 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
 
         token = decrypt_token(conn.access_token)
         ext_id = account.external_id.replace("act_", "")
+        connection_id = str(conn.id)
+        account_id_obj = account.id
+        platform_id = account.platform_id
 
-        try:
+    paused = connection_paused_remaining(connection_id)
+    if paused > 0:
+        logger.info(f"[{account_id}] Connection paused {paused}s — rescheduling breakdowns")
+        self.apply_async(args=[account_id, date_preset], countdown=paused)
+        return
+
+    lock_token = acquire_lock("breakdowns", account_id, LOCK_TTL)
+    if not lock_token:
+        logger.info(f"[{account_id}] Breakdown sync already running — skip")
+        return
+
+    try:
+        with get_worker_db() as db:
             client = MetaClient(token)
             total = 0
 
             for bd_type, cfg in BREAKDOWN_CONFIGS.items():
-                apply_backoff(account_id)
+                apply_backoff(account_id, connection_id)
                 params = {
                     "fields": BREAKDOWN_FIELDS,
                     "level": "account",
@@ -505,7 +593,7 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
                     "limit": 500,
                 }
                 rows, rate_limits = client.get(f"/act_{ext_id}/insights", params)
-                RateLimitState(account_id).update_from_headers(rate_limits)
+                RateLimitState(account_id, connection_id).update_from_headers(rate_limits)
                 data = rows.get("data", [])
 
                 bd_rows = []
@@ -518,9 +606,9 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
                         continue
                     bd_rows.append({
                         "entity_type": "account",
-                        "entity_id": account.id,
-                        "platform_id": account.platform_id,
-                        "account_id": account.id,
+                        "entity_id": account_id_obj,
+                        "platform_id": platform_id,
+                        "account_id": account_id_obj,
                         "date": date_str,
                         "breakdown_type": bd_type,
                         "breakdown_value": val,
@@ -553,6 +641,20 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
 
             logger.info(f"[{account_id}] Breakdown sync complete: {total} rows")
 
-        except MetaAPIError as e:
-            logger.error(f"[{account_id}] Breakdown sync failed: {e}")
-            raise self.retry(exc=e)
+    except RateLimitBackoff as b:
+        logger.info(f"[{account_id}] Breakdown rescheduled in {b.countdown}s ({b.scope})")
+        self.apply_async(args=[account_id, date_preset], countdown=b.countdown)
+        return
+    except SoftTimeLimitExceeded:
+        logger.error(f"[{account_id}] Breakdown sync exceeded soft time limit")
+        return
+    except MetaAPIError as e:
+        if is_meta_rate_limit_error(e.code, e.subcode):
+            pause_connection(connection_id, HARD_PAUSE_SECONDS)
+            logger.warning(f"[{account_id}] Breakdown Meta rate-limit (code {e.code}) — pausing connection {HARD_PAUSE_SECONDS}s")
+            self.apply_async(args=[account_id, date_preset], countdown=HARD_PAUSE_SECONDS)
+            return
+        logger.error(f"[{account_id}] Breakdown sync failed: {e}")
+        raise self.retry(exc=e)
+    finally:
+        release_lock("breakdowns", account_id, lock_token)

@@ -2,6 +2,18 @@ from celery import Celery
 from celery.schedules import crontab
 from app.config import settings
 
+# ── Task time limits ──────────────────────────────────────────────────────────
+# Global defaults are a backstop against hung tasks (e.g. a network stall pinning
+# a worker slot forever). Heavy per-account sync loops override these much higher
+# since a large account legitimately takes many minutes. Tune from observed p99.
+DEFAULT_SOFT_TIME_LIMIT = 900    # 15 min
+DEFAULT_TIME_LIMIT = 1200        # 20 min
+HEAVY_SOFT_TIME_LIMIT = 3000     # 50 min — large-account insights/structure loops
+HEAVY_TIME_LIMIT = 3300          # 55 min hard kill
+# In-flight lock TTL must be >= the heavy hard limit so a still-running task never
+# loses its lock, and a SIGKILLed task's lock always expires (no permanent block).
+LOCK_TTL = HEAVY_TIME_LIMIT + 120
+
 celery_app = Celery(
     "dashmet",
     broker=settings.REDIS_URL,
@@ -27,6 +39,8 @@ celery_app.conf.update(
     enable_utc=True,
     task_acks_late=True,          # re-queue task if worker crashes
     worker_prefetch_multiplier=1, # one task at a time per worker (rate limit safe)
+    task_soft_time_limit=DEFAULT_SOFT_TIME_LIMIT,
+    task_time_limit=DEFAULT_TIME_LIMIT,
     task_queues={
         "default": {},
         "meta": {},

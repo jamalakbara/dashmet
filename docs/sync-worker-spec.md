@@ -123,6 +123,10 @@ CELERYBEAT_SCHEDULE = {
 }
 ```
 
+### Staggered dispatch (prevents thundering herd)
+
+Each `*_all` dispatcher calls `stagger_dispatch()` (`workers/dispatch.py`) instead of looping `.delay()` directly. It spreads per-account task enqueues across ~600s of the interval, interleaves accounts round-robin by `platform_connection_id` (so one org's accounts don't burst against the same token simultaneously), and skips connections that are currently rate-limit paused. At scale, this prevents all accounts hitting the shared Meta API quota in a single tick.
+
 ### TTL enforcement (don't re-fetch if fresh)
 
 Before each fetch, the worker checks the last `completed_at` for that job type + account + date range against the TTL. If fresh, it skips.
@@ -248,30 +252,44 @@ class RateLimitState:
 
 | Metric | Threshold | Action |
 |---|---|---|
-| `insights_app_pct` | > 80% | Sleep 30s before next insights call |
-| `insights_app_pct` | > 95% | Sleep 300s — hard pause |
-| `insights_acc_pct` | > 80% | Sleep 30s |
-| `structure_acc_pct` | > 80% | Sleep 30s before next structure call |
-| `app_call_count` | > 80 | Sleep 60s |
+| `insights_app_pct` | > 80% | Reschedule task 30s later (account scope) |
+| `insights_app_pct` | > 95% | Pause entire connection 300s + reschedule |
+| `insights_acc_pct` | > 80% | Reschedule task 30s later |
+| `structure_acc_pct` | > 80% | Reschedule task 30s later |
+| `app_call_count` | > 80 | Reschedule task 60s later |
 
 ```python
-def apply_backoff(account_id):
-    state = RateLimitState.load(account_id)
+def apply_backoff(account_id: str, connection_id: str | None = None) -> None:
+    """Raises RateLimitBackoff. Does NOT sleep — task reschedules itself on catch."""
+    state = RateLimitState(account_id, connection_id)
 
-    if state.insights_app_pct > 95:
-        logger.warning(f"[{account_id}] Hard rate limit pause (5 min)")
-        time.sleep(300)
-        return
+    if state.insights_app_pct > 95:             # HARD — shared app quota
+        countdown = int(state.quota_reset_seconds) or 300
+        if connection_id:
+            pause_connection(connection_id, countdown)  # pauses ALL accounts on this token
+        raise RateLimitBackoff(countdown, scope="connection")
 
-    if state.insights_app_pct > 80 or state.insights_acc_pct > 80:
-        logger.info(f"[{account_id}] Soft rate limit back-off (30s)")
-        time.sleep(30)
-
-    if state.structure_acc_pct > 80:
-        time.sleep(30)
+    soft = 0
+    if state.insights_app_pct > 80 or state.insights_acc_pct > 80: soft = 30
+    if state.structure_acc_pct > 80:  soft = max(soft, 30)
+    if state.app_call_count > 80:     soft = max(soft, 60)
+    if soft:
+        raise RateLimitBackoff(soft, scope="account")
 ```
 
-**This function is called before every API call, not just on error.** Proactive throttling prevents hitting hard limits.
+**Backoff is non-blocking.** `apply_backoff` raises `RateLimitBackoff` instead of calling `time.sleep`. The task catches it and calls `self.apply_async(countdown=N)`, freeing the worker slot immediately. Rate-limit reschedules are kept off the error-retry budget (`max_retries` stays reserved for genuine API errors).
+
+**Called at task entry** (once, before the first API call), not before every individual request.
+
+### Connection-scoped pause (shared-token gate)
+
+One `platform_connections.access_token` is shared by all accounts in an org. Meta's app-level throttle (`app_id_util_pct`) is shared across that whole token — so when one account hits the hard limit (>95%), all sibling accounts must also back off, not just one.
+
+When `apply_backoff` detects `app_id_util_pct > 95%` **or** a hard Meta error code (4/17/32/613/80000–80004) is caught mid-task, it calls `pause_connection(connection_id, seconds)` — which sets a Redis key `rate_limit:conn:{id}:paused` with TTL. Every per-account task checks `connection_paused_remaining(connection_id)` at entry before touching the API; if the key is live, it calls `self.apply_async(countdown=remaining)` and returns. The staggered dispatcher also skips paused connections entirely, so tasks aren't re-enqueued during the pause window.
+
+### Overlap lock (per-account, per-job-type)
+
+A single account should not have two concurrent runs of the same sync job. A Redis `SET NX EX` lock (`rate_limit:lock:{job_type}:{account_id}`, TTL = task hard time limit + 120s) is acquired at task entry after the connection-pause check. If another run holds the lock, the task returns immediately without creating a `sync_jobs` row. Released via atomic Lua check-and-delete in a `finally` block. Works correctly with `task_acks_late=True`: a crashed worker's lock expires via TTL, after which the redelivered message re-acquires cleanly.
 
 ### Development tier awareness
 
@@ -317,13 +335,17 @@ def sync_insights_daily(self, account_id, ...):
 |---|---|---|---|
 | `190` | any | Invalid / expired token | Alert operator — do not retry automatically. Token must be re-generated. |
 | `200` | any | Insufficient permissions | Alert operator — token missing `ads_read` or `read_insights`. |
-| `4` | `1504022` | App-level insights rate limit | Exponential back-off. Retry after `2^attempt × 10s`. |
-| `4` | `1504039` | Too many app calls | Same as above. |
-| `4` | *(none)* | Generic app limit | Back-off 60s, retry. |
-| `17` | — | User rate limit | Back-off 60s, retry. |
+| `4` | `1504022` | App-level insights rate limit | Pause connection 300s, reschedule. |
+| `4` | `1504039` | Too many app calls | Pause connection 300s, reschedule. |
+| `4` | *(none)* | Generic app limit | Pause connection 300s, reschedule. |
+| `17` | — | User rate limit | Pause connection 300s, reschedule. |
+| `32` | — | Page rate limit | Pause connection 300s, reschedule. |
+| `613` | — | Custom rate limit | Pause connection 300s, reschedule. |
+| `80000`–`80004` | — | Ads/insights rate limit codes | Pause connection 300s, reschedule. |
 | `100` | `1487534` | Too much data per call | Narrow the date range (split into two calls), or switch to async. Do not retry as-is. |
 | `1` | — | Timeout (sync) | Switch to async job automatically. |
-| `613` | — | Custom rate limit | Back-off 120s, retry. |
+
+All rate-limit codes (4, 17, 32, 613, 80000–80004) are caught by `is_meta_rate_limit_error(code)` in `workers/rate_limit.py` and trigger `pause_connection(connection_id)` — the same hard-pause path as the >95% header threshold. This is important because Meta can return code 4 while `app_id_util_pct` still reads near zero.
 
 ```python
 def handle_api_error(self, response_json, account_id):
@@ -690,8 +712,14 @@ Each `sync_job` row moves through these states:
                                   │                    
                                   │ max retries hit    
                                   ▼                    
-                               failed (final)          
+                               failed (final)
+
+                                  │ rate limit mid-run
+                                  ▼
+                               skipped ──> task rescheduled (countdown)
 ```
+
+`skipped` means the task hit a hard rate limit during execution (connection paused), marked the job `skipped`, and rescheduled itself. It is not a permanent failure — the task will retry automatically once the connection pause expires.
 
 For async jobs specifically:
 

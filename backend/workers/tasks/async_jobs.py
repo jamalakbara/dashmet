@@ -6,7 +6,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from workers.celery_app import celery_app
+from workers.celery_app import celery_app, HEAVY_SOFT_TIME_LIMIT, HEAVY_TIME_LIMIT
 
 logger = logging.getLogger(__name__)
 
@@ -30,13 +30,19 @@ ASYNC_FIELDS = ",".join([
 )
 def submit_async_jobs(self, date_preset: str = "last_90d"):
     from workers.db_helpers import get_worker_db
+    from workers.dispatch import stagger_dispatch
     from app.models.platform import Account
 
     with get_worker_db() as db:
-        accounts = db.query(Account).filter(Account.account_status == "active").all()
-        for account in accounts:
-            submit_async_job_for_account.delay(str(account.id), date_preset)
-        logger.info(f"Submitted async jobs for {len(accounts)} accounts")
+        pairs = [
+            (str(aid), str(cid) if cid else None)
+            for aid, cid in db.query(Account.id, Account.platform_connection_id)
+            .filter(Account.account_status == "active")
+            .all()
+        ]
+    # Wider spread — async submit is a 6h cadence, no need to cluster.
+    count = stagger_dispatch(submit_async_job_for_account, pairs, extra_args=(date_preset,), spread_seconds=1800)
+    logger.info(f"Submitted async jobs for {count} accounts")
 
 
 @celery_app.task(
@@ -47,8 +53,11 @@ def submit_async_jobs(self, date_preset: str = "last_90d"):
 )
 def submit_async_job_for_account(self, account_id: str, date_preset: str = "last_90d"):
     from workers.db_helpers import get_worker_db, create_sync_job, finalize_sync_job
-    from workers.meta_client import MetaClient
-    from workers.rate_limit import apply_backoff
+    from workers.meta_client import MetaClient, MetaAPIError
+    from workers.rate_limit import (
+        apply_backoff, RateLimitBackoff, connection_paused_remaining,
+        pause_connection, is_meta_rate_limit_error, HARD_PAUSE_SECONDS,
+    )
     from app.models.platform import Account, PlatformConnection
     from app.models.metrics import SyncJob
     from app.services.auth import decrypt_token
@@ -97,14 +106,22 @@ def submit_async_job_for_account(self, account_id: str, date_preset: str = "last
 
         account_id_obj = account.id
         platform_id = account.platform_id
+        connection_id = str(conn.id)
         token = decrypt_token(conn.access_token)
         ext_id = account.external_id.replace("act_", "")
+
+    # Gate: skip the whole token while it's rate-limit paused (shared app quota)
+    paused = connection_paused_remaining(connection_id)
+    if paused > 0:
+        logger.info(f"[{account_id}] Connection paused {paused}s — rescheduling async submit")
+        self.apply_async(args=[account_id, date_preset], countdown=paused)
+        return
 
     # Phase 2: commit "running" job before Meta API call
     job_id = create_sync_job(account_id_obj, platform_id, "insights_async")
 
     try:
-        apply_backoff(account_id)
+        apply_backoff(account_id, connection_id)
         client = MetaClient(token)
         report_run_id = client.post_async_job(
             ext_id,
@@ -121,6 +138,21 @@ def submit_async_job_for_account(self, account_id: str, date_preset: str = "last
             if job:
                 job.platform_job_id = report_run_id
         logger.info(f"[{account_id}] Async job submitted: {report_run_id}")
+    except RateLimitBackoff as b:
+        finalize_sync_job(job_id, "skipped")
+        logger.info(f"[{account_id}] Async submit rescheduled in {b.countdown}s ({b.scope})")
+        self.apply_async(args=[account_id, date_preset], countdown=b.countdown)
+        return
+    except MetaAPIError as e:
+        if is_meta_rate_limit_error(e.code, e.subcode):
+            pause_connection(connection_id, HARD_PAUSE_SECONDS)
+            finalize_sync_job(job_id, "skipped")
+            logger.warning(f"[{account_id}] Async submit Meta rate-limit (code {e.code}) — pausing connection {HARD_PAUSE_SECONDS}s")
+            self.apply_async(args=[account_id, date_preset], countdown=HARD_PAUSE_SECONDS)
+            return
+        finalize_sync_job(job_id, "failed", error=e)
+        logger.error(f"[{account_id}] Async submit failed: {e}")
+        raise self.retry(exc=e)
     except Exception as e:
         finalize_sync_job(job_id, "failed", error=e)
         logger.error(f"[{account_id}] Async submit failed: {e}")
@@ -183,6 +215,8 @@ def poll_async_jobs(self):
     name="workers.tasks.async_jobs.fetch_async_results",
     bind=True,
     max_retries=3,
+    soft_time_limit=HEAVY_SOFT_TIME_LIMIT,
+    time_limit=HEAVY_TIME_LIMIT,
 )
 def fetch_async_results(self, job_id: str, report_run_id: str):
     from workers.db_helpers import (

@@ -8,7 +8,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from workers.celery_app import celery_app
+from workers.celery_app import celery_app, HEAVY_SOFT_TIME_LIMIT, HEAVY_TIME_LIMIT, LOCK_TTL
 
 logger = logging.getLogger(__name__)
 
@@ -86,17 +86,18 @@ def _is_stale(db, account_id: uuid.UUID, job_type: str = "insights_daily", ttl: 
 )
 def sync_tiktok_insights_daily_all(self):
     from workers.db_helpers import get_worker_db
+    from workers.dispatch import stagger_dispatch
     from app.models.platform import Account
 
     with get_worker_db() as db:
-        accounts = (
-            db.query(Account)
+        pairs = [
+            (str(aid), str(cid) if cid else None)
+            for aid, cid in db.query(Account.id, Account.platform_connection_id)
             .filter(Account.account_status == "active", Account.platform_id == "tiktok")
             .all()
-        )
-        for account in accounts:
-            sync_tiktok_insights_for_account.delay(str(account.id))
-        logger.info("Enqueued TikTok insights sync for %s accounts", len(accounts))
+        ]
+    count = stagger_dispatch(sync_tiktok_insights_for_account, pairs)
+    logger.info("Enqueued TikTok insights sync for %s accounts", count)
 
 
 @celery_app.task(
@@ -106,8 +107,11 @@ def sync_tiktok_insights_daily_all(self):
     retry_backoff=True,
     retry_backoff_max=900,
     retry_jitter=True,
+    soft_time_limit=HEAVY_SOFT_TIME_LIMIT,
+    time_limit=HEAVY_TIME_LIMIT,
 )
 def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "last_7d", job_type: str = "insights_daily"):
+    from celery.exceptions import SoftTimeLimitExceeded
     from workers.db_helpers import (
         get_worker_db,
         create_sync_job,
@@ -115,12 +119,21 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
         upsert_metrics_daily,
         bulk_upsert_action_stats,
     )
+    from workers.rate_limit import acquire_lock, release_lock
     from app.models.platform import Account, AccountConfig, PlatformConnection
     from app.models.structure import Campaign, AdGroup, Ad
     from app.services.auth import decrypt_token
     from workers.tiktok_client import TikTokClient, TikTokAPIError
 
     account_uuid = uuid.UUID(account_id)
+
+    # Overlap guard. daily and historical are distinct syncs → distinct lock keys.
+    lock_name = f"tiktok_{job_type}"
+    lock_token = acquire_lock(lock_name, account_id, LOCK_TTL)
+    if not lock_token:
+        logger.info("TikTok insights (%s) already running for %s — skip", job_type, account_id)
+        return
+
     historical_ttl = timedelta(hours=6)
     ttl = historical_ttl if job_type == "insights_historical" else STALE_THRESHOLD
     job_id = create_sync_job(account_uuid, "tiktok", job_type)
@@ -267,6 +280,10 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
             account_id, total_metric_rows, total_action_rows,
         )
 
+    except SoftTimeLimitExceeded as exc:
+        logger.error("TikTok insights sync for %s exceeded soft time limit", account_id)
+        finalize_sync_job(job_id, "failed", error=exc)
+        return
     except TikTokAPIError as exc:
         logger.error("TikTok API error for insights %s: %s", account_id, exc)
         finalize_sync_job(job_id, "failed", error=exc)
@@ -275,3 +292,5 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
         logger.exception("Unexpected error in TikTok insights sync for %s", account_id)
         finalize_sync_job(job_id, "failed", error=exc)
         raise self.retry(exc=exc)
+    finally:
+        release_lock(lock_name, account_id, lock_token)

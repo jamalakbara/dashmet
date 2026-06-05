@@ -58,7 +58,11 @@ services:
       - ./backend:/app
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: celery -A workers.celery_app worker --loglevel=info --concurrency=2 --queues=meta,default
+    # Concurrency is the per-container throughput ceiling. Safe to raise now that
+    # rate-limit backoff is non-blocking + connection-scoped (a paused token no
+    # longer pins idle slots). For production scale, also run multiple replicas
+    # (e.g. k8s Deployment / `docker compose up --scale celery-worker=N`).
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=4 --queues=meta,default
 
   celery-worker-tiktok:
     build: ./backend
@@ -73,7 +77,7 @@ services:
       - ./backend:/app
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: celery -A workers.celery_app worker --loglevel=info --concurrency=2 --queues=tiktok
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=4 --queues=tiktok
 
   celery-poll-worker:
     build: ./backend
@@ -88,7 +92,7 @@ services:
       - ./backend:/app
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: celery -A workers.celery_app worker --loglevel=info --concurrency=1 --queues=poll
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=2 --queues=poll
 
   celery-beat:
     build: ./backend

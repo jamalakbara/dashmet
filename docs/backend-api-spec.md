@@ -1361,3 +1361,5 @@ Standard metric keys used in `metrics` objects across all endpoints.
 
 ### `job_status` (sync)
 `pending` · `running` · `completed` · `failed` · `skipped`
+
+`skipped` — task hit a hard rate limit mid-execution; job is marked skipped, connection paused, task rescheduled automatically. Distinct from `failed` (which is a permanent or max-retry-exhausted error). A skipped job will retry once the connection pause expires.
