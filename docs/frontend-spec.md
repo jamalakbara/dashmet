@@ -60,11 +60,21 @@ src/
 │   │   └── reset-password/page.tsx
 │   │
 │   ├── (dashboard)/              # Dashboard route group — with sidebar
-│   │   ├── layout.tsx            # Sidebar + header shell
-│   │   ├── overview/page.tsx
-│   │   ├── periodic/page.tsx
-│   │   ├── table/page.tsx
-│   │   └── ads/page.tsx
+│   │   ├── layout.tsx            # Sidebar + header + PlatformTabs shell
+│   │   ├── dashboard/page.tsx    # Combined cross-platform summary
+│   │   ├── meta/                 # Meta section — views render as tabs
+│   │   │   ├── page.tsx          #   bare /meta → redirect to overview
+│   │   │   ├── overview/page.tsx
+│   │   │   ├── periodic/page.tsx #   includes breakdowns (no separate route)
+│   │   │   ├── table/page.tsx
+│   │   │   └── ads/page.tsx
+│   │   └── tiktok/               # TikTok section — views render as tabs
+│   │       ├── page.tsx          #   bare /tiktok → redirect to overview
+│   │       ├── overview/page.tsx
+│   │       ├── periodic/page.tsx
+│   │       ├── table/page.tsx
+│   │       ├── ads/page.tsx
+│   │       └── engagement/page.tsx
 │   │
 │   ├── settings/
 │   │   ├── org/page.tsx          # Org name, general settings
@@ -75,14 +85,18 @@ src/
 │
 ├── components/
 │   ├── ui/                       # shadcn/ui primitives (auto-generated)
-│   ├── layout/                   # Sidebar, Header, AccountSwitcher
+│   ├── layout/                   # Sidebar, Header, PlatformTabs
+│   ├── views/                    # Per-platform view bodies (Overview/Periodic/Table/Ads)
 │   ├── charts/                   # Recharts wrappers
-│   ├── metrics/                  # MetricCard, MetricTable, etc.
+│   ├── metrics/                  # MetricCard, MetricTable, BreakdownSection, etc.
 │   ├── ads/                      # AdCard, CreativePreview, etc.
-│   └── shared/                   # DateRangePicker, StatusBadge, etc.
+│   └── shared/                   # AccountSwitcher, AccountCommandList, DateRangePicker, StatusBadge, etc.
 │
 ├── hooks/
-│   ├── use-account.ts            # Current selected account
+│   ├── use-account.ts            # Selected account + server-side account search (useAccountSearch / useAccountsCount / useSelectedAccount)
+│   ├── use-platform.ts           # Active platform from route (/meta → "meta", etc.)
+│   ├── use-platform-metrics.ts   # Platform/account-type-aware metric sets
+│   ├── use-shared-query.ts       # Carry account_id + date params across nav
 │   ├── use-date-range.ts         # Date range from URL state
 │   ├── use-insights-*.ts         # Per-view data fetching hooks
 │   └── use-sync-status.ts        # Sync status polling
@@ -97,7 +111,8 @@ src/
 │   │   └── sync.ts
 │   ├── query-keys.ts             # TanStack Query key factory
 │   ├── formatters.ts             # Currency, %, number formatters
-│   └── constants.ts              # Date presets, metric labels, colors
+│   ├── metrics.ts                # Platform/account-type metric registry
+│   └── constants.ts              # Date presets, metric labels, colors, PLATFORM_TABS
 │
 ├── stores/
 │   └── ui-store.ts               # Zustand — sidebar state, active account
@@ -112,21 +127,28 @@ src/
 
 ## 3. Routing
 
+`{platform}` ∈ `{meta, tiktok}`.
+
 | Route | Page | Auth required | Role |
 |---|---|---|---|
-| `/` | Redirect → `/overview` | ✅ | any |
+| `/` | Redirect → `/dashboard` | ✅ | any |
 | `/login` | Login | ❌ | — |
 | `/signup` | Signup | ❌ | — |
 | `/verify-email` | Email verification | ❌ | — |
 | `/forgot-password` | Request reset | ❌ | — |
 | `/reset-password` | Set new password | ❌ | — |
-| `/overview` | Overview dashboard | ✅ | any |
-| `/periodic` | Time series dashboard | ✅ | any |
-| `/table` | Metrics table | ✅ | any |
-| `/ads` | Ads content | ✅ | any |
+| `/dashboard` | Combined cross-platform summary | ✅ | any |
+| `/meta`, `/tiktok` | Redirect → `…/overview` | ✅ | any |
+| `/{platform}/overview` | Platform overview (summary) | ✅ | any |
+| `/{platform}/periodic` | Time series **+ breakdowns** | ✅ | any |
+| `/{platform}/table` | Metrics table | ✅ | any |
+| `/{platform}/ads` | Ads content | ✅ | any |
+| `/tiktok/engagement` | TikTok engagement metrics | ✅ | any |
 | `/settings/org` | Org settings | ✅ | owner |
 | `/settings/members` | Member management | ✅ | owner |
 | `/settings/connections` | Platform connections | ✅ | owner |
+
+The per-platform views (Overview · Periodic · Table · Ads, plus TikTok's Engagement) render as a **route-based tab bar** — each tab is its own route, so deep links stay shareable. Tab config is `PLATFORM_TABS` in `lib/constants.ts`. **Breakdowns are part of the Periodic view, not a separate route** (`BreakdownSection` renders at the bottom of `periodic-view.tsx`).
 
 Auth guard is a middleware (`middleware.ts`) that checks for a valid JWT cookie. Unauthenticated users are redirected to `/login`. Members trying to access owner-only settings pages see a `403` page.
 
@@ -134,42 +156,45 @@ Auth guard is a middleware (`middleware.ts`) that checks for a valid JWT cookie.
 
 ## 4. Global Layout
 
-The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed sidebar on the left and a top header. Main content scrolls independently.
+The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed sidebar on the left, a top header, and — on platform pages — a `PlatformTabs` bar below the header. Main content scrolls independently.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  HEADER                                                       │
 │  [AccountSwitcher]     [DateRangePicker]    [SyncStatus] [👤] │
 ├───────────┬──────────────────────────────────────────────────┤
+│           │  [Overview] [Periodic] [Table] [Ads]  ← tab bar   │
+│  SIDEBAR  ├──────────────────────────────────────────────────┤
 │           │                                                   │
-│  SIDEBAR  │   PAGE CONTENT                                    │
-│           │                                                   │
-│  Overview │                                                   │
-│  Periodic │                                                   │
-│  Table    │                                                   │
-│  Ads      │                                                   │
+│  Dashboard│   PAGE CONTENT (active tab)                       │
+│  Meta     │                                                   │
+│  TikTok   │                                                   │
 │           │                                                   │
 │  ───────  │                                                   │
 │  Settings │                                                   │
 │           │                                                   │
 └───────────┴───────────────────────────────────────────────────┘
+  (tab bar self-hides on the combined /dashboard)
 ```
 
 ### Header — components
 
 **`AccountSwitcher`**
-- shadcn `Popover` + `Command` (combobox pattern)
-- Lists all accounts for the current org
-- Selecting updates `account_id` in URL state and triggers data refetch
-- Shows account name + platform icon badge (Meta logo, etc.)
-- Shows "No accounts connected" state with link to `/settings/connections` if empty
+- shadcn `Popover` + `Command` (cmdk combobox), **server-side searched** — never loads the whole org (200–1000+ accounts). Search hits `GET /accounts?search=&platform=`; the picker sets `shouldFilter={false}` (the server is the filter).
+- Two modes via a shared `AccountCommandList` (`components/shared/`):
+  - **Platform route** (`/meta`, `/tiktok`) → single-select, scoped to that platform. Updates `account_id`.
+  - **Combined dashboard** (`/dashboard`) → multi-select, results grouped by platform. Updates `accounts` (comma-separated). `null` param = **All accounts**, `""` = none.
+- **Pinned + Recent** groups at the top, persisted in `ui-store` (localStorage) as denormalized `accountSnapshots` so they render without re-fetching. Star icon toggles pin.
+- Rows: platform badge, **account name (primary)**, business name / external id (secondary muted line), currency, star. Name always takes priority width (`flex-1` + truncate) so long ids never squeeze it out.
+- "No accounts connected" empty state (via `useAccountsCount`); brief on-connect polling.
 
 **`DateRangePicker`**
-- shadcn `Popover` + `Calendar`
-- Left panel: preset buttons (`Last 7 days`, `Last 30 days`, `Last 90 days`, `This month`, `Last month`, `Custom range`)
-- Right panel: calendar appears only for custom range
-- Selection stored in URL params: `?date_preset=last_30d` or `?date_start=2026-05-01&date_end=2026-05-30`
-- Default: `last_30d`
+- shadcn `Popover` + `Calendar` (`react-day-picker`). **Single popover, two views** — not split panels.
+  - **Presets view**: preset buttons + a `Custom range…` item.
+  - **Custom view**: clicking `Custom range…` swaps in a range `Calendar` (future dates disabled) with a `‹ Presets` back link and a footer showing the selected range + `Cancel`/`Apply`.
+- Mutually exclusive: choosing a preset clears `date_start`/`date_end`; `Apply` sets `date_start`/`date_end` and clears `date_preset` (backend rejects both).
+- A 30-day note appears in the custom view **only when** the chosen range reaches back past 30 days (breakdowns cover ~30d; see breakdown sync).
+- Selection stored in URL: `?date_preset=last_30d` or `?date_start=2026-05-01&date_end=2026-05-30`. Default: `last_30d`. Survives nav via `useSharedFilterQuery`.
 
 **`SyncStatusBadge`**
 - Small indicator in the top-right area
@@ -189,17 +214,19 @@ The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed sidebar on the l
 ```
 [Logo / DashMet wordmark]
 
-Navigation
-  📊  Overview
-  📈  Periodic
-  📋  Table
-  🖼️  Ads Content
+  📊  Dashboard          (combined cross-platform)
+  ⬛  Meta               → /meta/overview
+  ⬛  TikTok             → /tiktok/overview
 
 ─────────────
   ⚙️  Settings
 ```
 
-Active item highlighted. Sidebar collapses to icon-only at medium viewports (still desktop-first — no hamburger menu).
+Sidebar is **4 items** — the per-platform views are reached through the `PlatformTabs` bar, not the sidebar. Clicking a platform lands on its first tab (`PLATFORM_TABS[platform][0]`, i.e. Overview). The active platform item is highlighted whenever any of its tabs is active (`pathname.startsWith('/{platform}')`). Filter params (account_id, date range) are carried across both sidebar and tab navigation by `useSharedFilterQuery()`. Collapses to icon-only at medium viewports (still desktop-first — no hamburger menu).
+
+### Platform tab bar — `PlatformTabs`
+
+`components/layout/platform-tabs.tsx` — a `<Link>`-based (route-driven, not the shadcn `Tabs` primitive) tab bar mounted once in the dashboard layout. Reads the active platform via `usePlatform()`, looks up `PLATFORM_TABS[platform]`, and renders one tab per view. Returns `null` on `/dashboard` (no platform). Active tab = exact `pathname` match.
 
 ---
 
@@ -373,7 +400,7 @@ const { data, isLoading } = useQuery({
 
 #### Breakdown section
 
-Four tabs — each fetches `GET /insights/breakdown` with the corresponding breakdown param on tab activation (lazy fetch, cached).
+Lives at the bottom of the Periodic view (`BreakdownSection`, `components/metrics/breakdown-section.tsx`) — there is **no standalone breakdowns route**. Four tabs — each fetches `GET /insights/breakdown` with the corresponding breakdown param on tab activation (lazy fetch, cached).
 
 - **Age & Gender** — grouped horizontal bar chart, grouped by age range, colored by gender
 - **Country** — horizontal bar chart sorted by spend (top 10 countries)
@@ -621,6 +648,32 @@ Clicking "Connect" for Meta opens a dialog with:
 - Submit → `POST /connections` (validates token server-side before saving)
 - On success: "Connection verified. Importing ad accounts…" → closes dialog, page refreshes
 
+### `/settings/accounts`
+
+Per-account configuration list. Orgs can have 200–1000+ accounts, so the list is **server-paginated** — never the full org at once.
+
+```
+Account Type
+CPAS (Collaborative Ads) accounts show traffic metrics only — ROAS/conversions
+owned by the retailer. CPAS applies to Meta accounts only.
+
+[ 🔍 Search accounts… ]            [ All | Meta | TikTok ]
+┌──────────────────────────────────────────────────────┐
+│  ▣ Meta   Acme Ads      USD          [ Standard ▾ ]  │
+│  ▣ TikTok Beta Co       EUR                    —     │
+└──────────────────────────────────────────────────────┘
+Showing 1–20 of 123        ←  1  2  3  …  7  →
+```
+
+- **Data:** `useQuery` on `accountsApi.list({ search, platform, page, per_page: 20 })`, keyed by `queryKeys.accountsList(platform, search, page)`. `placeholderData:(prev)=>prev` keeps the list stable while typing/paging. `PAGE_SIZE = 20`.
+- **Search:** local input → `useDebounced(…, 250)` (from `hooks/use-account.ts`) → server `search` param.
+- **Platform filter:** `Tabs` (All / Meta / TikTok), single-select, value `all`/`meta`/`tiktok` → server `platform` param. `all` sends no filter.
+- Changing search or platform resets `page` to 1.
+- **Account type control is Meta-only:** Meta rows render the Standard/CPAS `Select`; non-Meta (TikTok) rows render a muted `—` (CPAS is a Meta concept; backend rejects `cpas` on non-Meta with `409`).
+- **Mutation:** `accountsApi.updateConfig(id, { account_type })`; on success invalidates the `["accounts"]` prefix (refreshes this list, picker search, and count together).
+- Footer: `PaginationBar` (shown only when `total_pages > 1`).
+- Empty state reflects filters: "No accounts match your filters." vs "No ad accounts connected yet."
+
 ---
 
 ## 8. Shared Components
@@ -632,10 +685,13 @@ KPI display card with value, label, % change badge, and optional sparkline. Used
 Tiny inline Recharts `LineChart` (no axes, no tooltip) for KPI card trends.
 
 ### `DateRangePicker`
-Popover with preset buttons + optional calendar for custom range. Syncs to URL.
+Single popover, two views: preset buttons and a `Custom range…` reveal that swaps in a `react-day-picker` range calendar (future dates disabled). Apply sets `date_start`/`date_end` and clears `date_preset`. Syncs to URL.
 
-### `AccountSwitcher`
-Combobox dropdown listing all org accounts. Syncs selected account to URL + Zustand store.
+### `AccountSwitcher` / `AccountCommandList`
+Server-side searched `cmdk` combobox (`?search=&platform=`) — single-select on platform routes, multi-select (grouped by platform) on the combined dashboard. Pinned + Recent groups persisted in `ui-store` via `accountSnapshots`. Syncs `account_id` (or `accounts`) to URL.
+
+### `PaginationBar`
+Server-pagination footer: "Showing X–Y of N" + numbered page buttons (collapses to first/last with `…` past 7 pages) and prev/next. Props: `page`, `totalPages`, `total`, `perPage`, `onPage`. Used by `TableView` and `/settings/accounts`.
 
 ### `SyncStatusBadge`
 Polls sync status every 60 seconds. Shows dot indicator + last updated time. Triggers manual sync on click (owner only).
@@ -670,7 +726,8 @@ Primary state for all dashboard filters — ensures shareable, bookmarkable URLs
 
 | URL param | Used by | Example |
 |---|---|---|
-| `account_id` | All dashboard views | `?account_id=uuid` |
+| `account_id` | Platform views (Meta, TikTok) | `?account_id=uuid` |
+| `accounts` | Combined dashboard (multi-select; absent = all) | `?accounts=uuid1,uuid2` |
 | `date_preset` | All dashboard views | `?date_preset=last_30d` |
 | `date_start` | All dashboard views | `?date_start=2026-05-01` |
 | `date_end` | All dashboard views | `?date_end=2026-05-30` |
@@ -778,8 +835,9 @@ function useSyncStatus(accountId: string) {
 
 ## 11. URL State Conventions
 
-- When `date_preset` is set, `date_start` and `date_end` are ignored (preset takes precedence)
-- When `account_id` is absent from the URL, default to the first account in the list
+- `date_preset` and `date_start`/`date_end` are mutually exclusive; the picker clears one when the other is chosen. If both somehow appear, a custom range (`date_start`+`date_end`) wins (`useDateRange`).
+- When `account_id` is absent, `useSelectedAccount` resolves a default: first pinned/recent account for the platform, else the first row of the platform's first page.
+- Combined dashboard: `accounts` absent = all org accounts (sent as empty `account_ids`); `accounts=""` = none selected (empty state).
 - Changing `level` in the table resets `page` to 1 and clears `campaign_id` / `adgroup_id`
 - All URL params use snake_case (consistent with API params)
 - Boolean params: `compare=true` — absence means `false` (no `compare=false` in URL)

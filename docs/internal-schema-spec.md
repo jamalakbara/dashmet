@@ -478,7 +478,7 @@ Tracks every background fetch from a platform API. Used to diagnose failures, pr
 | `date_start` | date | Coverage start (for insights jobs) |
 | `date_stop` | date | Coverage end |
 | `breakdown_type` | varchar | Null unless job_type is `breakdown` |
-| `status` | varchar | `pending` \| `running` \| `completed` \| `failed` \| `skipped` |
+| `status` | varchar | `pending` \| `running` \| `completed` \| `failed` \| `skipped` (`skipped` = rate-limited mid-run, rescheduled; not a permanent failure) |
 | `platform_job_id` | varchar | Meta `report_run_id` for async jobs; null for sync |
 | `rows_written` | int | Records upserted on success |
 | `error_message` | text | Error detail on failure |

@@ -7,7 +7,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { formatDistanceToNow } from "date-fns";
-import { CheckCircle2, XCircle, Plug, ExternalLink } from "lucide-react";
+import { CheckCircle2, XCircle, Plug, ExternalLink, Loader2, X } from "lucide-react";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +23,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { connectionsApi } from "@/lib/api/connections";
+import { accountsApi } from "@/lib/api/accounts";
+import { syncApi } from "@/lib/api/sync";
 import { queryKeys } from "@/lib/query-keys";
 
 const tokenSchema = z.object({
@@ -67,7 +70,7 @@ const PLATFORMS = [
     name:      "Google Ads",
     icon:      "G",
     color:     "bg-red-500",
-    auth_type: "soon" as const,
+    auth_type: "oauth" as const,
     instructions: undefined,
   },
 ];
@@ -77,6 +80,94 @@ function PlatformIcon({ platform }: { platform: typeof PLATFORMS[0] }) {
     <div className={`flex size-10 shrink-0 items-center justify-center rounded-lg ${platform.color} text-sm font-bold text-white`}>
       {platform.icon}
     </div>
+  );
+}
+
+function SyncProgressBanner({ platformKey, platformName, onDismiss }: {
+  platformKey: string;
+  platformName: string;
+  onDismiss: () => void;
+}) {
+  const { data: accounts = [] } = useQuery({
+    queryKey: queryKeys.accounts(),
+    queryFn: async () => {
+      const res = await accountsApi.list();
+      return res.data.data as { id: string; platform: string; account_status: string }[];
+    },
+    // poll until we find an account for this platform
+    refetchInterval: (query) => {
+      const data = query.state.data ?? [];
+      const found = data.some((a: { platform: string; account_status: string }) =>
+        a.platform === platformKey && a.account_status === "active"
+      );
+      return found ? false : 5000;
+    },
+    staleTime: 0,
+  });
+
+  const account = accounts.find(a => a.platform === platformKey && a.account_status === "active");
+  const accountId = account?.id;
+
+  const { data: statusRes } = useQuery({
+    queryKey: queryKeys.syncStatus(accountId ?? ""),
+    queryFn: () => syncApi.status(accountId!),
+    enabled: !!accountId,
+    refetchInterval: 5000, // poll real job status every 5s
+    staleTime: 0, // always refetch — this is a live progress view
+  });
+
+  const jobs: Record<string, { status: string }> = statusRes?.data?.data?.jobs ?? {};
+
+  const stages = [
+    { label: "Accounts imported", done: !!accountId },
+    { label: "Campaigns & ads structure", time: "~1–3 min", done: jobs.structure?.status === "completed" },
+    { label: "Last 7 days metrics", time: "~2–8 min", done: jobs.insights_daily?.status === "completed" },
+    {
+      label: "Historical data (14d / 30d / 90d)",
+      time: "~3–15 min",
+      done: platformKey === "tiktok" || platformKey === "google_ads"
+        ? jobs.insights_historical?.status === "completed"
+        : jobs.insights_async?.status === "completed",
+    },
+  ];
+
+  const allDone = stages.every(s => s.done);
+
+  useEffect(() => {
+    if (!allDone) return;
+    const t = setTimeout(onDismiss, 3000);
+    return () => clearTimeout(t);
+  }, [allDone, onDismiss]);
+
+  return (
+    <Alert>
+      <AlertDescription>
+        <div className="flex items-start justify-between gap-2">
+          <div className="space-y-2">
+            <p className="font-medium text-sm">
+              {allDone ? `${platformName} sync complete!` : `Syncing ${platformName} data…`}
+            </p>
+            <div className="space-y-1">
+              {stages.map((stage, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  {stage.done
+                    ? <CheckCircle2 className="size-3 shrink-0 text-green-500" />
+                    : <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
+                  }
+                  <span>{stage.label}</span>
+                  {!stage.done && stage.time && (
+                    <span className="text-muted-foreground">— ready in {stage.time}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          <button onClick={onDismiss} className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground">
+            <X className="size-3.5" />
+          </button>
+        </div>
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -91,6 +182,7 @@ function ConnectionsSettingsPageInner() {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectSuccess, setConnectSuccess] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
+  const [syncBannerPlatform, setSyncBannerPlatform] = useState<{ key: string; name: string } | null>(null);
 
   // Handle return from TikTok OAuth callback
   useEffect(() => {
@@ -98,11 +190,47 @@ function ConnectionsSettingsPageInner() {
     if (tiktokStatus === "connected") {
       qc.invalidateQueries({ queryKey: ["connections"] });
       qc.invalidateQueries({ queryKey: queryKeys.accounts() });
+      toast.success("TikTok connected. Syncing your data…");
       setConnectSuccess(true);
+      setSyncBannerPlatform({ key: "tiktok", name: "TikTok Ads" });
       setTimeout(() => setConnectSuccess(false), 4000);
+      const checkAfter = (ms: number) =>
+        setTimeout(async () => {
+          await qc.invalidateQueries({ queryKey: queryKeys.accounts() });
+          const cached = qc.getQueryData<unknown[]>(queryKeys.accounts());
+          if (ms === 12000 && (!cached || cached.length === 0)) {
+            toast.error("No TikTok accounts found. Check your token permissions and try reconnecting.");
+          }
+        }, ms);
+      checkAfter(5000);
+      checkAfter(12000);
       router.replace(pathname);
     } else if (tiktokStatus === "error") {
-      setConnectError("TikTok connection failed. Please try again.");
+      toast.error("TikTok connection failed. Please try again.");
+      router.replace(pathname);
+    }
+
+    const googleStatus = searchParams.get("google");
+    if (googleStatus === "connected") {
+      qc.invalidateQueries({ queryKey: ["connections"] });
+      qc.invalidateQueries({ queryKey: queryKeys.accounts() });
+      toast.success("Google Ads connected. Syncing your data…");
+      setConnectSuccess(true);
+      setSyncBannerPlatform({ key: "google_ads", name: "Google Ads" });
+      setTimeout(() => setConnectSuccess(false), 4000);
+      const checkAfter = (ms: number) =>
+        setTimeout(async () => {
+          await qc.invalidateQueries({ queryKey: queryKeys.accounts() });
+          const cached = qc.getQueryData<unknown[]>(queryKeys.accounts());
+          if (ms === 12000 && (!cached || cached.length === 0)) {
+            toast.error("No Google Ads accounts found. Check your developer token / MCC access and try reconnecting.");
+          }
+        }, ms);
+      checkAfter(5000);
+      checkAfter(12000);
+      router.replace(pathname);
+    } else if (googleStatus === "error") {
+      toast.error("Google Ads connection failed. Please try again.");
       router.replace(pathname);
     }
   }, [searchParams, qc, router, pathname]);
@@ -123,16 +251,30 @@ function ConnectionsSettingsPageInner() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["connections"] });
       qc.invalidateQueries({ queryKey: queryKeys.accounts() });
+      toast.success("Connected. Syncing your data…");
       setConnectSuccess(true);
       reset();
       setTimeout(() => {
         setConnectingPlatform(null);
         setConnectSuccess(false);
+        setSyncBannerPlatform(connectingPlatform ? { key: connectingPlatform.key, name: connectingPlatform.name } : null);
       }, 2000);
+      const checkAfter = (ms: number) =>
+        setTimeout(async () => {
+          await qc.invalidateQueries({ queryKey: queryKeys.accounts() });
+          const cached = qc.getQueryData<unknown[]>(queryKeys.accounts());
+          if (ms === 12000 && (!cached || cached.length === 0)) {
+            toast.error("No accounts found. Your token may be invalid or missing required permissions.");
+          }
+        }, ms);
+      checkAfter(5000);
+      checkAfter(12000);
     },
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      setConnectError(typeof detail === "string" ? detail : "Connection failed. Check your token.");
+      const msg = typeof detail === "string" ? detail : "Connection failed. Check your token.";
+      toast.error(msg);
+      setConnectError(msg);
     },
   });
 
@@ -140,6 +282,7 @@ function ConnectionsSettingsPageInner() {
     mutationFn: (id: string) => connectionsApi.delete(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["connections"] });
+      qc.invalidateQueries({ queryKey: queryKeys.accounts() });
       setDisconnectId(null);
     },
   });
@@ -157,13 +300,17 @@ function ConnectionsSettingsPageInner() {
     setOauthLoading(true);
     setConnectError(null);
     try {
-      const res = await connectionsApi.initiateTikTokOAuth();
+      const res = platform.key === "google_ads"
+        ? await connectionsApi.initiateGoogleOAuth()
+        : await connectionsApi.initiateTikTokOAuth();
       const authUrl = res.data?.data?.auth_url;
       if (authUrl) {
         window.location.href = authUrl;
       }
     } catch {
-      setConnectError("Could not initiate TikTok OAuth. Please try again.");
+      const msg = `Could not initiate ${platform.name} OAuth. Please try again.`;
+      toast.error(msg);
+      setConnectError(msg);
       setOauthLoading(false);
     }
   }
@@ -177,12 +324,12 @@ function ConnectionsSettingsPageInner() {
 
   return (
     <div className="space-y-4">
-      {connectSuccess && !connectingPlatform && (
-        <Alert>
-          <AlertDescription>
-            Platform connected successfully. Ad accounts are being imported…
-          </AlertDescription>
-        </Alert>
+      {syncBannerPlatform && (
+        <SyncProgressBanner
+          platformKey={syncBannerPlatform.key}
+          platformName={syncBannerPlatform.name}
+          onDismiss={() => setSyncBannerPlatform(null)}
+        />
       )}
       {connectError && !connectingPlatform && (
         <Alert variant="destructive">
@@ -244,10 +391,6 @@ function ConnectionsSettingsPageInner() {
                       >
                         Disconnect
                       </Button>
-                    ) : platform.auth_type === "soon" ? (
-                      <Button size="sm" disabled>
-                        Coming soon
-                      </Button>
                     ) : platform.auth_type === "oauth" ? (
                       <Button
                         size="sm"
@@ -290,7 +433,10 @@ function ConnectionsSettingsPageInner() {
           {connectSuccess ? (
             <Alert>
               <AlertDescription>
-                Connection verified. Ad accounts are being imported…
+                <p className="font-medium text-sm">Connected successfully!</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Last 7 days ready in ~2–8 min. Historical data (14d / 30d / 90d) ready in ~3–15 min.
+                </p>
               </AlertDescription>
             </Alert>
           ) : (

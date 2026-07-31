@@ -27,7 +27,9 @@
    - [6.9 Time Series (Periodic)](#69-time-series-periodic)
    - [6.10 Table Metrics](#610-table-metrics)
    - [6.11 Breakdown](#611-breakdown)
-   - [6.12 Sync Status](#612-sync-status)
+   - [6.12 Combined Dashboard (Cross-Platform)](#612-combined-dashboard-cross-platform)
+   - [6.13 Engagement (TikTok)](#613-engagement-tiktok)
+   - [6.14 Sync Status](#614-sync-status)
 7. [Metric Field Names](#7-metric-field-names)
 8. [Enum Reference](#8-enum-reference)
 
@@ -514,7 +516,18 @@ Disconnect a platform. **Owner only.** Sets `is_active = false` on the connectio
 
 #### `GET /api/v1/accounts`
 
-List all ad accounts the authenticated user has access to.
+List ad accounts the authenticated user has access to. Supports server-side search and platform scoping so the account picker never has to load the full org (orgs can have 200–1000+ accounts).
+
+**Query params**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `search` | string | — | Case-insensitive substring match on `name`, `external_id`, **and** `business_name` (ILIKE) |
+| `platform` | string | — | Scope to one platform (`meta`, `tiktok`, …) |
+| `page` | int | 1 | Page number |
+| `per_page` | int | 25 | Page size (max 200) |
+
+Disabled accounts (`account_status = "disabled"`) are always excluded.
 
 **Response `200`**
 ```json
@@ -528,6 +541,7 @@ List all ad accounts the authenticated user has access to.
       "currency": "USD",
       "timezone": "America/Los_Angeles",
       "account_status": "active",
+      "account_type": "standard",
       "business_name": "My Business",
       "last_synced_at": "2026-05-30T11:45:00Z"
     }
@@ -556,18 +570,34 @@ Single account detail.
 
 #### `PATCH /api/v1/accounts/:id/config`
 
-Update per-account configuration.
+Update per-account configuration. All fields optional; only provided fields change.
 
 **Request body**
 ```json
 {
   "primary_conversion_action": "lead",
   "attribution_window": "1d_click",
-  "roas_action_type": "purchase"
+  "roas_action_type": "purchase",
+  "account_type": "standard"
 }
 ```
 
+| Field | Type | Notes |
+|---|---|---|
+| `primary_conversion_action` | string | Conversion action used for CPA/conversions |
+| `attribution_window` | string | e.g. `7d_click_1d_view` |
+| `roas_action_type` | string | Action type ROAS is computed from |
+| `account_type` | `"standard"` \| `"cpas"` | **Meta-only.** `cpas` (Collaborative Ads) is rejected for non-Meta accounts |
+
 **Response `200`** — returns updated account object.
+
+**Errors**
+
+| Status | Code | When |
+|---|---|---|
+| `409` | `CONFLICT` | `account_type` = `cpas` on a non-Meta account (`platform != "meta"`) |
+| `404` | `NOT_FOUND` | Account not found |
+| `403` | `FORBIDDEN` | Account belongs to another org |
 
 ---
 
@@ -766,7 +796,12 @@ The main summary panel — aggregated metrics for an account over a period, with
 }
 ```
 
-**`vs_previous` values:** percentage change vs the equivalent prior period (e.g. for `last_7d`, the prior 7 days). Positive = improved, negative = declined. `null` if no prior data.
+**`vs_previous` values:** percentage change vs the **prior period** (see *Prior-period resolution* below). Positive = improved, negative = declined. `null` if no prior data.
+
+**Prior-period resolution** — shared by `overview`, `timeseries`, and `combined` (implemented once in `resolve_prior_period`, `app/services/insights.py`):
+
+- If the selected range is **exactly one full calendar month** (the 1st through the last day of the same month), the prior period is the **previous calendar month** — e.g. `May 1–31` → `Apr 1–30`, `Mar 1–31` → `Feb 1–28/29`, `Jan 1–31` → `Dec 1–31` of the prior year. The day is clamped to the shorter month.
+- Otherwise — rolling presets (`last_7d`, `last_30d`, …) or custom multi-month spans — the prior period is the **equal-length window immediately before** the range (e.g. a 7-day range → the preceding 7 days).
 
 **`roas` and `cpa`** are computed from `account_configs.roas_action_type` and `primary_conversion_action` respectively.
 
@@ -821,7 +856,7 @@ Daily metric trend data — powers line/bar charts in the Periodic view.
 }
 ```
 
-When `compare_previous=true`, `previous_series` has the same shape as `series` — aligned by relative position (day 1 of current vs day 1 of prior period), so the frontend can overlay them directly.
+When `compare_previous=true`, `previous_series` has the same shape as `series` — aligned by relative position (point 1 of current vs point 1 of prior period), so the frontend can overlay them directly. The prior period follows the *Prior-period resolution* rule in §6.8 (full calendar month → previous calendar month; otherwise equal-length preceding window). At non-account levels, each entry in `series_by_entity` also carries its own `previous_series` (same alignment, per entity); it is `[]` for entities with no data in the prior period.
 
 **Campaign-level breakdown** (when `level=campaign`, response includes a group per campaign):
 ```json
@@ -836,6 +871,9 @@ When `compare_previous=true`, `previous_series` has the same shape as `series` �
         },
         "series": [
           { "date": "2026-05-01", "spend": 30.10, "impressions": 12000 }
+        ],
+        "previous_series": [
+          { "date": "2026-04-01", "spend": 27.40, "impressions": 10800 }
         ]
       },
       {
@@ -845,7 +883,8 @@ When `compare_previous=true`, `previous_series` has the same shape as `series` �
         },
         "series": [
           { "date": "2026-05-01", "spend": 15.10, "impressions": 6500 }
-        ]
+        ],
+        "previous_series": []
       }
     ]
   }
@@ -853,6 +892,7 @@ When `compare_previous=true`, `previous_series` has the same shape as `series` �
 ```
 
 > The frontend decides whether to render this as stacked bars or individual lines.
+> `previous_series` per entity is present only when `compare_previous=true`; it is `[]` for entities with no prior-period data (e.g. campaigns that launched after the prior window).
 
 ---
 
@@ -1017,7 +1057,175 @@ Metrics split by a demographic or placement dimension. Powers breakdown charts i
 
 ---
 
-### 6.12 Sync Status
+### 6.12 Combined Dashboard (Cross-Platform)
+
+The combined endpoints aggregate metrics across a user-selected set of accounts from any platform. They are used by the `/dashboard` page.
+
+**Currency rule:** if every selected account shares one currency, monetary metrics (spend, cpm, cpc, roas, cpa) are summed. If currencies differ, the backend returns `combined: false, currency_mismatch: true` and only per-account rows — the frontend degrades to a side-by-side view.
+
+**Combinable metrics:** spend, impressions, reach, frequency, clicks, ctr, cpm, cpc (and conversions count where available). ROAS is recomputed at the aggregate level (`SUM(conv_value)/SUM(spend)`), never averaged. `conversions`/`roas` are currently tagged Meta-only in the metric registry — TikTok conversions use a different storage field and would undercount if naively combined.
+
+#### `GET /api/v1/insights/combined`
+
+Returns combined KPI summary + per-account breakdown + period-over-period deltas.
+
+**Query params**
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `account_ids` | string | — | Comma-separated account UUIDs (all must belong to the caller's org). **Empty/omitted = all org accounts** — lets the dashboard send "All accounts" without enumerating ids client-side. |
+| `date_preset` | string | ✓† | One of the standard presets |
+| `date_start` | date | ✓† | YYYY-MM-DD (custom range) |
+| `date_end` | date | ✓† | YYYY-MM-DD (custom range) |
+
+† Either `date_preset` or both `date_start`+`date_end` required.
+
+When `account_ids` is empty the backend resolves the org's account ids via `get_org_account_ids` (already org-scoped); explicit ids are still validated per-id. Applies to both `combined` and `combined-timeseries`.
+
+**Response — single currency**
+
+```json
+{
+  "data": {
+    "combined": true,
+    "currency_mismatch": false,
+    "currency": "IDR",
+    "currencies": ["IDR"],
+    "period": { "date_start": "2026-05-01", "date_stop": "2026-05-31", "preset": "last_30d" },
+    "summary": {
+      "spend": 12500000,
+      "impressions": 450000,
+      "reach": 210000,
+      "frequency": 2.14,
+      "clicks": 9800,
+      "ctr": 2.18,
+      "cpm": 27.78,
+      "cpc": 1275,
+      "conversions": 340,
+      "conversion_value": 48000000,
+      "roas": 3.84,
+      "cpa": 36765
+    },
+    "vs_previous": {
+      "spend": 4.2,
+      "impressions": -1.1,
+      "clicks": 7.8,
+      "ctr": 0.3,
+      "conversions": 12.5,
+      "roas": 8.1
+    },
+    "per_account": [
+      {
+        "account_id": "uuid",
+        "name": "Npure X Shopee",
+        "platform": "meta",
+        "currency": "IDR",
+        "summary": { "spend": 8000000, "impressions": 300000 }
+      }
+    ],
+    "account_count": 5
+  },
+  "meta": { "cached": true, "cached_at": "2026-06-04T17:23:54Z" }
+}
+```
+
+**Response — mixed currencies** (`combined: false, currency_mismatch: true`)
+
+```json
+{
+  "data": {
+    "combined": false,
+    "currency_mismatch": true,
+    "currency": null,
+    "currencies": ["IDR", "USD"],
+    "period": { ... },
+    "summary": {},
+    "vs_previous": {},
+    "per_account": [ ... ],
+    "account_count": 3
+  }
+}
+```
+
+`vs_previous` percentage changes follow the *Prior-period resolution* rule in §6.8.
+
+`meta.cached_at` = the latest `fetched_at` across all included accounts. Never `now()`.
+
+---
+
+#### `GET /api/v1/insights/combined-timeseries`
+
+Daily (or weekly/monthly) trend series aggregated across all selected accounts. Same currency rule applies — monetary metrics are `null` in each series point when `currency_mismatch: true`.
+
+**Query params:** same as `combined` + `time_increment` (`day` | `week` | `month`, default `day`)
+
+**Response**
+
+```json
+{
+  "data": {
+    "combined": true,
+    "currency_mismatch": false,
+    "currency": "IDR",
+    "currencies": ["IDR"],
+    "period": { ... },
+    "series": [
+      {
+        "date": "2026-05-01",
+        "spend": 400000,
+        "impressions": 14500,
+        "reach": 7200,
+        "clicks": 320,
+        "ctr": 2.21,
+        "cpm": 27.59,
+        "cpc": 1250,
+        "conversions": 11,
+        "roas": 3.7
+      }
+    ]
+  }
+}
+```
+
+---
+
+### 6.13 Engagement (TikTok)
+
+TikTok-specific social engagement metrics (likes, comments, shares) aggregated from `metric_action_stats`. Used by the `/tiktok/engagement` curated view.
+
+#### `GET /api/v1/insights/engagement`
+
+**Query params:** `account_id` (required) + date params (preset or custom range).
+
+**Response**
+
+```json
+{
+  "data": {
+    "period": { "date_start": "2026-05-01", "date_stop": "2026-05-31", "preset": "last_30d" },
+    "summary": {
+      "likes": 6843,
+      "comments": 11279,
+      "shares": 330,
+      "total_engagements": 18452,
+      "impressions": 450000,
+      "engagement_rate": 4.1004
+    },
+    "series": [
+      { "date": "2026-05-01", "engagements": 612 },
+      { "date": "2026-05-02", "engagements": 580 }
+    ]
+  },
+  "meta": { "cached": true, "cached_at": "2026-06-04T17:23:54Z" }
+}
+```
+
+`engagement_rate` = `total_engagements / impressions × 100`. `null` when no impressions.
+`series` aggregates all three action types (like + comment + share) per day.
+
+---
+
+### 6.14 Sync Status
 
 #### `GET /api/v1/sync/status`
 
@@ -1153,3 +1361,5 @@ Standard metric keys used in `metrics` objects across all endpoints.
 
 ### `job_status` (sync)
 `pending` · `running` · `completed` · `failed` · `skipped`
+
+`skipped` — task hit a hard rate limit mid-execution; job is marked skipped, connection paused, task rescheduled automatically. Distinct from `failed` (which is a permanent or max-retry-exhausted error). A skipped job will retry once the connection pause expires.

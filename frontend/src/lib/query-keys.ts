@@ -15,6 +15,11 @@ export type TableFilters = {
 export const queryKeys = {
   me: () => ["me"] as const,
   accounts: () => ["accounts"] as const,
+  accountsSearch: (platform: string | null, search: string) =>
+    ["accounts", "search", platform, search] as const,
+  accountsList: (platform: string | null, search: string, page: number) =>
+    ["accounts", "list", platform, search, page] as const,
+  accountsCount: () => ["accounts", "count"] as const,
   account: (id: string) => ["account", id] as const,
   syncStatus: (accountId: string) => ["sync-status", accountId] as const,
   overview: (accountId: string, dateRange: DateRange) =>
@@ -24,11 +29,18 @@ export const queryKeys = {
     dateRange: DateRange,
     level: string,
     metrics: string[],
-    timeIncrement: string
-  ) => ["timeseries", accountId, dateRange, level, metrics, timeIncrement] as const,
+    timeIncrement: string,
+    comparePrev: boolean
+  ) => ["timeseries", accountId, dateRange, level, metrics, timeIncrement, comparePrev] as const,
   table: (accountId: string, dateRange: DateRange, level: string, filters: TableFilters) =>
     ["table", accountId, dateRange, level, filters] as const,
   breakdown: (accountId: string, dateRange: DateRange, type: string) =>
     ["breakdown", accountId, dateRange, type] as const,
+  engagement: (accountId: string, dateRange: DateRange) =>
+    ["engagement", accountId, dateRange] as const,
   creative: (adId: string) => ["creative", adId] as const,
+  combined: (accountIds: string[], dateRange: DateRange) =>
+    ["combined", accountIds, dateRange] as const,
+  combinedTimeseries: (accountIds: string[], dateRange: DateRange, timeIncrement: string) =>
+    ["combined-timeseries", accountIds, dateRange, timeIncrement] as const,
 };

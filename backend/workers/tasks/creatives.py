@@ -51,8 +51,11 @@ def _infer_format(raw: dict) -> str:
 )
 def sync_creative(self, ad_id: str):
     from workers.db_helpers import get_worker_db
-    from workers.meta_client import MetaClient
-    from workers.rate_limit import apply_backoff
+    from workers.meta_client import MetaClient, MetaAPIError
+    from workers.rate_limit import (
+        apply_backoff, RateLimitState, RateLimitBackoff, connection_paused_remaining,
+        pause_connection, is_meta_rate_limit_error, HARD_PAUSE_SECONDS,
+    )
     from app.models.platform import Account, PlatformConnection
     from app.models.structure import Ad, Creative
     from app.services.auth import decrypt_token
@@ -73,15 +76,24 @@ def sync_creative(self, ad_id: str):
             return
 
         token = decrypt_token(conn.access_token)
-        apply_backoff(str(ad.account_id))
+        connection_id = str(conn.id)
+        account_id_str = str(ad.account_id)
+
+        paused = connection_paused_remaining(connection_id)
+        if paused > 0:
+            logger.info(f"[{ad_id}] Connection paused {paused}s — rescheduling creative")
+            self.apply_async(args=[ad_id], countdown=paused)
+            return
 
         try:
+            apply_backoff(account_id_str, connection_id)
             client = MetaClient(token)
 
-            raw_ad_data, _ = client.get(
+            raw_ad_data, rl = client.get(
                 f"/{ad.platform_ad_id}",
                 {"fields": "creative{id}"},
             )
+            RateLimitState(account_id_str, connection_id).update_from_headers(rl)
             creative_ref = raw_ad_data.get("creative", {})
             creative_platform_id = creative_ref.get("id") if creative_ref else None
 
@@ -89,7 +101,8 @@ def sync_creative(self, ad_id: str):
                 logger.warning(f"[{ad_id}] No creative ID found on ad")
                 return
 
-            raw, _ = client.get(f"/{creative_platform_id}", {"fields": CREATIVE_FIELDS})
+            raw, rl2 = client.get(f"/{creative_platform_id}", {"fields": CREATIVE_FIELDS})
+            RateLimitState(account_id_str, connection_id).update_from_headers(rl2)
 
             cta = raw.get("call_to_action_type", "")
             destination_url = None
@@ -146,6 +159,44 @@ def sync_creative(self, ad_id: str):
 
             logger.info(f"[{ad_id}] Creative synced: {creative_platform_id}")
 
-        except Exception as e:
+        except RateLimitBackoff as b:
+            logger.info(f"[{ad_id}] Creative rescheduled in {b.countdown}s ({b.scope})")
+            self.apply_async(args=[ad_id], countdown=b.countdown)
+            return
+        except MetaAPIError as e:
+            if is_meta_rate_limit_error(e.code, e.subcode):
+                pause_connection(connection_id, HARD_PAUSE_SECONDS)
+                logger.warning(f"[{ad_id}] Creative Meta rate-limit (code {e.code}) — pausing connection {HARD_PAUSE_SECONDS}s")
+                self.apply_async(args=[ad_id], countdown=HARD_PAUSE_SECONDS)
+                return
             logger.error(f"[{ad_id}] Creative sync failed: {e}")
             raise self.retry(exc=e)
+
+
+@celery_app.task(
+    name="workers.tasks.creatives.sync_creatives_for_account",
+    bind=True,
+    max_retries=3,
+)
+def sync_creatives_for_account(self, account_id: str):
+    from workers.db_helpers import get_worker_db
+    from app.models.structure import Ad, Creative
+
+    with get_worker_db() as db:
+        ads = (
+            db.query(Ad)
+            .filter(Ad.account_id == uuid.UUID(account_id), Ad.creative_id.isnot(None))
+            .all()
+        )
+        stale_ad_ids = []
+        for ad in ads:
+            creative = db.get(Creative, ad.creative_id)
+            if not _creative_is_fresh(creative):
+                stale_ad_ids.append(str(ad.id))
+
+    for ad_id in stale_ad_ids:
+        sync_creative.delay(ad_id)
+
+    logger.info(
+        "[%s] Enqueued %s stale Meta creative syncs", account_id, len(stale_ad_ids)
+    )

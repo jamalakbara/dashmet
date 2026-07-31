@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict
 
 
@@ -15,6 +15,7 @@ class AccountConfigUpdateRequest(BaseModel):
     primary_conversion_action: Optional[str] = None
     attribution_window: Optional[str] = None
     roas_action_type: Optional[str] = None
+    account_type: Optional[Literal["standard", "cpas"]] = None
 
 
 class AccountResponse(BaseModel):
@@ -27,6 +28,7 @@ class AccountResponse(BaseModel):
     currency: str
     timezone: str
     account_status: str
+    account_type: str
     business_name: Optional[str] = None
     last_synced_at: Optional[datetime] = None
     config: Optional[AccountConfigPublic] = None
@@ -41,6 +43,7 @@ class AccountResponse(BaseModel):
             currency=account.currency,
             timezone=account.timezone,
             account_status=account.account_status,
+            account_type=account.account_type,
             business_name=account.business_name,
             last_synced_at=account.synced_at,
             config=AccountConfigPublic.model_validate(account.config) if account.config else None,

@@ -11,3 +11,4 @@ export type OrgRole = "owner" | "member";
 export type SyncJobType = "structure" | "insights_daily" | "insights_async" | "creatives" | "breakdown";
 export type SyncJobStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 export type TokenType = "system_user" | "user_token";
+export type AccountType = "standard" | "cpas";

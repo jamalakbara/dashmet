@@ -255,9 +255,6 @@ function AdDetailSheet({
   ad: Ad | null;
   onClose: () => void;
 }) {
-  const dateRange  = useDateRange();
-  const accountId  = useAccountId();
-
   const { data: creativeRes, isLoading: creativeLoading } = useQuery({
     queryKey: queryKeys.creative(ad?.id ?? ""),
     queryFn:  () => insightsApi.creative(ad!.id),
@@ -396,9 +393,9 @@ function AdDetailSheet({
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// ─── View ─────────────────────────────────────────────────────────────────────
 
-export default function AdsPage() {
+export function AdsView() {
   const accountId = useAccountId();
   const dateRange = useDateRange();
 

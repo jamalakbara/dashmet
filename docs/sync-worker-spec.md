@@ -13,6 +13,7 @@
 2. [Job Types](#2-job-types)
 3. [Scheduling Strategy](#3-scheduling-strategy)
 4. [Fetch Strategy (what to call and when)](#4-fetch-strategy)
+12. [Data Freshness & First-Connect Availability](#12-data-freshness--first-connect-availability)
 5. [Rate Limit Handling](#5-rate-limit-handling)
 6. [Error Handling & Retry Logic](#6-error-handling--retry-logic)
 7. [Async Insights Jobs (Meta)](#7-async-insights-jobs-meta)
@@ -70,7 +71,7 @@
 |---|---|---|---|
 | Structure sync | `sync.structure` | Fetches campaigns, ad sets, ads | Periodic (30 min) |
 | Insights sync | `sync.insights_daily` | Fetches scalar + action metrics | Periodic (15 min) |
-| Breakdown sync | `sync.insights_breakdown` | Fetches metrics split by dimension | On-demand |
+| Breakdown sync | `sync.insights_breakdown` | Fetches metrics split by dimension | Periodic (1 hr) |
 | Async job submit | `sync.async_submit` | POSTs async insights job to Meta | Periodic (60 min) for 90d/lifetime |
 | Async job poll | `sync.async_poll` | Polls `report_run_id` until complete | Periodic (2 min, conditional) |
 | Creative sync | `sync.creatives` | Fetches ad creative content | On-demand (first drill-in) |
@@ -121,6 +122,10 @@ CELERYBEAT_SCHEDULE = {
     },
 }
 ```
+
+### Staggered dispatch (prevents thundering herd)
+
+Each `*_all` dispatcher calls `stagger_dispatch()` (`workers/dispatch.py`) instead of looping `.delay()` directly. It spreads per-account task enqueues across ~600s of the interval, interleaves accounts round-robin by `platform_connection_id` (so one org's accounts don't burst against the same token simultaneously), and skips connections that are currently rate-limit paused. At scale, this prevents all accounts hitting the shared Meta API quota in a single tick.
 
 ### TTL enforcement (don't re-fetch if fresh)
 
@@ -193,11 +198,11 @@ Call 2 — unique metrics (separate call, slower):
 
 Both calls write to the same `metrics_daily` rows via upsert — they merge, not overwrite.
 
-### Breakdown fetches (on-demand only)
+### Breakdown fetches (hourly beat)
 
-Breakdowns are NOT included in the periodic sync. They are triggered when a user navigates to a breakdown view in the dashboard. The API request is made once, result cached in `metric_breakdowns`, TTL 30 minutes.
+Breakdowns are synced hourly via the `sync_breakdowns_all` beat task → `sync_breakdowns_for_account` per account. Each run fetches `last_30d` of data, covering the default UI date range. Results are stored in `metric_breakdowns` and queried directly by the breakdown API.
 
-Supported on-demand breakdowns:
+Supported breakdown dimensions:
 - `age,gender` (always fetched together as a compound)
 - `country`
 - `publisher_platform,platform_position` (always together)
@@ -247,30 +252,44 @@ class RateLimitState:
 
 | Metric | Threshold | Action |
 |---|---|---|
-| `insights_app_pct` | > 80% | Sleep 30s before next insights call |
-| `insights_app_pct` | > 95% | Sleep 300s — hard pause |
-| `insights_acc_pct` | > 80% | Sleep 30s |
-| `structure_acc_pct` | > 80% | Sleep 30s before next structure call |
-| `app_call_count` | > 80 | Sleep 60s |
+| `insights_app_pct` | > 80% | Reschedule task 30s later (account scope) |
+| `insights_app_pct` | > 95% | Pause entire connection 300s + reschedule |
+| `insights_acc_pct` | > 80% | Reschedule task 30s later |
+| `structure_acc_pct` | > 80% | Reschedule task 30s later |
+| `app_call_count` | > 80 | Reschedule task 60s later |
 
 ```python
-def apply_backoff(account_id):
-    state = RateLimitState.load(account_id)
+def apply_backoff(account_id: str, connection_id: str | None = None) -> None:
+    """Raises RateLimitBackoff. Does NOT sleep — task reschedules itself on catch."""
+    state = RateLimitState(account_id, connection_id)
 
-    if state.insights_app_pct > 95:
-        logger.warning(f"[{account_id}] Hard rate limit pause (5 min)")
-        time.sleep(300)
-        return
+    if state.insights_app_pct > 95:             # HARD — shared app quota
+        countdown = int(state.quota_reset_seconds) or 300
+        if connection_id:
+            pause_connection(connection_id, countdown)  # pauses ALL accounts on this token
+        raise RateLimitBackoff(countdown, scope="connection")
 
-    if state.insights_app_pct > 80 or state.insights_acc_pct > 80:
-        logger.info(f"[{account_id}] Soft rate limit back-off (30s)")
-        time.sleep(30)
-
-    if state.structure_acc_pct > 80:
-        time.sleep(30)
+    soft = 0
+    if state.insights_app_pct > 80 or state.insights_acc_pct > 80: soft = 30
+    if state.structure_acc_pct > 80:  soft = max(soft, 30)
+    if state.app_call_count > 80:     soft = max(soft, 60)
+    if soft:
+        raise RateLimitBackoff(soft, scope="account")
 ```
 
-**This function is called before every API call, not just on error.** Proactive throttling prevents hitting hard limits.
+**Backoff is non-blocking.** `apply_backoff` raises `RateLimitBackoff` instead of calling `time.sleep`. The task catches it and calls `self.apply_async(countdown=N)`, freeing the worker slot immediately. Rate-limit reschedules are kept off the error-retry budget (`max_retries` stays reserved for genuine API errors).
+
+**Called at task entry** (once, before the first API call), not before every individual request.
+
+### Connection-scoped pause (shared-token gate)
+
+One `platform_connections.access_token` is shared by all accounts in an org. Meta's app-level throttle (`app_id_util_pct`) is shared across that whole token — so when one account hits the hard limit (>95%), all sibling accounts must also back off, not just one.
+
+When `apply_backoff` detects `app_id_util_pct > 95%` **or** a hard Meta error code (4/17/32/613/80000–80004) is caught mid-task, it calls `pause_connection(connection_id, seconds)` — which sets a Redis key `rate_limit:conn:{id}:paused` with TTL. Every per-account task checks `connection_paused_remaining(connection_id)` at entry before touching the API; if the key is live, it calls `self.apply_async(countdown=remaining)` and returns. The staggered dispatcher also skips paused connections entirely, so tasks aren't re-enqueued during the pause window.
+
+### Overlap lock (per-account, per-job-type)
+
+A single account should not have two concurrent runs of the same sync job. A Redis `SET NX EX` lock (`rate_limit:lock:{job_type}:{account_id}`, TTL = task hard time limit + 120s) is acquired at task entry after the connection-pause check. If another run holds the lock, the task returns immediately without creating a `sync_jobs` row. Released via atomic Lua check-and-delete in a `finally` block. Works correctly with `task_acks_late=True`: a crashed worker's lock expires via TTL, after which the redelivered message re-acquires cleanly.
 
 ### Development tier awareness
 
@@ -316,13 +335,17 @@ def sync_insights_daily(self, account_id, ...):
 |---|---|---|---|
 | `190` | any | Invalid / expired token | Alert operator — do not retry automatically. Token must be re-generated. |
 | `200` | any | Insufficient permissions | Alert operator — token missing `ads_read` or `read_insights`. |
-| `4` | `1504022` | App-level insights rate limit | Exponential back-off. Retry after `2^attempt × 10s`. |
-| `4` | `1504039` | Too many app calls | Same as above. |
-| `4` | *(none)* | Generic app limit | Back-off 60s, retry. |
-| `17` | — | User rate limit | Back-off 60s, retry. |
+| `4` | `1504022` | App-level insights rate limit | Pause connection 300s, reschedule. |
+| `4` | `1504039` | Too many app calls | Pause connection 300s, reschedule. |
+| `4` | *(none)* | Generic app limit | Pause connection 300s, reschedule. |
+| `17` | — | User rate limit | Pause connection 300s, reschedule. |
+| `32` | — | Page rate limit | Pause connection 300s, reschedule. |
+| `613` | — | Custom rate limit | Pause connection 300s, reschedule. |
+| `80000`–`80004` | — | Ads/insights rate limit codes | Pause connection 300s, reschedule. |
 | `100` | `1487534` | Too much data per call | Narrow the date range (split into two calls), or switch to async. Do not retry as-is. |
 | `1` | — | Timeout (sync) | Switch to async job automatically. |
-| `613` | — | Custom rate limit | Back-off 120s, retry. |
+
+All rate-limit codes (4, 17, 32, 613, 80000–80004) are caught by `is_meta_rate_limit_error(code)` in `workers/rate_limit.py` and trigger `pause_connection(connection_id)` — the same hard-pause path as the >95% header threshold. This is important because Meta can return code 4 while `app_id_util_pct` still reads near zero.
 
 ```python
 def handle_api_error(self, response_json, account_id):
@@ -689,8 +712,14 @@ Each `sync_job` row moves through these states:
                                   │                    
                                   │ max retries hit    
                                   ▼                    
-                               failed (final)          
+                               failed (final)
+
+                                  │ rate limit mid-run
+                                  ▼
+                               skipped ──> task rescheduled (countdown)
 ```
+
+`skipped` means the task hit a hard rate limit during execution (connection paused), marked the job `skipped`, and rescheduled itself. It is not a permanent failure — the task will retry automatically once the connection pause expires.
 
 For async jobs specifically:
 
@@ -735,3 +764,54 @@ All values in environment variables or a config table per account.
 | `primary_conversion_action` | Which `action_type` = "a conversion" for this account |
 | `attribution_window` | Must match native platform setting to get 1:1 numbers |
 | `roas_action_type` | Usually `purchase`; `fb_mobile_purchase` for app-focused accounts |
+
+---
+
+## 12. Data Freshness & First-Connect Availability
+
+### Two distinct concepts
+
+**Freshness** — ongoing data staleness during normal operation. How old the data is when a user opens the dashboard on any given day.
+
+**First-connect availability** — one-time wait for a brand-new account. How long until a date range first populates after connecting a platform.
+
+These differ because freshness is controlled by Beat schedule intervals, while first-connect time is controlled by an immediate task chain that bypasses Beat entirely.
+
+### Freshness model (ongoing operation)
+
+| Date range | Data source | Staleness |
+|---|---|---|
+| Today / Yesterday / Last 7d | 15min Beat sync (`last_7d`) | ~15 min |
+| Last 14d — Meta | Days 1–7: 15min sync; Days 8–14: async 90d job | Days 8–14: up to 6hr |
+| Last 30d — Meta | Days 1–7: 15min sync; Days 8–30: async 90d job | Days 8–30: up to 6hr |
+| Last 90d — Meta | Days 1–7: 15min sync; Days 8–90: async 90d job | Days 8–90: up to 6hr |
+| Last 14d — TikTok | Days 1–7: 15min sync; Days 8–14: `insights_historical` | Days 8–14: up to 6hr |
+| Last 30d — TikTok | Days 1–7: 15min sync; Days 8–30: `insights_historical` | Days 8–30: up to 6hr |
+| Last 90d — TikTok | Not covered | N/A |
+
+### First-connect availability
+
+When an account is first connected the following chain fires immediately — no waiting for Beat:
+
+```
+sync_accounts_for_connection          → accounts imported         (~10–30s)
+  └─ sync_structure_for_account       → campaigns / adsets / ads  (~30s–3min)
+       ├─ sync_insights_for_account   → last 7d metrics            (~2–8min total)
+       ├─ submit_async_job_for_account → Meta: 90d async submitted  (parallel)
+       └─ sync_tiktok_insights...     → TikTok: last 30d sync      (parallel)
+            └─ sync_breakdowns_for_account → breakdowns            (~30s)
+```
+
+| Date range | First data after connect |
+|---|---|
+| Today / Yesterday / Last 7d | ~2–8 min |
+| Last 14d / Last 30d — Meta | ~3–15 min |
+| Last 90d — Meta | ~3–15 min |
+| Last 14d / Last 30d — TikTok | ~3–10 min |
+| Last 90d — TikTok | Not covered |
+
+### Implementation notes
+
+- `submit_async_job_for_account` has a 6hr staleness guard — safe to call on every structure sync without spamming Meta.
+- TikTok uses `job_type="insights_historical"` with a 6hr TTL, separate from `"insights_daily"` (15min TTL), so the two do not block each other.
+- The async job submit fires in parallel with the insights sync, not after. Structure sync completes first (~30s–3min), and Meta async jobs take 1–10min to process — so `camp_map` is always populated before `fetch_async_results` runs.

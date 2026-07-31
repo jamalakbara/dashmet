@@ -43,7 +43,7 @@ export default function LoginPage() {
       const res = await authApi.login(values);
       const { access_token, expires_in } = res.data.data;
       setAuthCookie(access_token, expires_in);
-      router.push("/overview");
+      router.push("/dashboard");
     } catch (err: unknown) {
       const detail =
         (err as { response?: { data?: { detail?: unknown } } })?.response?.data

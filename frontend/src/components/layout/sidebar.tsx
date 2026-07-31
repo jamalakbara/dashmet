@@ -1,29 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
-import { BarChart2, Table, TrendingUp, Image, Settings } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { Settings, LayoutDashboard } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PlatformBadge } from "@/components/shared/platform-badge";
 import { useUIStore } from "@/stores/ui-store";
+import { useSharedFilterQuery } from "@/hooks/use-shared-query";
+import { PLATFORM_TABS } from "@/lib/constants";
 
-const NAV_ITEMS = [
-  { label: "Overview",  href: "/overview",  icon: BarChart2 },
-  { label: "Periodic",  href: "/periodic",  icon: TrendingUp },
-  { label: "Table",     href: "/table",     icon: Table },
-  { label: "Ads",       href: "/ads",       icon: Image },
+const PLATFORM_NAV: { platform: string; label: string }[] = [
+  { platform: "meta", label: "Meta" },
+  { platform: "tiktok", label: "TikTok" },
+  { platform: "google_ads", label: "Google Ads" },
 ];
 
-export function Sidebar() {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const { sidebarCollapsed } = useUIStore();
+const NAV_BASE =
+  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all";
+const NAV_ACTIVE = "bg-primary text-primary-foreground shadow-[var(--shadow-soft)]";
+const NAV_INACTIVE =
+  "text-muted-foreground hover:bg-accent hover:text-accent-foreground";
 
-  const sharedParams = new URLSearchParams();
-  ["account_id", "date_preset", "date_start", "date_end"].forEach(key => {
-    const v = searchParams.get(key);
-    if (v) sharedParams.set(key, v);
-  });
-  const sharedQuery = sharedParams.toString();
+export function Sidebar() {
+  const pathname = usePathname() ?? "";
+  const { sidebarCollapsed } = useUIStore();
+  const withQuery = useSharedFilterQuery();
 
   return (
     <aside
@@ -35,34 +36,49 @@ export function Sidebar() {
       {/* Logo */}
       <div className="flex h-14 items-center border-b px-4">
         {!sidebarCollapsed && (
-          <span className="text-lg font-bold tracking-tight">DashMet</span>
+          <span className="font-display text-lg font-bold tracking-tight">
+            Dash<span className="text-primary">Met</span>
+          </span>
         )}
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 space-y-1 p-2">
-        {NAV_ITEMS.map(({ label, href, icon: Icon }) => (
-          <Link
-            key={href}
-            href={sharedQuery ? `${href}?${sharedQuery}` : href}
-            className={cn(
-              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-              pathname === href
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            )}
-          >
-            <Icon className="h-4 w-4 shrink-0" />
-            {!sidebarCollapsed && label}
-          </Link>
-        ))}
+      <nav className="flex-1 space-y-1 overflow-y-auto p-2">
+        {/* Combined dashboard */}
+        <Link
+          href={withQuery("/dashboard")}
+          className={cn(NAV_BASE, pathname === "/dashboard" ? NAV_ACTIVE : NAV_INACTIVE)}
+        >
+          <LayoutDashboard className="h-4 w-4 shrink-0" />
+          {!sidebarCollapsed && "Dashboard"}
+        </Link>
+
+        {/* One entry per platform — its views live in the top tab bar */}
+        {PLATFORM_NAV.map(({ platform, label }) => {
+          const landing = `/${platform}/${PLATFORM_TABS[platform][0].slug}`;
+          const active = pathname.startsWith(`/${platform}`);
+          return (
+            <Link
+              key={platform}
+              href={withQuery(landing)}
+              className={cn(
+                NAV_BASE,
+                sidebarCollapsed && "justify-center",
+                active ? NAV_ACTIVE : NAV_INACTIVE
+              )}
+            >
+              <PlatformBadge platform={platform} size="sm" />
+              {!sidebarCollapsed && label}
+            </Link>
+          );
+        })}
       </nav>
 
       {/* Settings */}
       <div className="border-t p-2">
         <Link
           href="/settings/org"
-          className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          className={cn(NAV_BASE, NAV_INACTIVE, sidebarCollapsed && "justify-center")}
         >
           <Settings className="h-4 w-4 shrink-0" />
           {!sidebarCollapsed && "Settings"}

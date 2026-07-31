@@ -6,8 +6,9 @@ interface PlatformBadgeProps {
 }
 
 const PLATFORM_CONFIG: Record<string, { icon: string; color: string }> = {
-  meta:    { icon: "M", color: "bg-blue-600" },
-  tiktok:  { icon: "T", color: "bg-black" },
+  meta:       { icon: "M", color: "bg-blue-600" },
+  tiktok:     { icon: "T", color: "bg-black" },
+  google_ads: { icon: "G", color: "bg-red-500" },
 };
 
 export function PlatformBadge({ platform, size = "sm" }: PlatformBadgeProps) {

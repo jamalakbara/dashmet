@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from workers.celery_app import celery_app
+from workers.celery_app import celery_app, HEAVY_SOFT_TIME_LIMIT, HEAVY_TIME_LIMIT, LOCK_TTL
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ def sync_tiktok_accounts_for_connection(
         with get_worker_db() as db:
             for adv_id in advertiser_ids:
                 info = info_map.get(str(adv_id), {})
-                name = info.get("advertiser_name") or f"TikTok Account {adv_id}"
+                name = info.get("name") or info.get("advertiser_name") or f"TikTok Account {adv_id}"
                 currency = info.get("currency", "USD")
                 timezone_str = info.get("timezone", "UTC")
 
@@ -111,6 +111,8 @@ def sync_tiktok_accounts_for_connection(
                         "name": name,
                         "currency": currency,
                         "timezone": timezone_str,
+                        "account_status": "active",
+                        "platform_connection_id": uuid.UUID(connection_id),
                         "synced_at": datetime.now(timezone.utc),
                     },
                 )
@@ -156,20 +158,18 @@ def sync_tiktok_accounts_for_connection(
 )
 def sync_tiktok_structure_all(self):
     from workers.db_helpers import get_worker_db
+    from workers.dispatch import stagger_dispatch
     from app.models.platform import Account
 
     with get_worker_db() as db:
-        accounts = (
-            db.query(Account)
-            .filter(
-                Account.account_status == "active",
-                Account.platform_id == "tiktok",
-            )
+        pairs = [
+            (str(aid), str(cid) if cid else None)
+            for aid, cid in db.query(Account.id, Account.platform_connection_id)
+            .filter(Account.account_status == "active", Account.platform_id == "tiktok")
             .all()
-        )
-        for account in accounts:
-            sync_tiktok_structure_for_account.delay(str(account.id))
-        logger.info("Enqueued TikTok structure sync for %s accounts", len(accounts))
+        ]
+    count = stagger_dispatch(sync_tiktok_structure_for_account, pairs)
+    logger.info("Enqueued TikTok structure sync for %s accounts", count)
 
 
 @celery_app.task(
@@ -178,15 +178,25 @@ def sync_tiktok_structure_all(self):
     max_retries=3,
     default_retry_delay=60,
     retry_backoff=True,
+    soft_time_limit=HEAVY_SOFT_TIME_LIMIT,
+    time_limit=HEAVY_TIME_LIMIT,
 )
 def sync_tiktok_structure_for_account(self, account_id: str):
+    from celery.exceptions import SoftTimeLimitExceeded
     from workers.db_helpers import get_worker_db, create_sync_job, finalize_sync_job
+    from workers.rate_limit import acquire_lock, release_lock
     from app.models.platform import Account, PlatformConnection
     from app.models.structure import Campaign, AdGroup, Ad, Creative
     from app.services.auth import decrypt_token
     from workers.tiktok_client import TikTokClient, TikTokAPIError
 
     account_uuid = uuid.UUID(account_id)
+
+    lock_token = acquire_lock("tiktok_structure", account_id, LOCK_TTL)
+    if not lock_token:
+        logger.info("TikTok structure already running for %s — skip", account_id)
+        return
+
     job_id = create_sync_job(account_uuid, "tiktok", "structure")
 
     try:
@@ -328,13 +338,16 @@ def sync_tiktok_structure_for_account(self, account_id: str):
                 status = TIKTOK_STATUS_MAP.get(status_raw, "active")
 
                 video_id = ad.get("video_id")
+                tiktok_item_id = ad.get("tiktok_item_id")
 
-                # Upsert stub Creative (raw_spec holds text fields + video_id for later enrichment)
+                # Upsert stub Creative. Spark Ads use tiktok_item_id (organic post);
+                # standard video ads use video_id. Both are enriched later by the creatives worker.
                 creative_id = None
-                if video_id:
-                    platform_creative_id = video_id
+                platform_creative_id = video_id or tiktok_item_id
+                if platform_creative_id:
                     raw_spec = {
                         "video_id": video_id,
+                        "tiktok_item_id": tiktok_item_id,
                         "ad_text": ad.get("ad_text"),
                         "call_to_action": ad.get("call_to_action"),
                         "landing_page_url": ad.get("landing_page_url"),
@@ -403,8 +416,15 @@ def sync_tiktok_structure_for_account(self, account_id: str):
         )
 
         from workers.tasks.tiktok_insights import sync_tiktok_insights_for_account
+        from workers.tasks.tiktok_creatives import sync_tiktok_creatives_for_account
         sync_tiktok_insights_for_account.delay(account_id)
+        sync_tiktok_insights_for_account.delay(account_id, "last_30d", "insights_historical")
+        sync_tiktok_creatives_for_account.delay(account_id)
 
+    except SoftTimeLimitExceeded as exc:
+        logger.error("TikTok structure sync for %s exceeded soft time limit", account_id)
+        finalize_sync_job(job_id, "failed", error=exc)
+        return
     except TikTokAPIError as exc:
         logger.error("TikTok API error for account %s: %s", account_id, exc)
         finalize_sync_job(job_id, "failed", error=exc)
@@ -413,3 +433,5 @@ def sync_tiktok_structure_for_account(self, account_id: str):
         logger.exception("Unexpected error in TikTok structure sync for %s", account_id)
         finalize_sync_job(job_id, "failed", error=exc)
         raise self.retry(exc=exc)
+    finally:
+        release_lock("tiktok_structure", account_id, lock_token)

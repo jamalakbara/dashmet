@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
 import {
@@ -13,10 +13,6 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  BarChart,
-  PieChart,
-  Pie,
-  Cell,
 } from "recharts";
 import { format, parseISO } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,13 +26,15 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BreakdownSection } from "@/components/metrics/breakdown-section";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useAccountId } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
-import { METRIC_LABELS, METRIC_TYPES, CHART_COLORS } from "@/lib/constants";
-import { formatMetric, formatCurrency } from "@/lib/formatters";
+import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
+import { metricLabel, metricType } from "@/lib/metrics";
+import { CHART_COLORS, gridProps, axisProps, tooltipProps } from "@/lib/chart-theme";
+import { formatMetric } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -49,20 +47,10 @@ interface SeriesRow {
 interface EntitySeries {
   entity: { id: string; name: string };
   series: SeriesRow[];
-}
-
-interface BreakdownRow {
-  breakdown_value: string;
-  dimensions: Record<string, string>;
-  metrics: Record<string, number>;
+  previous_series?: SeriesRow[];
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const SELECTABLE_METRICS = [
-  "spend", "impressions", "reach", "clicks",
-  "ctr", "cpm", "cpc", "conversions", "roas", "cpa",
-];
 
 const LEVELS = [
   { value: "account",  label: "Account" },
@@ -76,12 +64,6 @@ const TIME_INCREMENTS = [
   { value: "week",  label: "Week" },
   { value: "month", label: "Month" },
 ];
-
-const GENDER_COLORS: Record<string, string> = {
-  female:  CHART_COLORS[3],
-  male:    CHART_COLORS[0],
-  unknown: CHART_COLORS[5],
-};
 
 function formatXDate(v: unknown): string {
   try { return format(parseISO(v as string), "MMM d"); }
@@ -134,159 +116,40 @@ function SegmentControl<T extends string>({
   );
 }
 
-// ─── Breakdown charts ─────────────────────────────────────────────────────────
+// ─── View ─────────────────────────────────────────────────────────────────────
 
-function AgeGenderChart({ rows, loading }: { rows: BreakdownRow[]; loading: boolean }) {
-  if (loading) return <SkeletonChart height={280} />;
-  if (!rows.length) return <Empty />;
-
-  const ages = [...new Set(rows.map((r) => r.dimensions.age))].sort();
-  const genders = [...new Set(rows.map((r) => r.dimensions.gender))];
-
-  const data = ages.map((age) => {
-    const entry: Record<string, unknown> = { age };
-    genders.forEach((g) => {
-      const row = rows.find(
-        (r) => r.dimensions.age === age && r.dimensions.gender === g
-      );
-      entry[g] = row?.metrics.spend ?? 0;
-    });
-    return entry;
-  });
-
-  return (
-    <ResponsiveContainer width="100%" height={280}>
-      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-        <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-        <YAxis type="category" dataKey="age" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={48} />
-        <Tooltip formatter={(v) => formatCurrency(v as number)} contentStyle={{ fontSize: 12 }} />
-        <Legend />
-        {genders.map((g) => (
-          <Bar key={g} dataKey={g} name={g.charAt(0).toUpperCase() + g.slice(1)} fill={GENDER_COLORS[g] ?? CHART_COLORS[2]} />
-        ))}
-      </BarChart>
-    </ResponsiveContainer>
-  );
-}
-
-function CountryChart({ rows, loading }: { rows: BreakdownRow[]; loading: boolean }) {
-  if (loading) return <SkeletonChart height={280} />;
-  if (!rows.length) return <Empty />;
-
-  const data = [...rows]
-    .sort((a, b) => (b.metrics.spend ?? 0) - (a.metrics.spend ?? 0))
-    .slice(0, 10)
-    .map((r) => ({
-      country: r.dimensions.country ?? r.breakdown_value,
-      spend: r.metrics.spend ?? 0,
-    }));
-
-  return (
-    <ResponsiveContainer width="100%" height={280}>
-      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-        <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-        <YAxis type="category" dataKey="country" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={32} />
-        <Tooltip formatter={(v) => [formatCurrency(v as number), "Spend"]} contentStyle={{ fontSize: 12 }} />
-        <Bar dataKey="spend" fill={CHART_COLORS[0]} radius={2} />
-      </BarChart>
-    </ResponsiveContainer>
-  );
-}
-
-function PlatformChart({ rows, loading }: { rows: BreakdownRow[]; loading: boolean }) {
-  if (loading) return <SkeletonChart height={280} />;
-  if (!rows.length) return <Empty />;
-
-  const platforms = [...new Set(rows.map((r) => r.dimensions.publisher_platform))];
-  const positions  = [...new Set(rows.map((r) => r.dimensions.platform_position))];
-
-  const data = platforms.map((platform) => {
-    const entry: Record<string, unknown> = { platform };
-    rows
-      .filter((r) => r.dimensions.publisher_platform === platform)
-      .forEach((r) => { entry[r.dimensions.platform_position] = r.metrics.spend ?? 0; });
-    return entry;
-  });
-
-  return (
-    <ResponsiveContainer width="100%" height={280}>
-      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
-        <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-        <YAxis type="category" dataKey="platform" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={72} />
-        <Tooltip formatter={(v) => [formatCurrency(v as number), "Spend"]} contentStyle={{ fontSize: 12 }} />
-        <Legend />
-        {positions.map((pos, i) => (
-          <Bar key={`${pos ?? "unknown"}-${i}`} dataKey={pos} stackId="a" fill={CHART_COLORS[i % CHART_COLORS.length]} />
-        ))}
-      </BarChart>
-    </ResponsiveContainer>
-  );
-}
-
-function DeviceChart({ rows, loading }: { rows: BreakdownRow[]; loading: boolean }) {
-  if (loading) return <SkeletonChart height={280} />;
-  if (!rows.length) return <Empty />;
-
-  const data = rows.map((r) => ({
-    name:  r.dimensions.device ?? r.breakdown_value,
-    value: r.metrics.impressions ?? 0,
-  }));
-
-  return (
-    <ResponsiveContainer width="100%" height={280}>
-      <PieChart>
-        <Pie
-          data={data}
-          dataKey="value"
-          nameKey="name"
-          cx="50%"
-          cy="50%"
-          innerRadius={70}
-          outerRadius={110}
-          paddingAngle={2}
-          label={({ name, percent }) =>
-            `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
-          }
-          labelLine={false}
-        >
-          {data.map((_, i) => (
-            <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-          ))}
-        </Pie>
-        <Tooltip
-          formatter={(v) => [Number(v).toLocaleString(), "Impressions"]}
-          contentStyle={{ fontSize: 12 }}
-        />
-        <Legend />
-      </PieChart>
-    </ResponsiveContainer>
-  );
-}
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
-export default function PeriodicPage() {
+export function PeriodicView() {
   const accountId     = useAccountId();
   const dateRange     = useDateRange();
+  const { selectableMetrics, currency } = usePlatformMetrics();
 
   const [level, setLevel]               = useQueryState("level",          { defaultValue: "campaign" });
   const [metricsStr, setMetricsStr]     = useQueryState("metrics",        { defaultValue: "spend,clicks" });
   const [timeIncrement, setTimeIncrement] = useQueryState("time_increment", { defaultValue: "day" });
   const [compareStr, setCompareStr]     = useQueryState("compare");
-  const [activeBreakdown, setActiveBreakdown] = useQueryState("breakdown", { defaultValue: "age_gender" });
 
   const [chartType, setChartType] = useState<"line" | "bar">("line");
 
   const metrics        = metricsStr.split(",").filter(Boolean).slice(0, 2);
+
+  // Sanitize URL metrics when platform changes — drop keys not in the new selectable set
+  const selectableKeyStr = selectableMetrics.map((m) => m.key).join(",");
+  useEffect(() => {
+    const validKeys = new Set(selectableKeyStr.split(",").filter(Boolean));
+    const valid = metricsStr.split(",").filter((m) => m && validKeys.has(m));
+    if (valid.length === 0) {
+      setMetricsStr(selectableKeyStr.split(",").slice(0, 2).join(","));
+    } else if (valid.join(",") !== metricsStr) {
+      setMetricsStr(valid.join(","));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectableKeyStr]);
   const comparePrev    = compareStr === "true";
   const isAccountLevel = level === "account";
 
   // ── Timeseries ──
   const { data: tsRes, isLoading } = useQuery({
-    queryKey: queryKeys.timeseries(accountId ?? "", dateRange, level, metrics, timeIncrement),
+    queryKey: queryKeys.timeseries(accountId ?? "", dateRange, level, metrics, timeIncrement, comparePrev),
     queryFn: () =>
       insightsApi.timeseries({
         account_id: accountId!,
@@ -300,26 +163,11 @@ export default function PeriodicPage() {
     staleTime: 15 * 60 * 1000,
   });
 
-  // ── Breakdown ──
-  const { data: bdRes, isLoading: bdLoading } = useQuery({
-    queryKey: queryKeys.breakdown(accountId ?? "", dateRange, activeBreakdown ?? ""),
-    queryFn: () =>
-      insightsApi.breakdown({
-        account_id: accountId!,
-        ...dateRange,
-        breakdown_type: activeBreakdown!,
-        level: "account",
-      }),
-    enabled: !!accountId && !!activeBreakdown,
-    staleTime: 30 * 60 * 1000,
-  });
-
   // ── Build chart data ──
   const tsData                           = tsRes?.data?.data;
   const flatSeries: SeriesRow[]          = tsData?.series ?? [];
   const prevSeries: SeriesRow[]          = tsData?.previous_series ?? [];
   const seriesByEntity: EntitySeries[]   = (tsData?.series_by_entity ?? []).slice(0, 10);
-  const bdRows: BreakdownRow[]           = bdRes?.data?.data?.rows ?? [];
 
   let chartData: Record<string, unknown>[] = [];
   if (isAccountLevel) {
@@ -333,10 +181,14 @@ export default function PeriodicPage() {
     });
   } else {
     const dateMap = new Map<string, Record<string, unknown>>();
-    seriesByEntity.forEach(({ entity, series }) => {
-      series.forEach((row) => {
+    seriesByEntity.forEach(({ entity, series, previous_series }) => {
+      series.forEach((row, idx) => {
         if (!dateMap.has(row.date)) dateMap.set(row.date, { date: row.date });
-        dateMap.get(row.date)![entity.id] = row[metrics[0]] ?? null;
+        const entry = dateMap.get(row.date)!;
+        entry[entity.id] = row[metrics[0]] ?? null;
+        if (comparePrev && previous_series?.[idx]) {
+          entry[`prev_${entity.id}`] = previous_series[idx][metrics[0]] ?? null;
+        }
       });
     });
     chartData = Array.from(dateMap.values()).sort(
@@ -378,18 +230,18 @@ export default function PeriodicPage() {
 
         <Popover>
           <PopoverTrigger className="flex h-8 items-center gap-1.5 rounded-lg border border-input bg-transparent px-2.5 text-sm whitespace-nowrap transition-colors hover:bg-accent">
-            Metrics: {metrics.map((m) => METRIC_LABELS[m] ?? m).join(" + ")}
+            Metrics: {metrics.map((m) => metricLabel(m)).join(" + ")}
           </PopoverTrigger>
           <PopoverContent className="w-52 p-3">
             <p className="mb-2 text-xs text-muted-foreground">Select up to 2</p>
             <div className="space-y-1.5">
-              {SELECTABLE_METRICS.map((m) => (
-                <label key={m} className="flex cursor-pointer items-center gap-2 text-sm">
+              {selectableMetrics.map((m) => (
+                <label key={m.key} className="flex cursor-pointer items-center gap-2 text-sm">
                   <Checkbox
-                    checked={metrics.includes(m)}
-                    onCheckedChange={() => toggleMetric(m)}
+                    checked={metrics.includes(m.key)}
+                    onCheckedChange={() => toggleMetric(m.key)}
                   />
-                  {METRIC_LABELS[m] ?? m}
+                  {m.label}
                 </label>
               ))}
             </div>
@@ -412,13 +264,13 @@ export default function PeriodicPage() {
       </div>
 
       {/* ── Main Chart ── */}
-      <Card>
+      <Card className="shadow-[var(--shadow-soft)]">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-medium">
               {isAccountLevel
-                ? metrics.map((m) => METRIC_LABELS[m] ?? m).join(" vs ")
-                : `${METRIC_LABELS[metrics[0]] ?? metrics[0]} by ${LEVELS.find((l) => l.value === level)?.label ?? level}`}
+                ? metrics.map((m) => metricLabel(m)).join(" vs ")
+                : `${metricLabel(metrics[0])} by ${LEVELS.find((l) => l.value === level)?.label ?? level}`}
             </CardTitle>
             <SegmentControl
               options={[{ value: "line", label: "Line" }, { value: "bar", label: "Bar" }]}
@@ -435,31 +287,25 @@ export default function PeriodicPage() {
           ) : (
             <ResponsiveContainer width="100%" height={360}>
               <ComposedChart data={chartData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <CartesianGrid {...gridProps} />
                 <XAxis
                   dataKey="date"
                   tickFormatter={formatXDate}
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
+                  {...axisProps}
                   interval="preserveStartEnd"
                 />
                 <YAxis
                   yAxisId="left"
-                  tickFormatter={(v) => formatMetric(v, METRIC_TYPES[metrics[0]] ?? "number")}
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
+                  tickFormatter={(v) => formatMetric(v, metricType(metrics[0]), currency)}
+                  {...axisProps}
                   width={64}
                 />
                 {isAccountLevel && metrics[1] && (
                   <YAxis
                     yAxisId="right"
                     orientation="right"
-                    tickFormatter={(v) => formatMetric(v, METRIC_TYPES[metrics[1]] ?? "number")}
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
+                    tickFormatter={(v) => formatMetric(v, metricType(metrics[1]), currency)}
+                    {...axisProps}
                     width={64}
                   />
                 )}
@@ -468,20 +314,20 @@ export default function PeriodicPage() {
                     const s = String(name);
                     const m = s.replace("prev_", "");
                     const label = s.startsWith("prev_")
-                      ? `${METRIC_LABELS[m] ?? m} (prev)`
-                      : (METRIC_LABELS[m] ?? METRIC_LABELS[s] ?? s);
-                    return [formatMetric(v as number, METRIC_TYPES[m] ?? "number"), label];
+                      ? `${metricLabel(m)} (prev)`
+                      : metricLabel(m);
+                    return [formatMetric(v as number, metricType(m), currency), label];
                   }}
                   labelFormatter={formatXDate}
-                  contentStyle={{ fontSize: 12 }}
+                  {...tooltipProps}
                 />
                 <Legend
                   formatter={(name) => {
                     const s = String(name);
                     const m = s.replace("prev_", "");
                     return s.startsWith("prev_")
-                      ? `${METRIC_LABELS[m] ?? m} (prev. period)`
-                      : (METRIC_LABELS[m] ?? METRIC_LABELS[s] ?? s);
+                      ? `${metricLabel(m)} (prev. period)`
+                      : metricLabel(m);
                   }}
                 />
 
@@ -542,6 +388,23 @@ export default function PeriodicPage() {
                       opacity={0.5}
                     />
                   ))}
+
+                {!isAccountLevel &&
+                  comparePrev &&
+                  seriesByEntity.map((e, i) => (
+                    <Line
+                      key={`prev_${e.entity.id}`}
+                      type="monotone"
+                      dataKey={`prev_${e.entity.id}`}
+                      name={`${e.entity.name} (prev. period)`}
+                      yAxisId="left"
+                      stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                      strokeWidth={1.5}
+                      strokeDasharray="4 4"
+                      dot={false}
+                      opacity={0.5}
+                    />
+                  ))}
               </ComposedChart>
             </ResponsiveContainer>
           )}
@@ -549,37 +412,7 @@ export default function PeriodicPage() {
       </Card>
 
       {/* ── Breakdown ── */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Breakdown</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Tabs
-            value={activeBreakdown ?? "age_gender"}
-            onValueChange={(v) => setActiveBreakdown(v)}
-          >
-            <TabsList>
-              <TabsTrigger value="age_gender">Age & Gender</TabsTrigger>
-              <TabsTrigger value="country">Country</TabsTrigger>
-              <TabsTrigger value="platform_position">Platform</TabsTrigger>
-              <TabsTrigger value="device">Device</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="age_gender" className="mt-4">
-              <AgeGenderChart rows={bdRows} loading={bdLoading} />
-            </TabsContent>
-            <TabsContent value="country" className="mt-4">
-              <CountryChart rows={bdRows} loading={bdLoading} />
-            </TabsContent>
-            <TabsContent value="platform_position" className="mt-4">
-              <PlatformChart rows={bdRows} loading={bdLoading} />
-            </TabsContent>
-            <TabsContent value="device" className="mt-4">
-              <DeviceChart rows={bdRows} loading={bdLoading} />
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+      <BreakdownSection />
     </div>
   );
 }

@@ -8,7 +8,7 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from workers.celery_app import celery_app
+from workers.celery_app import celery_app, HEAVY_SOFT_TIME_LIMIT, HEAVY_TIME_LIMIT, LOCK_TTL
 
 logger = logging.getLogger(__name__)
 
@@ -21,20 +21,40 @@ SCALAR_METRICS = [
 ACTION_METRICS = [
     "video_play_actions", "video_watched_2s", "video_watched_6s",
     "video_views_p25", "video_views_p50", "video_views_p75", "video_views_p100",
-    "conversion", "likes", "shares", "comments",
+    "average_video_play",
+    "conversion", "result",
+    "likes", "shares", "comments", "follows", "profile_visits",
+]
+
+# Website/app event metrics are only valid for advertisers with a Pixel / app SDK
+# configured — TikTok rejects the WHOLE request with "invalid metric fields" otherwise.
+# Requested with a graceful fallback (see sync loop) so they never break core metrics.
+EVENT_METRICS = [
+    "page_event_purchase", "page_event_purchase_value", "page_event_add_to_cart",
+    "page_event_checkout",
+    "app_event_install",
 ]
 
 TIKTOK_ACTION_MAP = {
-    "video_play_actions":  ("video_play_actions",         "video_view"),
-    "video_watched_2s":    ("video_watched_2s",           "video_view"),
-    "video_watched_6s":    ("video_watched_6s",           "video_view"),
-    "video_views_p25":     ("video_p25_watched_actions",  "video_view"),
-    "video_views_p50":     ("video_p50_watched_actions",  "video_view"),
-    "video_views_p75":     ("video_p75_watched_actions",  "video_view"),
-    "video_views_p100":    ("video_p100_watched_actions", "video_view"),
-    "likes":               ("actions",                    "like"),
-    "shares":              ("actions",                    "share"),
-    "comments":            ("actions",                    "comment"),
+    "video_play_actions":   ("video_play_actions",               "video_view"),
+    "video_watched_2s":     ("video_watched_2s",                 "video_view"),
+    "video_watched_6s":     ("video_watched_6s",                 "video_view"),
+    "video_views_p25":      ("video_p25_watched_actions",        "video_view"),
+    "video_views_p50":      ("video_p50_watched_actions",        "video_view"),
+    "video_views_p75":      ("video_p75_watched_actions",        "video_view"),
+    "video_views_p100":     ("video_p100_watched_actions",       "video_view"),
+    "average_video_play":   ("average_video_play",               "video_view"),
+    "likes":                ("actions",                          "like"),
+    "shares":               ("actions",                          "share"),
+    "comments":             ("actions",                          "comment"),
+    "follows":              ("actions",                          "follow"),
+    "profile_visits":       ("actions",                          "profile_visit"),
+    "result":               ("results",                          "result"),
+    "page_event_purchase":       ("page_events",                 "purchase"),
+    "page_event_purchase_value": ("page_event_values",           "purchase"),
+    "page_event_add_to_cart":    ("page_events",                 "add_to_cart"),
+    "page_event_checkout":       ("page_events",                 "checkout"),
+    "app_event_install":         ("app_events",                  "install"),
 }
 
 DATA_LEVELS = [
@@ -62,13 +82,13 @@ def _resolve_dates(date_preset: str) -> tuple[str, str]:
     return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 
 
-def _is_stale(db, account_id: uuid.UUID) -> bool:
+def _is_stale(db, account_id: uuid.UUID, job_type: str = "insights_daily", ttl: timedelta = STALE_THRESHOLD) -> bool:
     from app.models.metrics import SyncJob
     job = (
         db.query(SyncJob)
         .filter(
             SyncJob.account_id == account_id,
-            SyncJob.job_type == "insights_daily",
+            SyncJob.job_type == job_type,
             SyncJob.status == "completed",
         )
         .order_by(SyncJob.completed_at.desc())
@@ -76,7 +96,7 @@ def _is_stale(db, account_id: uuid.UUID) -> bool:
     )
     if not job or not job.completed_at:
         return True
-    return datetime.now(timezone.utc) - job.completed_at > STALE_THRESHOLD
+    return datetime.now(timezone.utc) - job.completed_at > ttl
 
 
 @celery_app.task(
@@ -86,17 +106,18 @@ def _is_stale(db, account_id: uuid.UUID) -> bool:
 )
 def sync_tiktok_insights_daily_all(self):
     from workers.db_helpers import get_worker_db
+    from workers.dispatch import stagger_dispatch
     from app.models.platform import Account
 
     with get_worker_db() as db:
-        accounts = (
-            db.query(Account)
+        pairs = [
+            (str(aid), str(cid) if cid else None)
+            for aid, cid in db.query(Account.id, Account.platform_connection_id)
             .filter(Account.account_status == "active", Account.platform_id == "tiktok")
             .all()
-        )
-        for account in accounts:
-            sync_tiktok_insights_for_account.delay(str(account.id))
-        logger.info("Enqueued TikTok insights sync for %s accounts", len(accounts))
+        ]
+    count = stagger_dispatch(sync_tiktok_insights_for_account, pairs)
+    logger.info("Enqueued TikTok insights sync for %s accounts", count)
 
 
 @celery_app.task(
@@ -106,8 +127,11 @@ def sync_tiktok_insights_daily_all(self):
     retry_backoff=True,
     retry_backoff_max=900,
     retry_jitter=True,
+    soft_time_limit=HEAVY_SOFT_TIME_LIMIT,
+    time_limit=HEAVY_TIME_LIMIT,
 )
-def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "last_7d"):
+def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "last_7d", job_type: str = "insights_daily"):
+    from celery.exceptions import SoftTimeLimitExceeded
     from workers.db_helpers import (
         get_worker_db,
         create_sync_job,
@@ -115,13 +139,24 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
         upsert_metrics_daily,
         bulk_upsert_action_stats,
     )
+    from workers.rate_limit import acquire_lock, release_lock
     from app.models.platform import Account, AccountConfig, PlatformConnection
     from app.models.structure import Campaign, AdGroup, Ad
     from app.services.auth import decrypt_token
     from workers.tiktok_client import TikTokClient, TikTokAPIError
 
     account_uuid = uuid.UUID(account_id)
-    job_id = create_sync_job(account_uuid, "tiktok", "insights_daily")
+
+    # Overlap guard. daily and historical are distinct syncs → distinct lock keys.
+    lock_name = f"tiktok_{job_type}"
+    lock_token = acquire_lock(lock_name, account_id, LOCK_TTL)
+    if not lock_token:
+        logger.info("TikTok insights (%s) already running for %s — skip", job_type, account_id)
+        return
+
+    historical_ttl = timedelta(hours=6)
+    ttl = historical_ttl if job_type == "insights_historical" else STALE_THRESHOLD
+    job_id = create_sync_job(account_uuid, "tiktok", job_type)
 
     try:
         with get_worker_db() as db:
@@ -130,7 +165,7 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
                 finalize_sync_job(job_id, "skipped")
                 return
 
-            if not _is_stale(db, account_uuid):
+            if not _is_stale(db, account_uuid, job_type, ttl):
                 finalize_sync_job(job_id, "skipped")
                 return
 
@@ -162,7 +197,8 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
             }
 
         start_date, end_date = _resolve_dates(date_preset)
-        all_metrics = SCALAR_METRICS + ACTION_METRICS
+        base_metrics = SCALAR_METRICS + ACTION_METRICS
+        event_supported = True  # flipped off on the first "invalid metric fields" error
 
         total_metric_rows = 0
         total_action_rows = 0
@@ -172,14 +208,33 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
                 entity_map = {"campaign_id": camp_map, "adgroup_id": adgroup_map, "ad_id": ad_map}[entity_dim]
                 dimensions = [entity_dim, "stat_time_day"]
 
-                rows = client.get_report(
-                    advertiser_id=advertiser_id,
-                    data_level=data_level,
-                    dimensions=dimensions,
-                    metrics=all_metrics,
-                    start_date=start_date,
-                    end_date=end_date,
-                )
+                req_metrics = base_metrics + (EVENT_METRICS if event_supported else [])
+                try:
+                    rows = client.get_report(
+                        advertiser_id=advertiser_id,
+                        data_level=data_level,
+                        dimensions=dimensions,
+                        metrics=req_metrics,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+                except TikTokAPIError as e:
+                    # Web/app event metrics need a Pixel/app SDK; TikTok 400s the whole
+                    # request otherwise. Drop them and retry core-only (once per run) so
+                    # the rest of the metrics still sync.
+                    if event_supported and "invalid metric" in str(e).lower():
+                        logger.info("[%s] TikTok event metrics unsupported — core only", account_id)
+                        event_supported = False
+                        rows = client.get_report(
+                            advertiser_id=advertiser_id,
+                            data_level=data_level,
+                            dimensions=dimensions,
+                            metrics=base_metrics,
+                            start_date=start_date,
+                            end_date=end_date,
+                        )
+                    else:
+                        raise
 
                 metric_rows: list[dict] = []
                 action_rows: list[dict] = []
@@ -198,7 +253,7 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
                         continue
 
                     try:
-                        row_date = datetime.strptime(stat_date, "%Y-%m-%d").date()
+                        row_date = datetime.strptime(stat_date[:10], "%Y-%m-%d").date()
                     except ValueError:
                         continue
 
@@ -265,6 +320,10 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
             account_id, total_metric_rows, total_action_rows,
         )
 
+    except SoftTimeLimitExceeded as exc:
+        logger.error("TikTok insights sync for %s exceeded soft time limit", account_id)
+        finalize_sync_job(job_id, "failed", error=exc)
+        return
     except TikTokAPIError as exc:
         logger.error("TikTok API error for insights %s: %s", account_id, exc)
         finalize_sync_job(job_id, "failed", error=exc)
@@ -273,3 +332,5 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
         logger.exception("Unexpected error in TikTok insights sync for %s", account_id)
         finalize_sync_job(job_id, "failed", error=exc)
         raise self.retry(exc=exc)
+    finally:
+        release_lock(lock_name, account_id, lock_token)

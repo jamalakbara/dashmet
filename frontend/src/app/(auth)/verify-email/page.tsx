@@ -35,7 +35,7 @@ function VerifyEmailContent() {
         const { access_token, expires_in } = res.data.data;
         setAuthCookie(access_token, expires_in);
         setState("success");
-        setTimeout(() => router.push("/overview"), 1500);
+        setTimeout(() => router.push("/dashboard"), 1500);
       })
       .catch((err) => {
         const detail = err?.response?.data?.detail;

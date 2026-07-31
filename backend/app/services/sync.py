@@ -13,6 +13,7 @@ JOB_TTLS = {
     "structure": 30,
     "insights_daily": 15,
     "insights_async": 60,
+    "insights_historical": 360,
     "creatives": 60,
     "breakdown": 30,
 }
@@ -21,6 +22,7 @@ NEXT_RUN_MINUTES = {
     "structure": 30,
     "insights_daily": 15,
     "insights_async": 360,
+    "insights_historical": 360,
     "creatives": 60,
     "breakdown": 30,
 }
@@ -43,7 +45,7 @@ def get_sync_status(
     assert_account_belongs_to_org(db, account_id, org_id)
     account_uuid = uuid.UUID(account_id)
 
-    job_types = ["structure", "insights_daily", "insights_async", "creatives", "breakdown"]
+    job_types = ["structure", "insights_daily", "insights_async", "insights_historical", "creatives", "breakdown"]
     jobs_status = {}
     has_warning = False
 

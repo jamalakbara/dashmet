@@ -3,6 +3,7 @@ import uuid
 from typing import Optional
 
 import httpx
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.exceptions import ConflictError, ForbiddenError, NotFoundError
@@ -44,11 +45,31 @@ def assert_account_belongs_to_org(
 
 
 def list_accounts(
-    db: Session, org_id: str, page: int = 1, per_page: int = 25
+    db: Session,
+    org_id: str,
+    page: int = 1,
+    per_page: int = 25,
+    search: Optional[str] = None,
+    platform: Optional[str] = None,
 ) -> tuple[list[Account], int]:
     org_uuid = uuid.UUID(org_id)
-    q = db.query(Account).filter(Account.organization_id == org_uuid)
+    q = db.query(Account).filter(
+        Account.organization_id == org_uuid,
+        Account.account_status != "disabled",
+    )
+    if platform:
+        q = q.filter(Account.platform_id == platform)
+    if search:
+        pattern = f"%{search.strip()}%"
+        q = q.filter(
+            or_(
+                Account.name.ilike(pattern),
+                Account.external_id.ilike(pattern),
+                Account.business_name.ilike(pattern),
+            )
+        )
     total = q.count()
+    q = q.order_by(Account.platform_id, Account.name)
     accounts = q.offset(calculate_offset(page, per_page)).limit(per_page).all()
     return accounts, total
 
@@ -67,8 +88,15 @@ def update_account_config(
     primary_conversion_action: Optional[str] = None,
     attribution_window: Optional[str] = None,
     roas_action_type: Optional[str] = None,
+    account_type: Optional[str] = None,
 ) -> AccountConfig:
     account = assert_account_belongs_to_org(db, account_id, org_id)
+
+    if account_type is not None:
+        if account_type == "cpas" and account.platform_id != "meta":
+            raise ConflictError("CPAS account type is only available for Meta accounts")
+        account.account_type = account_type
+
     config = account.config
     if not config:
         config = AccountConfig(account_id=account.id)
@@ -165,6 +193,31 @@ def create_tiktok_connection(
     return conn
 
 
+def create_google_connection(
+    db: Session,
+    org_id: str,
+    user_id: str,
+    refresh_token: str,
+    access_token: str,
+    token_expires_at,
+) -> PlatformConnection:
+    encrypted_refresh = encrypt_token(refresh_token)
+    encrypted_access = encrypt_token(access_token)
+    conn = PlatformConnection(
+        organization_id=uuid.UUID(org_id),
+        platform_id="google_ads",
+        access_token=encrypted_access,
+        refresh_token=encrypted_refresh,
+        token_expires_at=token_expires_at,
+        token_type="oauth2",
+        scopes=["adwords"],
+        connected_by_user_id=uuid.UUID(user_id),
+        is_active=True,
+    )
+    db.add(conn)
+    return conn
+
+
 def disconnect_connection(
     db: Session, connection_id: str, org_id: str
 ) -> None:
@@ -175,5 +228,6 @@ def disconnect_connection(
         raise ForbiddenError("Connection does not belong to your organization")
     conn.is_active = False
     db.query(Account).filter(
-        Account.platform_connection_id == conn.id
+        Account.organization_id == conn.organization_id,
+        Account.platform_id == conn.platform_id,
     ).update({"account_status": "disabled"})

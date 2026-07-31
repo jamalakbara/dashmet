@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Query
 
 from app.api.deps import CurrentUser, DbSession
@@ -15,9 +17,16 @@ def list_accounts(
     db: DbSession,
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=1, le=200),
+    search: Optional[str] = Query(None),
+    platform: Optional[str] = Query(None),
 ):
     accounts, total = acc_svc.list_accounts(
-        db, current_user["org_id"], page=page, per_page=per_page
+        db,
+        current_user["org_id"],
+        page=page,
+        per_page=per_page,
+        search=search,
+        platform=platform,
     )
     return PaginatedResponse(
         data=[AccountResponse.from_orm_account(a) for a in accounts],
@@ -51,6 +60,7 @@ def update_account_config(
             primary_conversion_action=body.primary_conversion_action,
             attribution_window=body.attribution_window,
             roas_action_type=body.roas_action_type,
+            account_type=body.account_type,
         )
         db.commit()
         account = acc_svc.get_account_with_config(db, account_id, current_user["org_id"])

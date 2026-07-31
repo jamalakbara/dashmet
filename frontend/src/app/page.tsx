@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-// Root → redirect to overview dashboard
+// Root → redirect to combined dashboard
 export default function RootPage() {
-  redirect("/overview");
+  redirect("/dashboard");
 }

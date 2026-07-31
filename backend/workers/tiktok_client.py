@@ -108,9 +108,9 @@ class TikTokClient:
     def get_ads(self, advertiser_id: str) -> list[dict]:
         import json
         fields = json.dumps([
-            "ad_id", "adgroup_id", "campaign_id", "ad_name", "status",
+            "ad_id", "adgroup_id", "campaign_id", "ad_name", "operation_status",
             "ad_text", "call_to_action", "landing_page_url", "video_id",
-            "ad_format", "create_time", "modify_time", "review_status",
+            "tiktok_item_id", "ad_format", "create_time", "modify_time",
         ])
         return self.paginate(
             "/ad/get/",
@@ -138,11 +138,12 @@ class TikTokClient:
         start_date: str,
         end_date: str,
         page_size: int = 1000,
+        report_type: str = "BASIC",
     ) -> list[dict]:
         import json
         params = {
             "advertiser_id": advertiser_id,
-            "report_type": "BASIC",
+            "report_type": report_type,
             "data_level": data_level,
             "dimensions": json.dumps(dimensions),
             "metrics": json.dumps(metrics),

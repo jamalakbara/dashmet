@@ -66,28 +66,58 @@ class MetaClient:
         """Returns (data, rate_limits)."""
         url = f"{BASE_URL}{path}" if path.startswith("/") else f"{BASE_URL}/{path}"
         resp = self._client.get(url, params=self._inject_token(params))
-        resp.raise_for_status()
         data = resp.json()
-        self._check_error(data)
+        self._check_error(data)  # parse Meta error body before raising HTTP status
+        resp.raise_for_status()
         return data, self._parse_rate_limits(resp)
 
+    def _record_rate_limits(self, rate_limits: dict, account_id, connection_id) -> None:
+        """Feed rate-limit headers into Redis so apply_backoff sees live data.
+        No-op unless an account_id is supplied (keeps non-sync callers cheap)."""
+        if not account_id:
+            return
+        from workers.rate_limit import RateLimitState
+        RateLimitState(str(account_id), str(connection_id) if connection_id else None).update_from_headers(rate_limits)
+
     def paginate(
-        self, path: str, params: dict | None = None, max_pages: int = MAX_PAGES
+        self,
+        path: str,
+        params: dict | None = None,
+        max_pages: int = MAX_PAGES,
+        account_id=None,
+        connection_id=None,
     ) -> list[dict]:
-        """Follow paging.next and return flat list of all data items."""
+        """Follow paging cursors and return flat list of all data items.
+
+        Pass account_id/connection_id to record rate-limit headers per page —
+        otherwise the throttle headers are discarded and backoff reads stale data."""
         all_items = []
-        data, _ = self.get(path, params)
+        current_params = dict(params) if params else {}
+        data, rate_limits = self.get(path, current_params)
+        self._record_rate_limits(rate_limits, account_id, connection_id)
         all_items.extend(data.get("data", []))
 
         page_count = 1
-        next_url = data.get("paging", {}).get("next")
-        while next_url and page_count < max_pages:
-            resp = self._client.get(next_url)
-            resp.raise_for_status()
-            page_data = resp.json()
-            self._check_error(page_data)
-            all_items.extend(page_data.get("data", []))
-            next_url = page_data.get("paging", {}).get("next")
+        paging = data.get("paging", {})
+        after_cursor = paging.get("cursors", {}).get("after")
+        # Fall back to parsing the cursor from paging.next if cursors object absent
+        if not after_cursor and paging.get("next"):
+            import urllib.parse as _up
+            qs = _up.parse_qs(_up.urlparse(paging["next"]).query)
+            after_cursor = (qs.get("after") or [None])[0]
+
+        while after_cursor and page_count < max_pages:
+            next_params = dict(current_params)
+            next_params["after"] = after_cursor
+            data, rate_limits = self.get(path, next_params)
+            self._record_rate_limits(rate_limits, account_id, connection_id)
+            all_items.extend(data.get("data", []))
+            paging = data.get("paging", {})
+            after_cursor = paging.get("cursors", {}).get("after")
+            if not after_cursor and paging.get("next"):
+                import urllib.parse as _up
+                qs = _up.parse_qs(_up.urlparse(paging["next"]).query)
+                after_cursor = (qs.get("after") or [None])[0]
             page_count += 1
 
         return all_items
@@ -135,6 +165,8 @@ class MetaClient:
         date_preset: str,
         time_increment: int = 1,
         action_attribution_windows: str | None = None,
+        account_id=None,
+        connection_id=None,
     ) -> list[dict]:
         """Fetch insights for any entity. Pass 'act_123' for account-level,
         bare campaign/adset/ad ID for entity-level."""
@@ -148,7 +180,10 @@ class MetaClient:
         if action_attribution_windows:
             windows = _parse_attribution_windows(action_attribution_windows)
             params["action_attribution_windows"] = json.dumps(windows)
-        return self.paginate(f"/{entity_id}/insights", params)
+        return self.paginate(
+            f"/{entity_id}/insights", params,
+            account_id=account_id, connection_id=connection_id,
+        )
 
     def close(self):
         self._client.close()

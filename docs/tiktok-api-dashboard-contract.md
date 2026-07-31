@@ -21,11 +21,12 @@
    - [5.1 Synchronous Report (Recommended for Dashboard)](#51-synchronous-report-recommended-for-dashboard)
    - [5.2 Asynchronous Report (For Large Datasets)](#52-asynchronous-report-for-large-datasets)
 6. [Data Levels & Dimensions Reference](#6-data-levels--dimensions-reference)
-7. [Common Metrics Reference](#7-common-metrics-reference)
-8. [Standard Response Envelope](#8-standard-response-envelope)
-9. [Error & Return Codes](#9-error--return-codes)
-10. [End-to-End Integration Flow](#10-end-to-end-integration-flow)
-11. [Dashboard Data Flow Diagram](#11-dashboard-data-flow-diagram)
+7. [Audience Breakdown by Age & Gender](#7-audience-breakdown-by-age--gender)
+8. [Common Metrics Reference](#8-common-metrics-reference)
+9. [Standard Response Envelope](#9-standard-response-envelope)
+10. [Error & Return Codes](#10-error--return-codes)
+11. [End-to-End Integration Flow](#11-end-to-end-integration-flow)
+12. [Dashboard Data Flow Diagram](#12-dashboard-data-flow-diagram)
 
 ---
 
@@ -586,7 +587,158 @@ Access-Token: {ACCESS_TOKEN}
 
 ---
 
-## 7. Common Metrics Reference
+## 7. Audience Breakdown by Age & Gender
+
+TikTok's API supports demographic breakdowns (age, gender, country, device, and more) but **requires switching from `report_type=BASIC` to `report_type=AUDIENCE`**. The endpoint URL is identical — only the parameters change.
+
+### Available Audience Breakdown Dimensions
+
+| Dimension Value | Breaks Down By | Notes |
+|---|---|---|
+| `age` | Age groups | 13–17, 18–24, 25–34, 35–44, 45–54, 55+ |
+| `gender` | Gender | MALE, FEMALE, UNKNOWN |
+| `age,gender` | Age + Gender combined | Single request for both |
+| `country_code` | Country | ISO country codes |
+| `platform` | Operating system | IOS, ANDROID |
+| `placement` | Ad placement | TIKTOK, PANGLE, etc. |
+| `language` | Device language | e.g. en, id, ja |
+| `ac` | Network type | WIFI, 4G, 3G, 2G |
+| `device` | Device model | Device brand/model strings |
+
+### Example — Breakdown by Age
+
+```
+GET /open_api/v1.3/report/integrated/get/
+  ?advertiser_id=1234567890
+  &report_type=AUDIENCE
+  &data_level=AUCTION_ADGROUP
+  &dimensions=["adgroup_id","age"]
+  &metrics=["spend","impressions","clicks","ctr","cpm","conversion","cost_per_conversion"]
+  &start_date=2025-06-01
+  &end_date=2025-06-30
+Access-Token: act.xxxxx
+```
+
+**Response:**
+```json
+{
+  "code": 0,
+  "data": {
+    "list": [
+      {
+        "dimensions": {
+          "adgroup_id": "333333",
+          "age": "AGE_18_24"
+        },
+        "metrics": {
+          "spend": "80.20",
+          "impressions": "42000",
+          "clicks": "1260",
+          "ctr": "3.00",
+          "cpm": "1.91",
+          "conversion": "55",
+          "cost_per_conversion": "1.46"
+        }
+      },
+      {
+        "dimensions": {
+          "adgroup_id": "333333",
+          "age": "AGE_25_34"
+        },
+        "metrics": {
+          "spend": "120.10",
+          "impressions": "60000",
+          "clicks": "1800",
+          "ctr": "3.00",
+          "cpm": "2.00",
+          "conversion": "90",
+          "cost_per_conversion": "1.33"
+        }
+      }
+    ]
+  }
+}
+```
+
+**Age group enum values returned in response:**
+
+| Value | Age Range |
+|---|---|
+| `AGE_13_17` | 13–17 years |
+| `AGE_18_24` | 18–24 years |
+| `AGE_25_34` | 25–34 years |
+| `AGE_35_44` | 35–44 years |
+| `AGE_45_54` | 45–54 years |
+| `AGE_55_PLUS` | 55 and above |
+
+### Example — Breakdown by Gender
+
+```
+GET /open_api/v1.3/report/integrated/get/
+  ?advertiser_id=1234567890
+  &report_type=AUDIENCE
+  &data_level=AUCTION_ADGROUP
+  &dimensions=["adgroup_id","gender"]
+  &metrics=["spend","impressions","clicks","ctr","conversion","cost_per_conversion"]
+  &start_date=2025-06-01
+  &end_date=2025-06-30
+Access-Token: act.xxxxx
+```
+
+### Example — Breakdown by Age + Gender Combined
+
+```
+GET /open_api/v1.3/report/integrated/get/
+  ?advertiser_id=1234567890
+  &report_type=AUDIENCE
+  &data_level=AUCTION_ADGROUP
+  &dimensions=["adgroup_id","age_gender"]
+  &metrics=["spend","impressions","clicks","ctr","conversion"]
+  &start_date=2025-06-01
+  &end_date=2025-06-30
+Access-Token: act.xxxxx
+```
+
+### ⚠️ Important Caveats
+
+**1. `AUDIENCE` has narrower metric coverage than `BASIC`.**
+
+Metrics available with `AUDIENCE`:
+
+| Category | Available? |
+|---|---|
+| Core (spend, impressions, clicks, CTR, CPM, reach) | ✅ |
+| Video play metrics | ✅ |
+| Conversions & CVR | ✅ |
+| Engagement (likes, shares, follows) | ✅ |
+| Attribution (CTA / VTA) | ❌ |
+| Website / Page Events | ❌ |
+| App Events | ❌ |
+| SKAN Metrics | ❌ |
+| LIVE Metrics | ❌ |
+| Real-Time Metrics | ❌ |
+
+**2. You cannot mix `AUDIENCE` and `BASIC`-only metrics in a single request** — it will return an error.
+
+**3. Recommended two-call pattern for your dashboard:**
+
+```
+Call 1 — BASIC report:
+  report_type=BASIC
+  → Full conversion, attribution, app/website event metrics
+  → No demographic breakdown
+
+Call 2 — AUDIENCE report:
+  report_type=AUDIENCE
+  dimensions includes "age" or "gender"
+  → Demographic breakdown of core metrics only
+```
+
+Make these calls in parallel and merge results client-side by `adgroup_id` or `campaign_id`.
+
+---
+
+## 8. Common Metrics Reference
 
 ### Performance Metrics
 
@@ -624,7 +776,7 @@ Access-Token: {ACCESS_TOKEN}
 
 ---
 
-## 8. Standard Response Envelope
+## 9. Standard Response Envelope
 
 All API responses follow this envelope structure:
 
@@ -656,7 +808,7 @@ Paginated responses include a `page_info` object inside `data`:
 
 ---
 
-## 9. Error & Return Codes
+## 10. Error & Return Codes
 
 | Code | Meaning | Action |
 |---|---|---|
@@ -681,7 +833,7 @@ Paginated responses include a `page_info` object inside `data`:
 
 ---
 
-## 10. End-to-End Integration Flow
+## 11. End-to-End Integration Flow
 
 ```
 [User / Advertiser]
@@ -718,7 +870,7 @@ Paginated responses include a `page_info` object inside `data`:
 
 ---
 
-## 11. Dashboard Data Flow Diagram
+## 12. Dashboard Data Flow Diagram
 
 ### Suggested Dashboard Data Architecture
 

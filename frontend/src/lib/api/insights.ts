@@ -35,6 +35,13 @@ export type BreakdownParams = InsightParams & {
   adgroup_id?: string;
 };
 
+export type CombinedParams = {
+  account_ids: string; // comma-separated account ids
+  date_preset?: string;
+  date_start?: string;
+  date_end?: string;
+};
+
 export const insightsApi = {
   overview: (params: InsightParams) =>
     apiClient.get("/insights/overview", { params }),
@@ -44,5 +51,11 @@ export const insightsApi = {
     apiClient.get("/insights/table", { params }),
   breakdown: (params: BreakdownParams) =>
     apiClient.get("/insights/breakdown", { params }),
+  engagement: (params: InsightParams) =>
+    apiClient.get("/insights/engagement", { params }),
   creative: (adId: string) => apiClient.get(`/ads/${adId}/creative`),
+  combined: (params: CombinedParams) =>
+    apiClient.get("/insights/combined", { params }),
+  combinedTimeseries: (params: CombinedParams & { time_increment?: string }) =>
+    apiClient.get("/insights/combined-timeseries", { params }),
 };
