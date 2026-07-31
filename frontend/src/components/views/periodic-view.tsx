@@ -32,7 +32,8 @@ import { queryKeys } from "@/lib/query-keys";
 import { useAccountId } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
 import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
-import { METRIC_LABELS, METRIC_TYPES, CHART_COLORS } from "@/lib/constants";
+import { metricLabel, metricType } from "@/lib/metrics";
+import { CHART_COLORS, gridProps, axisProps, tooltipProps } from "@/lib/chart-theme";
 import { formatMetric } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 
@@ -229,7 +230,7 @@ export function PeriodicView() {
 
         <Popover>
           <PopoverTrigger className="flex h-8 items-center gap-1.5 rounded-lg border border-input bg-transparent px-2.5 text-sm whitespace-nowrap transition-colors hover:bg-accent">
-            Metrics: {metrics.map((m) => METRIC_LABELS[m] ?? m).join(" + ")}
+            Metrics: {metrics.map((m) => metricLabel(m)).join(" + ")}
           </PopoverTrigger>
           <PopoverContent className="w-52 p-3">
             <p className="mb-2 text-xs text-muted-foreground">Select up to 2</p>
@@ -263,13 +264,13 @@ export function PeriodicView() {
       </div>
 
       {/* ── Main Chart ── */}
-      <Card>
+      <Card className="shadow-[var(--shadow-soft)]">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-medium">
               {isAccountLevel
-                ? metrics.map((m) => METRIC_LABELS[m] ?? m).join(" vs ")
-                : `${METRIC_LABELS[metrics[0]] ?? metrics[0]} by ${LEVELS.find((l) => l.value === level)?.label ?? level}`}
+                ? metrics.map((m) => metricLabel(m)).join(" vs ")
+                : `${metricLabel(metrics[0])} by ${LEVELS.find((l) => l.value === level)?.label ?? level}`}
             </CardTitle>
             <SegmentControl
               options={[{ value: "line", label: "Line" }, { value: "bar", label: "Bar" }]}
@@ -286,31 +287,25 @@ export function PeriodicView() {
           ) : (
             <ResponsiveContainer width="100%" height={360}>
               <ComposedChart data={chartData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <CartesianGrid {...gridProps} />
                 <XAxis
                   dataKey="date"
                   tickFormatter={formatXDate}
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
+                  {...axisProps}
                   interval="preserveStartEnd"
                 />
                 <YAxis
                   yAxisId="left"
-                  tickFormatter={(v) => formatMetric(v, METRIC_TYPES[metrics[0]] ?? "number", currency)}
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
+                  tickFormatter={(v) => formatMetric(v, metricType(metrics[0]), currency)}
+                  {...axisProps}
                   width={64}
                 />
                 {isAccountLevel && metrics[1] && (
                   <YAxis
                     yAxisId="right"
                     orientation="right"
-                    tickFormatter={(v) => formatMetric(v, METRIC_TYPES[metrics[1]] ?? "number", currency)}
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
+                    tickFormatter={(v) => formatMetric(v, metricType(metrics[1]), currency)}
+                    {...axisProps}
                     width={64}
                   />
                 )}
@@ -319,20 +314,20 @@ export function PeriodicView() {
                     const s = String(name);
                     const m = s.replace("prev_", "");
                     const label = s.startsWith("prev_")
-                      ? `${METRIC_LABELS[m] ?? m} (prev)`
-                      : (METRIC_LABELS[m] ?? METRIC_LABELS[s] ?? s);
-                    return [formatMetric(v as number, METRIC_TYPES[m] ?? "number", currency), label];
+                      ? `${metricLabel(m)} (prev)`
+                      : metricLabel(m);
+                    return [formatMetric(v as number, metricType(m), currency), label];
                   }}
                   labelFormatter={formatXDate}
-                  contentStyle={{ fontSize: 12 }}
+                  {...tooltipProps}
                 />
                 <Legend
                   formatter={(name) => {
                     const s = String(name);
                     const m = s.replace("prev_", "");
                     return s.startsWith("prev_")
-                      ? `${METRIC_LABELS[m] ?? m} (prev. period)`
-                      : (METRIC_LABELS[m] ?? METRIC_LABELS[s] ?? s);
+                      ? `${metricLabel(m)} (prev. period)`
+                      : metricLabel(m);
                   }}
                 />
 

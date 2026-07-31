@@ -57,17 +57,20 @@ export const METRIC_TYPES: Record<string, "currency" | "percent" | "number" | "r
   cost_per_outbound_click: "currency",
 };
 
+/** Warm-anchored, multi-hue series palette (Bright Modern SaaS). Reads in both
+ *  light and dark. Led by the coral accent. Shared chart styling lives in
+ *  lib/chart-theme.ts — import series colors from there or here. */
 export const CHART_COLORS = [
-  "#2563eb",
-  "#16a34a",
-  "#dc2626",
-  "#d97706",
-  "#7c3aed",
-  "#0891b2",
-  "#be185d",
-  "#65a30d",
-  "#c2410c",
-  "#1d4ed8",
+  "#F26A4B", // coral (accent)
+  "#F5A623", // amber
+  "#4FB477", // green
+  "#5B8DEF", // blue
+  "#9B6DFF", // violet
+  "#22B8CF", // cyan
+  "#E8619D", // pink
+  "#8CC63F", // lime
+  "#E4572E", // burnt orange
+  "#3AAFA9", // teal
 ];
 
 export const DEFAULT_METRICS = ["spend", "clicks"];
@@ -97,13 +100,53 @@ export const PLATFORM_TABS: Record<string, PlatformTab[]> = {
     { slug: "overview", label: "Overview" },
     { slug: "periodic", label: "Periodic" },
     { slug: "table",    label: "Table" },
+    { slug: "funnel",   label: "Funnel" },
     { slug: "ads",      label: "Ads" },
   ],
   tiktok: [
     { slug: "overview",   label: "Overview" },
     { slug: "periodic",   label: "Periodic" },
     { slug: "table",      label: "Table" },
+    { slug: "funnel",     label: "Funnel" },
     { slug: "ads",        label: "Ads" },
     { slug: "engagement", label: "Engagement" },
+  ],
+  google_ads: [
+    { slug: "overview", label: "Overview" },
+    { slug: "periodic", label: "Periodic" },
+    { slug: "table",    label: "Table" },
+    { slug: "funnel",   label: "Funnel" },
+    { slug: "ads",      label: "Ads" },
+  ],
+};
+
+/**
+ * Ordered funnel steps per platform for the Funnel view. Each key must exist in
+ * the overview summary (METRIC_REGISTRY). Steps with null/0 values are hidden at
+ * render time, so accounts without a Pixel collapse to the steps they do have.
+ */
+export const FUNNEL_STEPS: Record<string, { key: string; label: string }[]> = {
+  meta: [
+    { key: "impressions",       label: "Impressions" },
+    { key: "clicks",            label: "Clicks" },
+    { key: "view_content",      label: "Content Views" },
+    { key: "add_to_cart",       label: "Add to Cart" },
+    { key: "initiate_checkout", label: "Checkout" },
+    { key: "purchase",          label: "Purchases" },
+  ],
+  tiktok: [
+    { key: "impressions",      label: "Impressions" },
+    { key: "clicks",           label: "Clicks" },
+    { key: "video_views",      label: "Video Views" },
+    { key: "web_add_to_cart",  label: "Web Add to Cart" },
+    { key: "web_checkout",     label: "Web Checkout" },
+    { key: "web_purchases",    label: "Web Purchases" },
+    { key: "conversions",      label: "Conversions" },
+  ],
+  // Google has no ecommerce-pixel funnel — show the search funnel.
+  google_ads: [
+    { key: "impressions", label: "Impressions" },
+    { key: "clicks",      label: "Clicks" },
+    { key: "conversions", label: "Conversions" },
   ],
 };

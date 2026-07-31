@@ -15,10 +15,13 @@ _METRIC_FIELDS = ",".join([
     "impressions", "clicks", "spend", "ctr", "cpm", "cpc", "cpp",
     "frequency", "inline_link_clicks", "inline_link_click_ctr",
     "cost_per_inline_link_click",
+    "inline_post_engagement", "cost_per_inline_post_engagement",
+    "estimated_ad_recall_rate", "estimated_ad_recallers",
     "outbound_clicks", "outbound_clicks_ctr", "cost_per_outbound_click",
     "actions", "action_values", "cost_per_action_type",
     "purchase_roas", "website_purchase_roas",
     "video_play_actions", "video_avg_time_watched_actions",
+    "video_continuous_2_sec_watched_actions",
     "video_p25_watched_actions", "video_p50_watched_actions",
     "video_p75_watched_actions", "video_p100_watched_actions",
     "video_thruplay_watched_actions",
@@ -527,7 +530,7 @@ BREAKDOWN_CONFIGS = {
     },
 }
 
-BREAKDOWN_FIELDS = "impressions,clicks,spend,ctr,cpm,cpc,date_start,date_stop"
+BREAKDOWN_FIELDS = "impressions,reach,clicks,spend,ctr,cpm,cpc,actions,date_start,date_stop"
 
 
 @celery_app.task(
@@ -547,7 +550,7 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
         acquire_lock, release_lock, connection_paused_remaining,
         pause_connection, is_meta_rate_limit_error, HARD_PAUSE_SECONDS,
     )
-    from app.models.platform import Account, PlatformConnection
+    from app.models.platform import Account, PlatformConnection, AccountConfig
     from app.models.metrics import MetricBreakdowns
     from app.services.auth import decrypt_token
     from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -565,6 +568,16 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
         connection_id = str(conn.id)
         account_id_obj = account.id
         platform_id = account.platform_id
+        config = (
+            db.query(AccountConfig)
+            .filter(AccountConfig.account_id == account.id)
+            .first()
+        )
+        primary_conversion_action = (
+            config.primary_conversion_action
+            if config and config.primary_conversion_action
+            else "purchase"
+        )
 
     paused = connection_paused_remaining(connection_id)
     if paused > 0:
@@ -604,6 +617,16 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
                     val = cfg["value_fn"](r)
                     if not val:
                         continue
+                    # Conversions come back inside the `actions` array — pull the
+                    # account's primary conversion action out for the breakdown column.
+                    conv_val = None
+                    for a in (r.get("actions") or []):
+                        if a.get("action_type") == primary_conversion_action:
+                            try:
+                                conv_val = float(a.get("value"))
+                            except (TypeError, ValueError):
+                                conv_val = None
+                            break
                     bd_rows.append({
                         "entity_type": "account",
                         "entity_id": account_id_obj,
@@ -613,8 +636,10 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
                         "breakdown_type": bd_type,
                         "breakdown_value": val,
                         "impressions": _coerce(r.get("impressions")),
+                        "reach": _coerce(r.get("reach")),
                         "clicks": _coerce(r.get("clicks")),
                         "spend": _coerce(r.get("spend")),
+                        "conversions": conv_val,
                         "ctr": _coerce(r.get("ctr")),
                         "cpm": _coerce(r.get("cpm")),
                         "cpc": _coerce(r.get("cpc")),
@@ -627,8 +652,10 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
                         index_elements=["entity_id", "date", "breakdown_type", "breakdown_value"],
                         set_={
                             "impressions": stmt.excluded.impressions,
+                            "reach": stmt.excluded.reach,
                             "clicks": stmt.excluded.clicks,
                             "spend": stmt.excluded.spend,
+                            "conversions": stmt.excluded.conversions,
                             "ctr": stmt.excluded.ctr,
                             "cpm": stmt.excluded.cpm,
                             "cpc": stmt.excluded.cpc,

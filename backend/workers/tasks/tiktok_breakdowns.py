@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 STALE_THRESHOLD = timedelta(hours=1)
 
-BREAKDOWN_METRICS = ["spend", "impressions", "clicks", "ctr", "cpm", "cpc"]
+BREAKDOWN_METRICS = ["spend", "impressions", "reach", "clicks", "ctr", "cpm", "cpc", "conversion"]
 
 # Maps internal breakdown_type → TikTok dimension + how to extract breakdown_value.
 # breakdown_type keys match Meta's so the frontend works without changes.
@@ -187,8 +187,10 @@ def sync_tiktok_breakdowns_for_account(self, account_id: str, date_preset: str =
                         "breakdown_type": bd_type,
                         "breakdown_value": val,
                         "impressions": _f("impressions"),
+                        "reach": _f("reach"),
                         "clicks": _f("clicks"),
                         "spend": _f("spend"),
+                        "conversions": _f("conversion"),
                         "ctr": _f("ctr"),
                         "cpm": _f("cpm"),
                         "cpc": _f("cpc"),
@@ -217,8 +219,10 @@ def sync_tiktok_breakdowns_for_account(self, account_id: str, date_preset: str =
                             index_elements=["entity_id", "date", "breakdown_type", "breakdown_value"],
                             set_={
                                 "impressions": stmt.excluded.impressions,
+                                "reach": stmt.excluded.reach,
                                 "clicks": stmt.excluded.clicks,
                                 "spend": stmt.excluded.spend,
+                                "conversions": stmt.excluded.conversions,
                                 "ctr": stmt.excluded.ctr,
                                 "cpm": stmt.excluded.cpm,
                                 "cpc": stmt.excluded.cpc,

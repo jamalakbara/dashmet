@@ -4,17 +4,17 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { ArrowRight } from "lucide-react";
+import { motion } from "framer-motion";
+import { ArrowRight, Activity, Trophy, Gauge as GaugeIcon } from "lucide-react";
 import { format, parseISO } from "date-fns";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -23,7 +23,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { MetricCard } from "@/components/metrics/metric-card";
+import { BentoTile } from "@/components/bento/bento-tile";
+import { MetricTile } from "@/components/bento/metric-tile";
+import { GaugeTile } from "@/components/bento/gauge-tile";
+import { GeoTile } from "@/components/bento/geo-tile";
+import { GreetingTile } from "@/components/bento/greeting-tile";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
@@ -32,7 +36,8 @@ import { useDateRange } from "@/hooks/use-date-range";
 import { usePlatform } from "@/hooks/use-platform";
 import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
 import { useSharedFilterQuery } from "@/hooks/use-shared-query";
-import { CHART_COLORS } from "@/lib/constants";
+import { staggerGrid } from "@/lib/motion";
+import { irisColor, gridProps, axisProps, tooltipProps, chartAnimation } from "@/lib/chart-theme";
 import {
   formatMetric,
   formatCurrency,
@@ -171,156 +176,151 @@ export function OverviewView() {
     );
   }
 
-  return (
-    <div className="space-y-6">
-      {/* KPI Cards — 2 rows × 4 */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        {kpiMetrics.map((metric) => (
-          <MetricCard
-            key={metric.key}
-            label={metric.label}
-            value={formatMetric(summary?.[metric.key], metric.type, currency)}
-            change={vsPrev[metric.key] ?? null}
-            sparkline={series.map((s) => (s[metric.key] as number) ?? 0)}
-            loading={isLoading}
-          />
-        ))}
-      </div>
+  // Headline gauge: ROAS toward a 4× target (falls back to CTR toward 5%).
+  const roas = summary?.roas;
+  const hasRoas = !isCpas && roas != null && roas > 0;
+  const gauge = hasRoas
+    ? {
+        label: "ROAS",
+        value: roas!,
+        format: (n: number) => formatRoas(n),
+        fraction: Math.min(roas! / 4, 1),
+        footerLeft: "0×",
+        footerRight: "4×+",
+      }
+    : {
+        label: "CTR",
+        value: summary?.ctr ?? 0,
+        format: (n: number) => formatPercent(n),
+        fraction: Math.min((summary?.ctr ?? 0) / 5, 1),
+        footerLeft: "0%",
+        footerRight: "5%+",
+      };
 
-      {/* Trend Charts */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-muted-foreground">Trends</h2>
+  return (
+    <motion.div {...staggerGrid} className="grid grid-cols-12 gap-3">
+      {/* ── Row 1: greeting · headline gauge · hero spend ── */}
+      <GreetingTile className="col-span-12 min-h-[210px] md:col-span-4" />
+
+      <GaugeTile
+        className="col-span-6 min-h-[210px] md:col-span-3"
+        label={gauge.label}
+        icon={GaugeIcon}
+        fraction={gauge.fraction}
+        value={gauge.value}
+        format={gauge.format}
+        unit={gauge.label}
+        footerLeft={gauge.footerLeft}
+        footerRight={gauge.footerRight}
+        loading={isLoading}
+      />
+
+      <BentoTile
+        label="Spend · daily"
+        icon={Activity}
+        className="col-span-6 min-h-[210px] md:col-span-5"
+        bodyClassName="justify-end px-1 pb-1"
+        action={
           <Link
             href={withQuery(`/${platform}/periodic`)}
-            className="flex items-center gap-1 text-xs text-primary hover:underline"
+            className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wide text-primary hover:underline"
           >
-            Open Periodic <ArrowRight className="size-3" />
+            Periodic <ArrowRight className="size-3" />
           </Link>
-        </div>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Spend Trend */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Spend trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="h-60 animate-pulse rounded bg-muted" />
-            ) : series.length === 0 ? (
-              <EmptyState message="No data for selected period" />
-            ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={series} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="date"
-                    tickFormatter={formatXDate}
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis
-                    tickFormatter={(v) => formatCurrency(v, currency)}
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={60}
-                  />
-                  <Tooltip
-                    formatter={(v) => [formatCurrency(v as number, currency), "Spend"]}
-                    labelFormatter={(l) => formatXDate(l as string)}
-                    contentStyle={{ fontSize: 12 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="spend"
-                    stroke={CHART_COLORS[0]}
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
+        }
+      >
+        {isLoading ? (
+          <div className="m-3 h-40 animate-pulse rounded-xl bg-muted/40" />
+        ) : series.length === 0 ? (
+          <EmptyState message="No data for selected period" />
+        ) : (
+          <ResponsiveContainer width="100%" height={160}>
+            <AreaChart data={series} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="ovHeroStroke" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor={irisColor(3)} />
+                  <stop offset="50%" stopColor={irisColor(4)} />
+                  <stop offset="100%" stopColor={irisColor(5)} />
+                </linearGradient>
+                <linearGradient id="ovHeroFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={irisColor(4)} stopOpacity={0.3} />
+                  <stop offset="100%" stopColor={irisColor(4)} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid {...gridProps} />
+              <XAxis dataKey="date" tickFormatter={formatXDate} {...axisProps} interval="preserveStartEnd" />
+              <YAxis tickFormatter={(v) => formatCurrency(v, currency)} {...axisProps} width={54} />
+              <Tooltip
+                formatter={(v) => [formatCurrency(v as number, currency), "Spend"]}
+                labelFormatter={(l) => formatXDate(l as string)}
+                {...tooltipProps}
+              />
+              <Area
+                type="monotone"
+                dataKey="spend"
+                stroke="url(#ovHeroStroke)"
+                strokeWidth={2.5}
+                fill="url(#ovHeroFill)"
+                dot={false}
+                activeDot={{ r: 4 }}
+                {...chartAnimation}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </BentoTile>
 
-        {/* Trend chart 2: conversions (Meta) or clicks (TikTok fallback) */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">{trendMetric2Label} trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="h-60 animate-pulse rounded bg-muted" />
-            ) : series.length === 0 ? (
-              <EmptyState message="No data for selected period" />
-            ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={series} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="date"
-                    tickFormatter={formatXDate}
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={40}
-                  />
-                  <Tooltip
-                    formatter={(v) => [v as number, trendMetric2Label]}
-                    labelFormatter={(l) => formatXDate(l as string)}
-                    contentStyle={{ fontSize: 12 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey={trendMetric2}
-                    stroke={CHART_COLORS[1]}
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-        </div>
-      </div>
+      {/* ── KPI band ── */}
+      {kpiMetrics.map((metric, i) => (
+        <MetricTile
+          key={metric.key}
+          className="col-span-6 min-h-[150px] sm:col-span-4 lg:col-span-3"
+          label={metric.label}
+          value={formatMetric(summary?.[metric.key], metric.type, currency)}
+          numericValue={summary?.[metric.key] ?? null}
+          format={(n) => formatMetric(n, metric.type, currency)}
+          change={vsPrev[metric.key] ?? null}
+          sparkline={series.map((s) => (s[metric.key] as number) ?? 0)}
+          accentIndex={i}
+          loading={isLoading}
+        />
+      ))}
 
-      {/* Top Campaigns */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-sm font-medium">Top campaigns</CardTitle>
+      {/* ── Row 3: geo · top campaigns ── */}
+      <GeoTile
+        className="col-span-12 min-h-[300px] lg:col-span-7"
+        accountId={accountId ?? undefined}
+        dateRange={dateRange}
+        caption="Geo · spend"
+      />
+
+      <BentoTile
+        label="Top campaigns"
+        icon={Trophy}
+        className="col-span-12 min-h-[300px] lg:col-span-5"
+        bodyClassName="p-0"
+        action={
           <Link
             href={withQuery(`/${platform}/table?level=campaign`)}
-            className="flex items-center gap-1 text-xs text-primary hover:underline"
+            className="flex items-center gap-1 font-mono text-[10px] uppercase tracking-wide text-primary hover:underline"
           >
-            View all <ArrowRight className="size-3" />
+            All <ArrowRight className="size-3" />
           </Link>
-        </CardHeader>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="space-y-px">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="h-10 animate-pulse bg-muted mx-4 my-1 rounded" />
-              ))}
-            </div>
-          ) : topCampaigns.length === 0 ? (
-            <EmptyState message="No campaigns in this period" />
-          ) : (
-            <>
+        }
+      >
+        {isLoading ? (
+          <div className="space-y-px p-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-9 animate-pulse rounded bg-muted/40" />
+            ))}
+          </div>
+        ) : topCampaigns.length === 0 ? (
+          <EmptyState message="No campaigns in this period" />
+        ) : (
+          <div className="mt-2 overflow-x-auto">
             {isCpas && (
-              <div className="mx-4 mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
-                Conversion data (ROAS, purchases, revenue) for this account is managed by the retailer and may not be available here.
+              <div className="mx-3 mb-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                Conversion data (ROAS, purchases, revenue) is managed by the retailer and may not appear here.
               </div>
             )}
             <Table>
@@ -329,39 +329,26 @@ export function OverviewView() {
                   <TableHead>Campaign</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Spend</TableHead>
-                  <TableHead className="text-right">Impressions</TableHead>
-                  <TableHead className="text-right">CTR</TableHead>
                   {isCpas ? (
-                    <TableHead className="text-right">Outbound Clicks</TableHead>
+                    <TableHead className="text-right">Outbound</TableHead>
                   ) : (
-                    <>
-                      <TableHead className="text-right">Conv.</TableHead>
-                      <TableHead className="text-right">ROAS</TableHead>
-                    </>
+                    <TableHead className="text-right">ROAS</TableHead>
                   )}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {topCampaigns.slice(0, 5).map((c) => (
+                {topCampaigns.slice(0, 6).map((c) => (
                   <TableRow key={c.id}>
-                    <TableCell className="font-medium max-w-48 truncate">
-                      {c.name}
-                    </TableCell>
+                    <TableCell className="max-w-40 truncate font-medium">{c.name}</TableCell>
                     <TableCell>
                       {c.status ? (
                         <StatusBadge status={c.status} />
                       ) : (
-                        <span className="text-muted-foreground text-sm">—</span>
+                        <span className="text-sm text-muted-foreground">—</span>
                       )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatCurrency(c.spend, currency)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {c.impressions?.toLocaleString() ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatPercent(c.ctr)}
                     </TableCell>
                     {isCpas ? (
                       <TableCell className="text-right tabular-nums">
@@ -370,23 +357,17 @@ export function OverviewView() {
                           : "—"}
                       </TableCell>
                     ) : (
-                      <>
-                        <TableCell className="text-right tabular-nums">
-                          {c.conversions?.toLocaleString() ?? "—"}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatRoas(c.roas)}
-                        </TableCell>
-                      </>
+                      <TableCell className="text-right tabular-nums">
+                        {formatRoas(c.roas)}
+                      </TableCell>
                     )}
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
-            </>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+          </div>
+        )}
+      </BentoTile>
+    </motion.div>
   );
 }

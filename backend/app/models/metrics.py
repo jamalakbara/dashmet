@@ -120,8 +120,10 @@ class MetricBreakdowns(UUIDPrimaryKeyMixin, Base):
     breakdown_value: Mapped[str] = mapped_column(String(200), nullable=False)
 
     impressions: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    reach: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     clicks: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     spend: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4), nullable=True)
+    conversions: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 4), nullable=True)
     ctr: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 6), nullable=True)
     cpm: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4), nullable=True)
     cpc: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 4), nullable=True)

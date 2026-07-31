@@ -22,28 +22,29 @@ export function PlatformTabs() {
   if (tabs.length === 0) return null;
 
   return (
-    <div className="shrink-0 border-b bg-card px-6">
-      <nav className="inline-flex h-11 items-center gap-1" aria-label={`${platform} views`}>
-        {tabs.map((tab) => {
-          const href = `/${platform}/${tab.slug}`;
-          const active = pathname === href;
-          return (
-            <Link
-              key={tab.slug}
-              href={withQuery(href)}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "relative inline-flex h-11 items-center border-b-2 px-3 text-sm font-medium transition-colors",
-                active
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {tab.label}
-            </Link>
-          );
-        })}
-      </nav>
-    </div>
+    <nav
+      className="inline-flex items-center gap-0.5"
+      aria-label={`${platform} views`}
+    >
+      {tabs.map((tab) => {
+        const href = `/${platform}/${tab.slug}`;
+        const active = pathname === href;
+        return (
+          <Link
+            key={tab.slug}
+            href={withQuery(href)}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "inline-flex items-center rounded-md px-2.5 py-1 font-mono text-[11px] uppercase tracking-wide transition-colors",
+              active
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {tab.label}
+          </Link>
+        );
+      })}
+    </nav>
   );
 }

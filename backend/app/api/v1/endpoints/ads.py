@@ -81,7 +81,19 @@ def get_creative(ad_id: str, current_user: CurrentUser, db: DbSession):
         )
 
     account = db.get(Account, ad.account_id)
-    if account and account.platform_id == "tiktok":
+    # Google ads are text creatives (no thumbnail) and fully populated at structure
+    # sync — serve whatever exists rather than blocking on an async fetch.
+    if account and account.platform_id == "google_ads":
+        if ad.creative:
+            return DataResponse(
+                data={
+                    "ad_id": str(ad.id),
+                    "creative": CreativeResponse.from_orm(ad.creative).model_dump(),
+                }
+            )
+        from workers.tasks.google_creatives import sync_google_creative
+        sync_google_creative.delay(ad_id)
+    elif account and account.platform_id == "tiktok":
         from workers.tasks.tiktok_creatives import sync_tiktok_creative
         sync_tiktok_creative.delay(ad_id)
     else:

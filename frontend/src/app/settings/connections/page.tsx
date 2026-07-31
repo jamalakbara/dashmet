@@ -70,7 +70,7 @@ const PLATFORMS = [
     name:      "Google Ads",
     icon:      "G",
     color:     "bg-red-500",
-    auth_type: "soon" as const,
+    auth_type: "oauth" as const,
     instructions: undefined,
   },
 ];
@@ -125,7 +125,7 @@ function SyncProgressBanner({ platformKey, platformName, onDismiss }: {
     {
       label: "Historical data (14d / 30d / 90d)",
       time: "~3–15 min",
-      done: platformKey === "tiktok"
+      done: platformKey === "tiktok" || platformKey === "google_ads"
         ? jobs.insights_historical?.status === "completed"
         : jobs.insights_async?.status === "completed",
     },
@@ -209,6 +209,30 @@ function ConnectionsSettingsPageInner() {
       toast.error("TikTok connection failed. Please try again.");
       router.replace(pathname);
     }
+
+    const googleStatus = searchParams.get("google");
+    if (googleStatus === "connected") {
+      qc.invalidateQueries({ queryKey: ["connections"] });
+      qc.invalidateQueries({ queryKey: queryKeys.accounts() });
+      toast.success("Google Ads connected. Syncing your data…");
+      setConnectSuccess(true);
+      setSyncBannerPlatform({ key: "google_ads", name: "Google Ads" });
+      setTimeout(() => setConnectSuccess(false), 4000);
+      const checkAfter = (ms: number) =>
+        setTimeout(async () => {
+          await qc.invalidateQueries({ queryKey: queryKeys.accounts() });
+          const cached = qc.getQueryData<unknown[]>(queryKeys.accounts());
+          if (ms === 12000 && (!cached || cached.length === 0)) {
+            toast.error("No Google Ads accounts found. Check your developer token / MCC access and try reconnecting.");
+          }
+        }, ms);
+      checkAfter(5000);
+      checkAfter(12000);
+      router.replace(pathname);
+    } else if (googleStatus === "error") {
+      toast.error("Google Ads connection failed. Please try again.");
+      router.replace(pathname);
+    }
   }, [searchParams, qc, router, pathname]);
 
   const { data: connectionsRes, isLoading } = useQuery({
@@ -276,14 +300,17 @@ function ConnectionsSettingsPageInner() {
     setOauthLoading(true);
     setConnectError(null);
     try {
-      const res = await connectionsApi.initiateTikTokOAuth();
+      const res = platform.key === "google_ads"
+        ? await connectionsApi.initiateGoogleOAuth()
+        : await connectionsApi.initiateTikTokOAuth();
       const authUrl = res.data?.data?.auth_url;
       if (authUrl) {
         window.location.href = authUrl;
       }
     } catch {
-      toast.error("Could not initiate TikTok OAuth. Please try again.");
-      setConnectError("Could not initiate TikTok OAuth. Please try again.");
+      const msg = `Could not initiate ${platform.name} OAuth. Please try again.`;
+      toast.error(msg);
+      setConnectError(msg);
       setOauthLoading(false);
     }
   }
@@ -363,10 +390,6 @@ function ConnectionsSettingsPageInner() {
                         onClick={() => setDisconnectId(conn.id)}
                       >
                         Disconnect
-                      </Button>
-                    ) : platform.auth_type === "soon" ? (
-                      <Button size="sm" disabled>
-                        Coming soon
                       </Button>
                     ) : platform.auth_type === "oauth" ? (
                       <Button

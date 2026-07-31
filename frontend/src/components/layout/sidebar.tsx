@@ -12,11 +12,12 @@ import { PLATFORM_TABS } from "@/lib/constants";
 const PLATFORM_NAV: { platform: string; label: string }[] = [
   { platform: "meta", label: "Meta" },
   { platform: "tiktok", label: "TikTok" },
+  { platform: "google_ads", label: "Google Ads" },
 ];
 
 const NAV_BASE =
-  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors";
-const NAV_ACTIVE = "bg-primary text-primary-foreground";
+  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all";
+const NAV_ACTIVE = "bg-primary text-primary-foreground shadow-[var(--shadow-soft)]";
 const NAV_INACTIVE =
   "text-muted-foreground hover:bg-accent hover:text-accent-foreground";
 
@@ -35,7 +36,9 @@ export function Sidebar() {
       {/* Logo */}
       <div className="flex h-14 items-center border-b px-4">
         {!sidebarCollapsed && (
-          <span className="text-lg font-bold tracking-tight">DashMet</span>
+          <span className="font-display text-lg font-bold tracking-tight">
+            Dash<span className="text-primary">Met</span>
+          </span>
         )}
       </div>
 

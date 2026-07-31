@@ -3,25 +3,36 @@
 import { useQuery } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { AlertTriangle } from "lucide-react";
+import { motion } from "framer-motion";
+import { AlertTriangle, Activity, Layers } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MetricCard } from "@/components/metrics/metric-card";
+import { BentoTile } from "@/components/bento/bento-tile";
+import { MetricTile } from "@/components/bento/metric-tile";
+import { GreetingTile } from "@/components/bento/greeting-tile";
+import { GeoTile } from "@/components/bento/geo-tile";
 import { PlatformBadge } from "@/components/shared/platform-badge";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useAccountsCount } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
 import { getCombinableMetrics } from "@/lib/metrics";
-import { CHART_COLORS } from "@/lib/constants";
+import { staggerGrid } from "@/lib/motion";
+import {
+  irisColor,
+  gridProps,
+  axisProps,
+  tooltipProps,
+  chartAnimation,
+} from "@/lib/chart-theme";
 import { formatMetric, formatCurrency } from "@/lib/formatters";
 
 interface MetricBag {
@@ -169,141 +180,103 @@ export default function CombinedDashboardPage() {
   const vsPrev = ov?.vs_previous ?? {};
 
   return (
-    <div className="space-y-6">
-      {/* Combined KPI cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        {combinableKpis.map((metric) => (
-          <MetricCard
-            key={metric.key}
-            label={metric.label}
-            value={formatMetric(summary[metric.key], metric.type, currency)}
-            change={vsPrev[metric.key] ?? null}
-            sparkline={series.map((s) => (s[metric.key] as number) ?? 0)}
-            loading={ovLoading}
-          />
-        ))}
-      </div>
+    <motion.div {...staggerGrid} className="grid grid-cols-12 gap-3">
+      {/* ── Row 1: greeting · hero combined spend ── */}
+      <GreetingTile className="col-span-12 min-h-[210px] md:col-span-4" />
 
-      {/* Trend charts */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Combined spend trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {tsLoading ? (
-              <div className="h-60 animate-pulse rounded bg-muted" />
-            ) : series.length === 0 ? (
-              <EmptyState message="No data for selected period" />
-            ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={series} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="date"
-                    tickFormatter={formatXDate}
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis
-                    tickFormatter={(v) => formatCurrency(v, currency)}
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={60}
-                  />
-                  <Tooltip
-                    formatter={(v) => [formatCurrency(v as number, currency), "Spend"]}
-                    labelFormatter={(l) => formatXDate(l as string)}
-                    contentStyle={{ fontSize: 12 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="spend"
-                    stroke={CHART_COLORS[0]}
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
+      <BentoTile
+        label={`Combined spend · ${ov?.account_count ?? 0} accounts`}
+        icon={Activity}
+        className="col-span-12 min-h-[210px] md:col-span-8"
+        bodyClassName="justify-end px-1 pb-1"
+      >
+        {tsLoading ? (
+          <div className="m-3 h-40 animate-pulse rounded-xl bg-muted/40" />
+        ) : series.length === 0 ? (
+          <EmptyState message="No data for selected period" />
+        ) : (
+          <ResponsiveContainer width="100%" height={160}>
+            <AreaChart data={series} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="dashHeroStroke" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor={irisColor(3)} />
+                  <stop offset="50%" stopColor={irisColor(4)} />
+                  <stop offset="100%" stopColor={irisColor(5)} />
+                </linearGradient>
+                <linearGradient id="dashHeroFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={irisColor(4)} stopOpacity={0.3} />
+                  <stop offset="100%" stopColor={irisColor(4)} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid {...gridProps} />
+              <XAxis dataKey="date" tickFormatter={formatXDate} {...axisProps} interval="preserveStartEnd" />
+              <YAxis tickFormatter={(v) => formatCurrency(v, currency)} {...axisProps} width={56} />
+              <Tooltip
+                formatter={(v) => [formatCurrency(v as number, currency), "Spend"]}
+                labelFormatter={(l) => formatXDate(l as string)}
+                {...tooltipProps}
+              />
+              <Area
+                type="monotone"
+                dataKey="spend"
+                stroke="url(#dashHeroStroke)"
+                strokeWidth={2.5}
+                fill="url(#dashHeroFill)"
+                dot={false}
+                activeDot={{ r: 4 }}
+                {...chartAnimation}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </BentoTile>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Combined clicks trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {tsLoading ? (
-              <div className="h-60 animate-pulse rounded bg-muted" />
-            ) : series.length === 0 ? (
-              <EmptyState message="No data for selected period" />
-            ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={series} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="date"
-                    tickFormatter={formatXDate}
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={40}
-                  />
-                  <Tooltip
-                    formatter={(v) => [(v as number)?.toLocaleString?.() ?? v, "Clicks"]}
-                    labelFormatter={(l) => formatXDate(l as string)}
-                    contentStyle={{ fontSize: 12 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="clicks"
-                    stroke={CHART_COLORS[1]}
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      {/* ── KPI band ── */}
+      {combinableKpis.map((metric, i) => (
+        <MetricTile
+          key={metric.key}
+          className="col-span-6 min-h-[150px] sm:col-span-4 lg:col-span-3"
+          label={metric.label}
+          value={formatMetric(summary[metric.key], metric.type, currency)}
+          numericValue={(summary[metric.key] as number) ?? null}
+          format={(n) => formatMetric(n, metric.type, currency)}
+          change={vsPrev[metric.key] ?? null}
+          sparkline={series.map((s) => (s[metric.key] as number) ?? 0)}
+          accentIndex={i}
+          loading={ovLoading}
+        />
+      ))}
 
-      {/* Per-account contribution */}
-      {ov && ov.per_account.length > 1 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">By account</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {ov.per_account.map((acc) => (
-                <div
-                  key={acc.account_id}
-                  className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
-                >
-                  {acc.platform && <PlatformBadge platform={acc.platform} size="sm" />}
-                  <span className="truncate font-medium">{acc.name}</span>
-                  <span className="ml-auto tabular-nums text-muted-foreground">
-                    {formatCurrency(acc.summary?.spend ?? 0, currency)}
-                  </span>
-                </div>
-              ))}
+      {/* ── Row 3: global reach · by account ── */}
+      <GeoTile
+        className="col-span-12 min-h-[300px] lg:col-span-7"
+        dateRange={dateRange}
+        caption="Global reach"
+      />
+
+      <BentoTile
+        label="By account"
+        icon={Layers}
+        className="col-span-12 min-h-[300px] lg:col-span-5"
+        bodyClassName="gap-2 p-3"
+      >
+        {ov && ov.per_account.length > 0 ? (
+          ov.per_account.map((acc) => (
+            <div
+              key={acc.account_id}
+              className="flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm"
+            >
+              {acc.platform && <PlatformBadge platform={acc.platform} size="sm" />}
+              <span className="truncate font-medium">{acc.name}</span>
+              <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
+                {formatCurrency(acc.summary?.spend ?? 0, currency)}
+              </span>
             </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
+          ))
+        ) : (
+          <EmptyState message="No accounts in this selection" />
+        )}
+      </BentoTile>
+    </motion.div>
   );
 }

@@ -28,6 +28,10 @@ celery_app = Celery(
         "workers.tasks.tiktok_breakdowns",
         "workers.tasks.tiktok_creatives",
         "workers.tasks.tiktok_token_refresh",
+        "workers.tasks.google_structure",
+        "workers.tasks.google_insights",
+        "workers.tasks.google_breakdowns",
+        "workers.tasks.google_creatives",
     ],
 )
 
@@ -45,6 +49,7 @@ celery_app.conf.update(
         "default": {},
         "meta": {},
         "tiktok": {},
+        "google": {},
         "poll": {},
     },
     task_default_queue="default",
@@ -63,6 +68,11 @@ celery_app.conf.update(
         "workers.tasks.tiktok_breakdowns.*": {"queue": "tiktok"},
         "workers.tasks.tiktok_creatives.*": {"queue": "tiktok"},
         "workers.tasks.tiktok_token_refresh.*": {"queue": "tiktok"},
+        # Google
+        "workers.tasks.google_structure.*": {"queue": "google"},
+        "workers.tasks.google_insights.*": {"queue": "google"},
+        "workers.tasks.google_breakdowns.*": {"queue": "google"},
+        "workers.tasks.google_creatives.*": {"queue": "google"},
     },
     beat_schedule={
         # Meta
@@ -102,6 +112,20 @@ celery_app.conf.update(
         "refresh-tiktok-tokens": {
             "task": "workers.tasks.tiktok_token_refresh.refresh_tiktok_tokens",
             "schedule": crontab(hour=0, minute=30),  # daily at 00:30 UTC
+        },
+        # Google (SDK auto-refreshes the access token from the stored refresh
+        # token, so there is no token-refresh task; no async-report jobs either).
+        "sync-google-structure-all": {
+            "task": "workers.tasks.google_structure.sync_google_structure_all",
+            "schedule": 30 * 60,  # every 30 min
+        },
+        "sync-google-insights-daily": {
+            "task": "workers.tasks.google_insights.sync_google_insights_daily_all",
+            "schedule": 15 * 60,  # every 15 min
+        },
+        "sync-google-breakdowns": {
+            "task": "workers.tasks.google_breakdowns.sync_google_breakdowns_all",
+            "schedule": 60 * 60,  # every 1 hour
         },
     },
 )

@@ -41,6 +41,7 @@ const PLATFORM_TABS = [
   { value: "all", label: "All" },
   { value: "meta", label: "Meta" },
   { value: "tiktok", label: "TikTok" },
+  { value: "google_ads", label: "Google Ads" },
 ];
 
 export default function AccountsSettingsPage() {

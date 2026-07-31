@@ -18,6 +18,56 @@ class MetricsSummary(BaseModel):
     conversion_value: Optional[float] = None
     roas: Optional[float] = None
     cpa: Optional[float] = None
+    outbound_clicks: Optional[float] = None
+    outbound_clicks_ctr: Optional[float] = None
+    # ── Extended action-based + computed metrics (Meta + TikTok) ──
+    add_to_cart: Optional[int] = None
+    initiate_checkout: Optional[int] = None
+    landing_page_views: Optional[int] = None
+    leads: Optional[int] = None
+    likes: Optional[int] = None
+    comments: Optional[int] = None
+    shares: Optional[int] = None
+    follows: Optional[int] = None
+    profile_visits: Optional[int] = None
+    result: Optional[int] = None
+    web_purchases: Optional[int] = None
+    web_add_to_cart: Optional[int] = None
+    app_installs: Optional[int] = None
+    web_purchase_value: Optional[float] = None
+    video_views: Optional[int] = None
+    video_p25: Optional[int] = None
+    video_p50: Optional[int] = None
+    video_p75: Optional[int] = None
+    video_p100: Optional[int] = None
+    video_thruplays: Optional[int] = None
+    video_2s: Optional[int] = None
+    video_2s_views: Optional[int] = None
+    video_6s_views: Optional[int] = None
+    video_avg_time: Optional[float] = None
+    avg_watch_time: Optional[float] = None
+    conversion_rate: Optional[float] = None
+    engagement_rate: Optional[float] = None
+    cost_per_result: Optional[float] = None
+    install_cost: Optional[float] = None
+    inline_post_engagement: Optional[int] = None
+    cost_per_inline_post_engagement: Optional[float] = None
+    estimated_ad_recallers: Optional[int] = None
+    estimated_ad_recall_rate: Optional[float] = None
+    # ── Funnel events + cost-per-step ──
+    view_content: Optional[int] = None
+    purchase: Optional[int] = None
+    search: Optional[int] = None
+    complete_registration: Optional[int] = None
+    web_checkout: Optional[int] = None
+    cost_per_view_content: Optional[float] = None
+    cost_per_add_to_cart: Optional[float] = None
+    cost_per_initiate_checkout: Optional[float] = None
+    cost_per_purchase: Optional[float] = None
+    cost_per_landing_page_view: Optional[float] = None
+    cost_per_lead: Optional[float] = None
+    cost_per_web_purchase: Optional[float] = None
+    cost_per_web_add_to_cart: Optional[float] = None
 
 
 class VsPrevious(BaseModel):
@@ -64,6 +114,56 @@ class TimeSeriesPoint(BaseModel):
     reach: Optional[int] = None
     conversions: Optional[float] = None
     roas: Optional[float] = None
+    outbound_clicks: Optional[float] = None
+    outbound_clicks_ctr: Optional[float] = None
+    # ── Extended action-based + computed metrics (Meta + TikTok) ──
+    add_to_cart: Optional[int] = None
+    initiate_checkout: Optional[int] = None
+    landing_page_views: Optional[int] = None
+    leads: Optional[int] = None
+    likes: Optional[int] = None
+    comments: Optional[int] = None
+    shares: Optional[int] = None
+    follows: Optional[int] = None
+    profile_visits: Optional[int] = None
+    result: Optional[int] = None
+    web_purchases: Optional[int] = None
+    web_add_to_cart: Optional[int] = None
+    app_installs: Optional[int] = None
+    web_purchase_value: Optional[float] = None
+    video_views: Optional[int] = None
+    video_p25: Optional[int] = None
+    video_p50: Optional[int] = None
+    video_p75: Optional[int] = None
+    video_p100: Optional[int] = None
+    video_thruplays: Optional[int] = None
+    video_2s: Optional[int] = None
+    video_2s_views: Optional[int] = None
+    video_6s_views: Optional[int] = None
+    video_avg_time: Optional[float] = None
+    avg_watch_time: Optional[float] = None
+    conversion_rate: Optional[float] = None
+    engagement_rate: Optional[float] = None
+    cost_per_result: Optional[float] = None
+    install_cost: Optional[float] = None
+    inline_post_engagement: Optional[int] = None
+    cost_per_inline_post_engagement: Optional[float] = None
+    estimated_ad_recallers: Optional[int] = None
+    estimated_ad_recall_rate: Optional[float] = None
+    # ── Funnel events + cost-per-step ──
+    view_content: Optional[int] = None
+    purchase: Optional[int] = None
+    search: Optional[int] = None
+    complete_registration: Optional[int] = None
+    web_checkout: Optional[int] = None
+    cost_per_view_content: Optional[float] = None
+    cost_per_add_to_cart: Optional[float] = None
+    cost_per_initiate_checkout: Optional[float] = None
+    cost_per_purchase: Optional[float] = None
+    cost_per_landing_page_view: Optional[float] = None
+    cost_per_lead: Optional[float] = None
+    cost_per_web_purchase: Optional[float] = None
+    cost_per_web_add_to_cart: Optional[float] = None
 
 
 class TimeSeriesEntity(BaseModel):
@@ -97,6 +197,54 @@ class TableMetrics(BaseModel):
     conversion_value: Optional[float] = None
     roas: Optional[float] = None
     cpa: Optional[float] = None
+    # ── Extended action-based + computed metrics (Meta + TikTok) ──
+    add_to_cart: Optional[int] = None
+    initiate_checkout: Optional[int] = None
+    landing_page_views: Optional[int] = None
+    leads: Optional[int] = None
+    likes: Optional[int] = None
+    comments: Optional[int] = None
+    shares: Optional[int] = None
+    follows: Optional[int] = None
+    profile_visits: Optional[int] = None
+    result: Optional[int] = None
+    web_purchases: Optional[int] = None
+    web_add_to_cart: Optional[int] = None
+    app_installs: Optional[int] = None
+    web_purchase_value: Optional[float] = None
+    video_views: Optional[int] = None
+    video_p25: Optional[int] = None
+    video_p50: Optional[int] = None
+    video_p75: Optional[int] = None
+    video_p100: Optional[int] = None
+    video_thruplays: Optional[int] = None
+    video_2s: Optional[int] = None
+    video_2s_views: Optional[int] = None
+    video_6s_views: Optional[int] = None
+    video_avg_time: Optional[float] = None
+    avg_watch_time: Optional[float] = None
+    conversion_rate: Optional[float] = None
+    engagement_rate: Optional[float] = None
+    cost_per_result: Optional[float] = None
+    install_cost: Optional[float] = None
+    inline_post_engagement: Optional[int] = None
+    cost_per_inline_post_engagement: Optional[float] = None
+    estimated_ad_recallers: Optional[int] = None
+    estimated_ad_recall_rate: Optional[float] = None
+    # ── Funnel events + cost-per-step ──
+    view_content: Optional[int] = None
+    purchase: Optional[int] = None
+    search: Optional[int] = None
+    complete_registration: Optional[int] = None
+    web_checkout: Optional[int] = None
+    cost_per_view_content: Optional[float] = None
+    cost_per_add_to_cart: Optional[float] = None
+    cost_per_initiate_checkout: Optional[float] = None
+    cost_per_purchase: Optional[float] = None
+    cost_per_landing_page_view: Optional[float] = None
+    cost_per_lead: Optional[float] = None
+    cost_per_web_purchase: Optional[float] = None
+    cost_per_web_add_to_cart: Optional[float] = None
 
 
 class TableRow(BaseModel):
@@ -125,8 +273,10 @@ class BreakdownDimensions(BaseModel):
 
 class BreakdownMetrics(BaseModel):
     impressions: Optional[int] = None
+    reach: Optional[int] = None
     clicks: Optional[int] = None
     spend: Optional[float] = None
+    conversions: Optional[float] = None
     ctr: Optional[float] = None
     cpm: Optional[float] = None
     cpc: Optional[float] = None

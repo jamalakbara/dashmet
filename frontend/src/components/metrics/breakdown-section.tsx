@@ -22,7 +22,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useAccountId } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
 import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
-import { CHART_COLORS } from "@/lib/constants";
+import { CHART_COLORS, tooltipProps } from "@/lib/chart-theme";
 import { formatCurrency } from "@/lib/formatters";
 
 interface BreakdownRow {
@@ -71,10 +71,10 @@ export function AgeGenderChart({ rows, loading, currency }: { rows: BreakdownRow
   return (
     <ResponsiveContainer width="100%" height={280}>
       <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
         <XAxis type="number" tickFormatter={(v) => formatCurrency(v, currency)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
         <YAxis type="category" dataKey="age" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={48} />
-        <Tooltip formatter={(v) => formatCurrency(v as number, currency)} contentStyle={{ fontSize: 12 }} />
+        <Tooltip formatter={(v) => formatCurrency(v as number, currency)} {...tooltipProps} />
         <Legend />
         {genders.map((g) => (
           <Bar key={g} dataKey={g} name={g.charAt(0).toUpperCase() + g.slice(1)} fill={GENDER_COLORS[g] ?? CHART_COLORS[2]} />
@@ -99,10 +99,10 @@ export function CountryChart({ rows, loading, currency }: { rows: BreakdownRow[]
   return (
     <ResponsiveContainer width="100%" height={280}>
       <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
         <XAxis type="number" tickFormatter={(v) => formatCurrency(v, currency)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
         <YAxis type="category" dataKey="country" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={32} />
-        <Tooltip formatter={(v) => [formatCurrency(v as number, currency), "Spend"]} contentStyle={{ fontSize: 12 }} />
+        <Tooltip formatter={(v) => [formatCurrency(v as number, currency), "Spend"]} {...tooltipProps} />
         <Bar dataKey="spend" fill={CHART_COLORS[0]} radius={2} />
       </BarChart>
     </ResponsiveContainer>
@@ -127,10 +127,10 @@ export function PlatformChart({ rows, loading, currency }: { rows: BreakdownRow[
   return (
     <ResponsiveContainer width="100%" height={280}>
       <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
         <XAxis type="number" tickFormatter={(v) => formatCurrency(v, currency)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
         <YAxis type="category" dataKey="platform" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={72} />
-        <Tooltip formatter={(v) => [formatCurrency(v as number, currency), "Spend"]} contentStyle={{ fontSize: 12 }} />
+        <Tooltip formatter={(v) => [formatCurrency(v as number, currency), "Spend"]} {...tooltipProps} />
         <Legend />
         {positions.map((pos, i) => (
           <Bar key={`${pos ?? "unknown"}-${i}`} dataKey={pos} stackId="a" fill={CHART_COLORS[i % CHART_COLORS.length]} />
@@ -168,7 +168,7 @@ export function DeviceChart({ rows, loading }: { rows: BreakdownRow[]; loading: 
             <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
           ))}
         </Pie>
-        <Tooltip formatter={(v) => [Number(v).toLocaleString(), "Impressions"]} contentStyle={{ fontSize: 12 }} />
+        <Tooltip formatter={(v) => [Number(v).toLocaleString(), "Impressions"]} {...tooltipProps} />
         <Legend />
       </PieChart>
     </ResponsiveContainer>
@@ -204,9 +204,9 @@ export function BreakdownSection() {
   const bdRows: BreakdownRow[] = bdRes?.data?.data?.rows ?? [];
 
   return (
-    <Card>
+    <Card className="shadow-[var(--shadow-soft)]">
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">Breakdown</CardTitle>
+        <CardTitle className="font-display text-sm font-semibold">Breakdown</CardTitle>
       </CardHeader>
       <CardContent>
         <Tabs value={activeBreakdown ?? "age_gender"} onValueChange={(v) => setActiveBreakdown(v)}>

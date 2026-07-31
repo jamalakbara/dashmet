@@ -21,20 +21,40 @@ SCALAR_METRICS = [
 ACTION_METRICS = [
     "video_play_actions", "video_watched_2s", "video_watched_6s",
     "video_views_p25", "video_views_p50", "video_views_p75", "video_views_p100",
-    "conversion", "likes", "shares", "comments",
+    "average_video_play",
+    "conversion", "result",
+    "likes", "shares", "comments", "follows", "profile_visits",
+]
+
+# Website/app event metrics are only valid for advertisers with a Pixel / app SDK
+# configured — TikTok rejects the WHOLE request with "invalid metric fields" otherwise.
+# Requested with a graceful fallback (see sync loop) so they never break core metrics.
+EVENT_METRICS = [
+    "page_event_purchase", "page_event_purchase_value", "page_event_add_to_cart",
+    "page_event_checkout",
+    "app_event_install",
 ]
 
 TIKTOK_ACTION_MAP = {
-    "video_play_actions":  ("video_play_actions",         "video_view"),
-    "video_watched_2s":    ("video_watched_2s",           "video_view"),
-    "video_watched_6s":    ("video_watched_6s",           "video_view"),
-    "video_views_p25":     ("video_p25_watched_actions",  "video_view"),
-    "video_views_p50":     ("video_p50_watched_actions",  "video_view"),
-    "video_views_p75":     ("video_p75_watched_actions",  "video_view"),
-    "video_views_p100":    ("video_p100_watched_actions", "video_view"),
-    "likes":               ("actions",                    "like"),
-    "shares":              ("actions",                    "share"),
-    "comments":            ("actions",                    "comment"),
+    "video_play_actions":   ("video_play_actions",               "video_view"),
+    "video_watched_2s":     ("video_watched_2s",                 "video_view"),
+    "video_watched_6s":     ("video_watched_6s",                 "video_view"),
+    "video_views_p25":      ("video_p25_watched_actions",        "video_view"),
+    "video_views_p50":      ("video_p50_watched_actions",        "video_view"),
+    "video_views_p75":      ("video_p75_watched_actions",        "video_view"),
+    "video_views_p100":     ("video_p100_watched_actions",       "video_view"),
+    "average_video_play":   ("average_video_play",               "video_view"),
+    "likes":                ("actions",                          "like"),
+    "shares":               ("actions",                          "share"),
+    "comments":             ("actions",                          "comment"),
+    "follows":              ("actions",                          "follow"),
+    "profile_visits":       ("actions",                          "profile_visit"),
+    "result":               ("results",                          "result"),
+    "page_event_purchase":       ("page_events",                 "purchase"),
+    "page_event_purchase_value": ("page_event_values",           "purchase"),
+    "page_event_add_to_cart":    ("page_events",                 "add_to_cart"),
+    "page_event_checkout":       ("page_events",                 "checkout"),
+    "app_event_install":         ("app_events",                  "install"),
 }
 
 DATA_LEVELS = [
@@ -177,7 +197,8 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
             }
 
         start_date, end_date = _resolve_dates(date_preset)
-        all_metrics = SCALAR_METRICS + ACTION_METRICS
+        base_metrics = SCALAR_METRICS + ACTION_METRICS
+        event_supported = True  # flipped off on the first "invalid metric fields" error
 
         total_metric_rows = 0
         total_action_rows = 0
@@ -187,14 +208,33 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
                 entity_map = {"campaign_id": camp_map, "adgroup_id": adgroup_map, "ad_id": ad_map}[entity_dim]
                 dimensions = [entity_dim, "stat_time_day"]
 
-                rows = client.get_report(
-                    advertiser_id=advertiser_id,
-                    data_level=data_level,
-                    dimensions=dimensions,
-                    metrics=all_metrics,
-                    start_date=start_date,
-                    end_date=end_date,
-                )
+                req_metrics = base_metrics + (EVENT_METRICS if event_supported else [])
+                try:
+                    rows = client.get_report(
+                        advertiser_id=advertiser_id,
+                        data_level=data_level,
+                        dimensions=dimensions,
+                        metrics=req_metrics,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+                except TikTokAPIError as e:
+                    # Web/app event metrics need a Pixel/app SDK; TikTok 400s the whole
+                    # request otherwise. Drop them and retry core-only (once per run) so
+                    # the rest of the metrics still sync.
+                    if event_supported and "invalid metric" in str(e).lower():
+                        logger.info("[%s] TikTok event metrics unsupported — core only", account_id)
+                        event_supported = False
+                        rows = client.get_report(
+                            advertiser_id=advertiser_id,
+                            data_level=data_level,
+                            dimensions=dimensions,
+                            metrics=base_metrics,
+                            start_date=start_date,
+                            end_date=end_date,
+                        )
+                    else:
+                        raise
 
                 metric_rows: list[dict] = []
                 action_rows: list[dict] = []
