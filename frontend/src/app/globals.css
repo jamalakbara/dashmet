@@ -57,33 +57,33 @@
 
 @layer base {
   :root {
-    /* Bright Modern SaaS — warm bright base, coral-amber accent.
+    /* Base Data — bright SaaS, cool blue accent on a light-gray canvas.
        App bg sits slightly below pure-white cards so surfaces float (figure/ground). */
-    --background: oklch(0.975 0.009 85);
-    --foreground: oklch(0.22 0.02 55);
+    --background: oklch(0.968 0.003 264);
+    --foreground: oklch(0.27 0.03 264);
     --card: oklch(1 0 0);
-    --card-foreground: oklch(0.22 0.02 55);
-    --popover: oklch(1 0.003 90);
-    --popover-foreground: oklch(0.22 0.02 55);
-    --primary: oklch(0.7 0.18 40);
-    --primary-foreground: oklch(0.99 0.01 80);
-    --secondary: oklch(0.96 0.008 80);
-    --secondary-foreground: oklch(0.28 0.02 55);
-    --muted: oklch(0.96 0.008 80);
-    --muted-foreground: oklch(0.52 0.02 60);
-    --accent: oklch(0.95 0.03 55);
-    --accent-foreground: oklch(0.3 0.06 45);
+    --card-foreground: oklch(0.27 0.03 264);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.27 0.03 264);
+    --primary: oklch(0.55 0.21 262);
+    --primary-foreground: oklch(0.99 0.005 264);
+    --secondary: oklch(0.965 0.004 264);
+    --secondary-foreground: oklch(0.32 0.03 264);
+    --muted: oklch(0.965 0.004 264);
+    --muted-foreground: oklch(0.55 0.02 264);
+    --accent: oklch(0.95 0.03 262);
+    --accent-foreground: oklch(0.45 0.15 262);
     --destructive: oklch(0.6 0.22 25);
     --destructive-foreground: oklch(0.99 0.01 80);
-    --border: oklch(0.92 0.008 75);
-    --input: oklch(0.92 0.008 75);
-    --ring: oklch(0.7 0.18 40);
+    --border: oklch(0.92 0.004 264);
+    --input: oklch(0.92 0.004 264);
+    --ring: oklch(0.55 0.21 262);
     --radius: 0.875rem;
-    --chart-1: oklch(0.68 0.19 38);
-    --chart-2: oklch(0.75 0.15 75);
-    --chart-3: oklch(0.66 0.14 165);
-    --chart-4: oklch(0.62 0.16 255);
-    --chart-5: oklch(0.6 0.2 315);
+    --chart-1: oklch(0.55 0.21 262);
+    --chart-2: oklch(0.66 0.14 165);
+    --chart-3: oklch(0.75 0.15 75);
+    --chart-4: oklch(0.6 0.2 315);
+    --chart-5: oklch(0.68 0.16 30);
 
     /* Metric-card pastel tints (bg + deeper same-hue fg) */
     --tint-mint: oklch(0.95 0.05 165);
@@ -99,9 +99,9 @@
     --tint-blush: oklch(0.95 0.05 10);
     --tint-blush-fg: oklch(0.55 0.17 10);
 
-    /* Soft warm colored shadows */
-    --shadow-soft: 0 2px 10px oklch(0.7 0.1 40 / 0.1);
-    --shadow-lift: 0 8px 24px oklch(0.7 0.12 40 / 0.16);
+    /* Soft neutral shadows for floating white cards */
+    --shadow-soft: 0 1px 3px oklch(0.3 0.02 264 / 0.08), 0 1px 2px oklch(0.3 0.02 264 / 0.04);
+    --shadow-lift: 0 8px 24px oklch(0.3 0.03 264 / 0.12);
 
     /* Iridescent signature gradients (shared with .dark) */
     --gradient-iris: linear-gradient(
@@ -122,14 +122,15 @@
     --iris-6: #e8619d;
     --iris-7: #f26a4b;
 
-    --sidebar: oklch(0.985 0.006 80);
-    --sidebar-foreground: oklch(0.22 0.02 55);
-    --sidebar-primary: oklch(0.7 0.18 40);
-    --sidebar-primary-foreground: oklch(0.99 0.01 80);
-    --sidebar-accent: oklch(0.95 0.03 55);
-    --sidebar-accent-foreground: oklch(0.3 0.06 45);
-    --sidebar-border: oklch(0.92 0.008 75);
-    --sidebar-ring: oklch(0.7 0.18 40);
+    /* Indigo-blue sidebar rail (dark surface, near-white text) */
+    --sidebar: oklch(0.5 0.2 273);
+    --sidebar-foreground: oklch(0.97 0.01 274);
+    --sidebar-primary: oklch(1 0 0 / 0.16);
+    --sidebar-primary-foreground: oklch(1 0 0);
+    --sidebar-accent: oklch(1 0 0 / 0.1);
+    --sidebar-accent-foreground: oklch(1 0 0);
+    --sidebar-border: oklch(1 0 0 / 0.14);
+    --sidebar-ring: oklch(1 0 0 / 0.5);
   }
 
   .dark {

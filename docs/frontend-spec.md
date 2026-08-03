@@ -148,7 +148,7 @@ src/
 | `/settings/members` | Member management | ✅ | owner |
 | `/settings/connections` | Platform connections | ✅ | owner |
 
-The per-platform views (Overview · Periodic · Table · Ads, plus TikTok's Engagement) render as a **route-based tab bar** — each tab is its own route, so deep links stay shareable. Tab config is `PLATFORM_TABS` in `lib/constants.ts`. **Breakdowns are part of the Periodic view, not a separate route** (`BreakdownSection` renders at the bottom of `periodic-view.tsx`).
+The per-platform tab bar is **Overview · Table · Ads** (plus TikTok's Engagement) — `PLATFORM_TABS` in `lib/constants.ts`. Each tab is its own route so deep links stay shareable. **Overview is a composed scroll** (Base Data reference style): grouped metric cards → `PeriodicView` (trends) → `FunnelView` → a **Table preview** (`<TableView preview />`) → an **Ads preview** (`<AdsView preview />`). Periodic and Funnel therefore no longer have their own tabs; their routes (`/periodic`, `/funnel`) still exist for deep-links but aren't surfaced in the bar. Table and Ads keep full tabs — their previews on Overview show the top rows/creatives with a **See All →** link to the full view. **Breakdowns are part of the Periodic view** (`BreakdownSection` at the bottom of `periodic-view.tsx`).
 
 Auth guard is a middleware (`middleware.ts`) that checks for a valid JWT cookie. Unauthenticated users are redirected to `/login`. Members trying to access owner-only settings pages see a `403` page.
 
@@ -156,28 +156,27 @@ Auth guard is a middleware (`middleware.ts`) that checks for a valid JWT cookie.
 
 ## 4. Global Layout
 
-The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed sidebar on the left, a top header, and — on platform pages — a `PlatformTabs` bar below the header. Main content scrolls independently.
+The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed indigo **sidebar rail** on the left, then a column with a light **top bar** (`TopBar`), an **action strip** (`ControlStrip`) that carries the Sync Data action + account picker + `PlatformTabs` + Filter, and the scrollable content canvas. Base Data light-SaaS theme (white cards floating on a light-gray canvas); the near-black bento "OS-window" chrome was retired.
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  HEADER                                                       │
-│  [AccountSwitcher]     [DateRangePicker]    [SyncStatus] [👤] │
-├───────────┬──────────────────────────────────────────────────┤
-│           │  [Overview] [Periodic] [Table] [Ads]  ← tab bar   │
-│  SIDEBAR  ├──────────────────────────────────────────────────┤
-│           │                                                   │
-│  Dashboard│   PAGE CONTENT (active tab)                       │
-│  Meta     │                                                   │
-│  TikTok   │                                                   │
-│           │                                                   │
-│  ───────  │                                                   │
+┌───────────┬──────────────────────────────────────────────────┐
+│  DASH·MET │  TOP BAR                                          │
+│ (indigo)  │  [MetaAds · updated]      [DateRange] [🔔] [👤]   │
+│           ├──────────────────────────────────────────────────┤
+│ DATA      │  ACTION STRIP                                     │
+│  Summary  │  [Sync Data] [Account ▾] [Overview…Ads]  [Filter] │
+│  Platform ├──────────────────────────────────────────────────┤
+│   Meta    │                                                   │
+│   TikTok  │   PAGE CONTENT (active tab)                       │
+│   Google  │                                                   │
+│ USER      │                                                   │
+│  Binding  │                                                   │
 │  Settings │                                                   │
-│           │                                                   │
-└───────────┴───────────────────────────────────────────────────┘
-  (tab bar self-hides on the combined /dashboard)
+└───────────┴──────────────────────────────────────────────────┘
+  (PlatformTabs self-hides on the combined /dashboard)
 ```
 
-### Header — components
+### Top bar — components
 
 **`AccountSwitcher`**
 - shadcn `Popover` + `Command` (cmdk combobox), **server-side searched** — never loads the whole org (200–1000+ accounts). Search hits `GET /accounts?search=&platform=`; the picker sets `shouldFilter={false}` (the server is the filter).
@@ -197,13 +196,15 @@ The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed sidebar on the l
 - Selection stored in URL: `?date_preset=last_30d` or `?date_start=2026-05-01&date_end=2026-05-30`. Default: `last_30d`. Survives nav via `useSharedFilterQuery`.
 
 **`SyncStatusBadge`**
-- Small indicator in the top-right area
-- Green dot: all syncs current
-- Yellow dot + "Syncing…" spinner: a job is currently running
-- Red dot: a sync has failed — click to see detail modal
-- "Last updated X min ago" tooltip on hover
-- "Refresh" button triggers `POST /sync/trigger` (owner only)
-- Polls `GET /sync/status` every 60 seconds
+- The **single** sync indicator, rendered as a labeled pill in the `TopBar` (the old full-width `SyncStatusBar` freshness banner was removed to avoid a redundant second indicator; its per-preset job-resolution logic was folded into this badge).
+- Resolves the jobs relevant to the active `date_preset` + platform (`RANGE_JOBS` / `insights_historical_or_async` → `insights_historical` for TikTok else `insights_async`) and reports inline, color-coded:
+  - **fresh** (emerald): `Updated Xm ago` — stays visible so the navbar always reports freshness
+  - **syncing** (amber, spinner): `Syncing last 30d — ready in ~2–8 min` (or account/structure ETA)
+  - **stale** (amber): `last 30d may be outdated · synced Xh ago`
+  - **failed** (red): `Sync failed · last 30d`
+  - **idle** (gray): `Last updated —` / `No account`
+- Manual re-sync lives on the **Sync Data** button in the action strip, not here.
+- Polls `GET /sync/status` every 30 seconds.
 
 **User menu** — shadcn `DropdownMenu`
 - Shows user name + email
@@ -212,21 +213,28 @@ The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed sidebar on the l
 ### Sidebar — items
 
 ```
-[Logo / DashMet wordmark]
+[✦ Base Data Dashboard]
 
-  📊  Dashboard          (combined cross-platform)
-  ⬛  Meta               → /meta/overview
-  ⬛  TikTok             → /tiktok/overview
-
-─────────────
-  ⚙️  Settings
+DATA
+  ▦  Summary              → /dashboard (combined cross-platform)
+  ▦  Platform Data ▾      (expandable group)
+       Meta Ads           → /meta/overview
+       TikTok Ads         → /tiktok/overview
+       Google Ads         → /google_ads/overview
+USER
+  🔗  Account Binding      → /settings/connections
+  ⚙️  Settings            → /settings/org
 ```
 
-Sidebar is **4 items** — the per-platform views are reached through the `PlatformTabs` bar, not the sidebar. Clicking a platform lands on its first tab (`PLATFORM_TABS[platform][0]`, i.e. Overview). The active platform item is highlighted whenever any of its tabs is active (`pathname.startsWith('/{platform}')`). Filter params (account_id, date range) are carried across both sidebar and tab navigation by `useSharedFilterQuery()`. Collapses to icon-only at medium viewports (still desktop-first — no hamburger menu).
+Sidebar (`components/layout/sidebar.tsx`) is an **indigo rail** grouped into `DATA` and `USER` sections. `Platform Data` is a collapsible group (open by default); each platform lands on its first tab (`PLATFORM_TABS[platform][0]`, i.e. Overview) and is highlighted whenever any of its tabs is active (`pathname.startsWith('/{platform}')`). Filter params (account_id, date range) are carried across sidebar + tab navigation by `useSharedFilterQuery()`. Fixed width (`w-60`), desktop-first — no collapse/hamburger.
+
+### Action strip — `ControlStrip`
+
+`components/layout/control-strip.tsx` — sits directly under the top bar. Holds the primary **Sync Data** button (`POST /sync/trigger` for the selected account; manual sync is a recovery path per P-5, not a per-card fixture), the `AccountSwitcher`, the `PlatformTabs`, and a **Filter** affordance.
 
 ### Platform tab bar — `PlatformTabs`
 
-`components/layout/platform-tabs.tsx` — a `<Link>`-based (route-driven, not the shadcn `Tabs` primitive) tab bar mounted once in the dashboard layout. Reads the active platform via `usePlatform()`, looks up `PLATFORM_TABS[platform]`, and renders one tab per view. Returns `null` on `/dashboard` (no platform). Active tab = exact `pathname` match.
+`components/layout/platform-tabs.tsx` — a `<Link>`-based (route-driven, not the shadcn `Tabs` primitive) tab bar mounted in the action strip. Reads the active platform via `usePlatform()`, looks up `PLATFORM_TABS[platform]`, and renders one tab per view. Returns `null` on `/dashboard` (no platform). Active tab = exact `pathname` match.
 
 ---
 
@@ -279,57 +287,55 @@ All four dashboard views share the global layout. They all react to changes in `
 
 **Purpose:** At-a-glance account health for the selected period. The "homepage" of the dashboard.
 
+**Composed scroll** — Overview stacks the platform's whole story on one page (Base Data reference), rather than splitting it across tabs:
+
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  KPI CARDS (2 rows × 4 cards)                                │
-│  [Spend] [Impressions] [Reach]  [Clicks]                     │
-│  [CTR]   [CPM]         [Conv.]  [ROAS]                       │
-├──────────────────────────────┬───────────────────────────────┤
-│  SPEND TREND (line chart)    │  CONVERSIONS TREND (line)     │
-│  Last 30 days, daily         │  Last 30 days, daily          │
-├──────────────────────────────┴───────────────────────────────┤
-│  TOP CAMPAIGNS TABLE                                          │
-│  Name | Spend | Impressions | CTR | Conversions | ROAS       │
-│  (5 rows, no pagination — link to /table for full view)      │
+│  GROUPED METRIC CARDS (Base Data style)                      │
+│  ┌ 🟠 Spend  IDR 6.0M ── See Detail ┐ ┌ 🟢 ROAS 23.08 ─────┐ │
+│  │ Reach     Impressions            │ │ Purchase  Purch.Val │ │
+│  │        [ See More ▾ ]            │ │    [ See More ▾ ]   │ │
+│  └──────────────────────────────────┘ └─────────────────────┘ │
+├──────────────────────────────────────────────────────────────┤
+│  TRENDS   → <PeriodicView />  (metric-tab charts + breakdowns)│
+├──────────────────────────────────────────────────────────────┤
+│  FUNNEL   → <FunnelView />    (bar chart + step table)        │
+├──────────────────────────────────────────────────────────────┤
+│  DATA BASED ON  → <TableView preview />   [ See All → /table ]│
+├──────────────────────────────────────────────────────────────┤
+│  ADS      → <AdsView preview />           [ See All → /ads ]  │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-#### `MetricCard` component
+The embedded sub-views are self-contained (own data hooks off the shared URL params). The Table/Ads **previews** are read-only (no toolbar, pagination, or param writes) — they show the top rows/creatives with a **See All →** link into the full tab.
+
+#### `MetricGroupCard` component
+
+`components/metrics/metric-group-card.tsx` — one card per metric family. A colored icon chip + title + big headline number, an optional **See Detail** link, then a two-column grid of sub-metrics with a **See More/See Less** expander for the overflow (default `previewCount = 4`).
 
 ```
-┌─────────────────────────┐
-│  Spend                  │
-│  $1,234.56              │
-│  ▲ 12.3%  vs prev. period│
-│  ▁▂▃▄▅▆ (sparkline)    │
-└─────────────────────────┘
+┌──────────────────────────────────────┐
+│ 🟠 Spend            [↗ See Detail]   │
+│ IDR 6.026.558,00                     │
+│ ───────────────────────────────────  │
+│ Reach       Impressions              │
+│ 191.534     872.666                  │
+│ Frequency   CTR                      │
+│ 4,56        2,03%                     │
+│            [ See More ▾ ]            │
+└──────────────────────────────────────┘
 ```
 
-Props:
-- `label` — metric display name
-- `value` — formatted value (currency, %, number)
-- `change` — % change vs previous period (null if unavailable)
-- `sparkline` — array of daily values for the mini chart
-- `trend` — `up` | `down` | `neutral` — controls arrow color (green/red/gray)
-- `loading` — shows skeleton
+Props: `title`, `headline` (formatted), `icon` (Lucide), `accent` (chip bg class), `subMetrics` (`{key,label,value}[]`), `previewCount?`, `detailHref?`, `loading?`.
 
-KPI cards in order: Spend, Impressions, Reach, Clicks, CTR, CPM, Conversions, ROAS. Cards for Conversions and ROAS only render if the account has `primary_conversion_action` configured — otherwise show a "Set up conversion tracking" prompt card in their place.
+`overview-view.tsx` builds two cards: **Spend** (delivery family — Reach, Impressions, Frequency, CTR, CPM, CPC, Clicks, Link Clicks…) headlined by spend, and a **Results** card headlined by the first present of `roas → conversions → web_purchases → result → engagement_rate → outbound_clicks` (title = that metric's label). Sub-metrics are filtered to keys present in the overview `summary`; labels/format come from `METRIC_REGISTRY` (`metricLabel`/`metricType`), so the grid adapts per platform and account type. `See Detail` links to the platform's Table view.
 
-#### Spend & Conversions trend charts
+#### Embedded sub-views
 
-- Recharts `LineChart` with `ResponsiveContainer`
-- X-axis: date labels (abbreviated: "May 1", "May 15", "May 30")
-- Y-axis: formatted values (currency for spend, integer for conversions)
-- Tooltip: formatted date + value
-- No legend (single series each)
-- Height: `240px`
-
-#### Top Campaigns table
-
-- shadcn `Table` — 5 rows, no pagination
-- Columns: Campaign name, Status badge, Spend, Impressions, CTR, Conversions, ROAS
-- "View all campaigns →" link routes to `/table?level=campaign`
-- Shows skeleton rows while loading
+- **Trends** — `<PeriodicView />` (see §6.2): metric-tab time-series charts + `BreakdownSection`.
+- **Funnel** — `<FunnelView />`: step bar chart + conversion-rate table.
+- **Table preview** — `<TableView preview />`: a "Data Based On" card with the top campaigns by spend (visible columns only, no expand/pagination) + **See All →** `/table`.
+- **Ads preview** — `<AdsView preview />`: top 3 creatives as `AdCard`s (click opens the shared `AdDetailSheet`) + **See All →** `/ads`.
 
 #### Data fetching
 
@@ -731,7 +737,8 @@ Primary state for all dashboard filters — ensures shareable, bookmarkable URLs
 | `date_preset` | All dashboard views | `?date_preset=last_30d` |
 | `date_start` | All dashboard views | `?date_start=2026-05-01` |
 | `date_end` | All dashboard views | `?date_end=2026-05-30` |
-| `level` | Periodic, Table | `?level=campaign` |
+| `level` | Table | `?level=campaign` (Table only) |
+| `trend_level` | Trends/Periodic | `?trend_level=account` (default `account`; separate key from `level` so both can co-mount on Overview) |
 | `metrics` | Periodic | `?metrics=spend,ctr` |
 | `time_increment` | Periodic | `?time_increment=day` |
 | `compare` | Periodic | `?compare=true` |

@@ -3,27 +3,66 @@
 import { useQuery } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
 import { formatDistanceToNow } from "date-fns";
-import { cn } from "@/lib/utils";
+import { RefreshCw, AlertTriangle, Info, CheckCircle2 } from "lucide-react";
 import { syncApi } from "@/lib/api/sync";
+import { accountsApi } from "@/lib/api/accounts";
 import { queryKeys } from "@/lib/query-keys";
+import { DEFAULT_DATE_PRESET } from "@/lib/constants";
+import { cn } from "@/lib/utils";
 
-type DotColor = "green" | "yellow" | "red" | "gray";
+// Which job types matter for each date preset (mirrors the old SyncStatusBar).
+const RANGE_JOBS: Record<string, string[]> = {
+  today: ["insights_daily"],
+  yesterday: ["insights_daily"],
+  last_7d: ["insights_daily"],
+  this_month: ["insights_daily"],
+  last_month: ["insights_daily"],
+  last_14d: ["insights_daily", "insights_historical_or_async"],
+  last_30d: ["insights_daily", "insights_historical_or_async"],
+  last_90d: ["insights_daily", "insights_historical_or_async"],
+};
 
-function StatusDot({ color }: { color: DotColor }) {
-  return (
-    <span
-      className={cn("inline-block size-2 rounded-full", {
-        "bg-green-500": color === "green",
-        "bg-yellow-500 animate-pulse": color === "yellow",
-        "bg-red-500": color === "red",
-        "bg-muted-foreground": color === "gray",
-      })}
-    />
-  );
-}
+const SYNC_ETA: Record<string, string> = {
+  insights_daily: "~2–8 min",
+  insights_async: "~3–15 min",
+  insights_historical: "~3–10 min",
+  structure: "~1–3 min",
+};
 
+type Job = { status: string; last_run_at: string | null; is_stale: boolean } | undefined;
+type JobMap = Record<string, Job>;
+type Variant = "syncing" | "stale" | "error" | "fresh" | "idle";
+
+const VARIANT_STYLE: Record<Variant, string> = {
+  syncing: "border-amber-200 bg-amber-50 text-amber-700",
+  stale: "border-amber-200 bg-amber-50 text-amber-700",
+  error: "border-red-200 bg-red-50 text-red-700",
+  fresh: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  idle: "border-border bg-muted/40 text-muted-foreground",
+};
+
+/**
+ * Single, informative sync indicator for the top bar. Replaces the old
+ * dot-only badge *and* the full-width freshness banner — resolves the relevant
+ * jobs for the active date preset/platform and states range + ETA / staleness /
+ * failure inline. Stays present when fresh (shows "Updated Xm ago") so the
+ * navbar always reports freshness.
+ */
 export function SyncStatusBadge() {
-  const [accountId] = useQueryState("account_id");
+  const [accountIdParam] = useQueryState("account_id");
+  const [datePreset] = useQueryState("date_preset", { defaultValue: DEFAULT_DATE_PRESET });
+
+  const { data: accounts = [] } = useQuery({
+    queryKey: queryKeys.accounts(),
+    queryFn: async () => {
+      const res = await accountsApi.list();
+      return res.data.data as { id: string; platform: string }[];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const accountId = accountIdParam ?? accounts[0]?.id ?? null;
+  const platformId = accounts.find((a) => a.id === accountId)?.platform ?? "meta";
 
   const { data } = useQuery({
     queryKey: queryKeys.syncStatus(accountId ?? ""),
@@ -32,38 +71,127 @@ export function SyncStatusBadge() {
       return res.data.data;
     },
     enabled: !!accountId,
-    refetchInterval: 60_000,
+    refetchInterval: 30_000,
     refetchIntervalInBackground: false,
-    staleTime: 60_000,
+    staleTime: 30_000,
   });
 
-  if (!accountId || !data) {
-    return <StatusDot color="gray" />;
+  if (!accountId) {
+    return <Pill variant="idle" icon={<Info className="size-3" />} label="No account" />;
+  }
+  if (!data) {
+    return <Pill variant="idle" icon={<Info className="size-3" />} label="Last updated —" />;
   }
 
-  const jobs = (data.jobs ?? {}) as Record<
-    string,
-    { status: string; last_run_at: string | null; is_stale: boolean }
-  >;
+  const jobs = (data.jobs ?? {}) as JobMap;
+  const rangeLabel = datePreset.replace(/_/g, " ");
 
-  const hasRunning = Object.values(jobs).some((j) => j.status === "running");
-  const lastRun = Object.values(jobs)
-    .map((j) => j.last_run_at)
+  // TikTok has no 90-day window.
+  if (platformId === "tiktok" && datePreset === "last_90d") {
+    return (
+      <Pill
+        variant="stale"
+        icon={<Info className="size-3" />}
+        label="90d not available for TikTok — use 30d"
+      />
+    );
+  }
+
+  const rawTypes = RANGE_JOBS[datePreset] ?? ["insights_daily"];
+  const resolvedTypes = rawTypes.map((t) =>
+    t === "insights_historical_or_async"
+      ? platformId === "tiktok"
+        ? "insights_historical"
+        : "insights_async"
+      : t
+  );
+  const relevant = resolvedTypes.map((t) => ({ type: t, job: jobs[t] }));
+
+  const structureJob = jobs.structure;
+  const isStructureSyncing =
+    !structureJob || structureJob.status === "running" || structureJob.status === "pending";
+  const hasSyncing =
+    isStructureSyncing ||
+    relevant.some(({ job }) => !job || job.status === "pending" || job.status === "running");
+  const hasFailed = relevant.some(
+    ({ job }) => job?.status === "failed" || job?.status === "timed_out"
+  );
+  const hasStale = !hasSyncing && relevant.some(({ job }) => job?.is_stale);
+
+  const lastRun = relevant
+    .map(({ job }) => job?.last_run_at)
     .filter(Boolean)
     .sort()
     .at(-1);
-
-  const color: DotColor = hasRunning ? "yellow" : lastRun ? "green" : "gray";
-  const label = hasRunning
-    ? "Syncing…"
-    : lastRun
-    ? `Updated ${formatDistanceToNow(new Date(lastRun), { addSuffix: true })}`
+  const ago = lastRun
+    ? formatDistanceToNow(new Date(lastRun), { addSuffix: true })
     : null;
 
+  if (hasFailed) {
+    return (
+      <Pill
+        variant="error"
+        icon={<AlertTriangle className="size-3" />}
+        label={`Sync failed · ${rangeLabel}`}
+      />
+    );
+  }
+
+  if (hasSyncing) {
+    const syncingJob = relevant.find(
+      ({ job }) => !job || job.status === "pending" || job.status === "running"
+    );
+    let label: string;
+    if (isStructureSyncing && !structureJob) {
+      label = `Syncing account — ready in ${SYNC_ETA.structure}`;
+    } else if (isStructureSyncing) {
+      label = `Syncing structure — ready in ${SYNC_ETA.structure}`;
+    } else {
+      const eta = syncingJob ? SYNC_ETA[syncingJob.type] ?? "a few min" : SYNC_ETA.structure;
+      label = `Syncing ${rangeLabel} — ready in ${eta}`;
+    }
+    return (
+      <Pill variant="syncing" icon={<RefreshCw className="size-3 animate-spin" />} label={label} />
+    );
+  }
+
+  if (hasStale) {
+    return (
+      <Pill
+        variant="stale"
+        icon={<Info className="size-3" />}
+        label={`${rangeLabel} may be outdated${ago ? ` · synced ${ago}` : ""}`}
+      />
+    );
+  }
+
   return (
-    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-      <StatusDot color={color} />
-      {label && <span>{label}</span>}
+    <Pill
+      variant="fresh"
+      icon={<CheckCircle2 className="size-3" />}
+      label={ago ? `Updated ${ago}` : "Up to date"}
+    />
+  );
+}
+
+function Pill({
+  variant,
+  icon,
+  label,
+}: {
+  variant: Variant;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
+        VARIANT_STYLE[variant]
+      )}
+    >
+      <span className="shrink-0">{icon}</span>
+      <span className="max-w-[280px] truncate">{label}</span>
     </div>
   );
 }

@@ -123,7 +123,9 @@ export function PeriodicView() {
   const dateRange     = useDateRange();
   const { selectableMetrics, currency } = usePlatformMetrics();
 
-  const [level, setLevel]               = useQueryState("level",          { defaultValue: "campaign" });
+  // Own param key (not the shared "level" used by the Table view) so the two can
+  // co-exist on the composed Overview without corrupting each other's queries.
+  const [level, setLevel]               = useQueryState("trend_level",    { defaultValue: "account" });
   const [metricsStr, setMetricsStr]     = useQueryState("metrics",        { defaultValue: "spend,clicks" });
   const [timeIncrement, setTimeIncrement] = useQueryState("time_increment", { defaultValue: "day" });
   const [compareStr, setCompareStr]     = useQueryState("compare");

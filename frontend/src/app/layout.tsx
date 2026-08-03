@@ -26,7 +26,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("dark font-sans", geist.variable, geistMono.variable, manrope.variable)}
+      className={cn("font-sans", geist.variable, geistMono.variable, manrope.variable)}
     >
       <body className={inter.className}>
         <Providers>{children}</Providers>

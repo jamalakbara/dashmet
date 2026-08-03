@@ -32,14 +32,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import Link from "next/link";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PaginationBar } from "@/components/shared/pagination-bar";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useAccountId } from "@/hooks/use-account";
+import { usePlatform } from "@/hooks/use-platform";
 import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
 import { useDateRange } from "@/hooks/use-date-range";
+import { useSharedFilterQuery } from "@/hooks/use-shared-query";
 import { useUIStore } from "@/stores/ui-store";
 import {
   formatCurrency,
@@ -212,9 +215,11 @@ function SortIcon({ col, sortBy, sortOrder }: {
 
 // ─── View ─────────────────────────────────────────────────────────────────────
 
-export function TableView() {
+export function TableView({ preview = false }: { preview?: boolean } = {}) {
   const accountId  = useAccountId();
   const dateRange  = useDateRange();
+  const platform   = usePlatform() ?? "meta";
+  const withQuery  = useSharedFilterQuery();
   const { tableMetricDefs, currency } = usePlatformMetrics();
   const { visibleColumns, setVisibleColumns } = useUIStore();
 
@@ -364,6 +369,70 @@ export function TableView() {
       <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
         No account selected.
       </div>
+    );
+  }
+
+  // ── Preview mode: compact, read-only campaign table with a "See All" link ──
+  if (preview) {
+    const previewCols = visibleCols;
+    const previewRows = rows.slice(0, 5);
+    return (
+      <Card className="gap-0 py-0">
+        <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+          <div>
+            <p className="text-base font-semibold">Data Based On</p>
+            <p className="text-sm text-muted-foreground">Top campaigns by spend</p>
+          </div>
+          <Link
+            href={withQuery(`/${platform}/table?level=campaign`)}
+            className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary hover:underline"
+          >
+            See All <ChevronRight className="size-4" />
+          </Link>
+        </div>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {previewCols.map((col) => (
+                  <TableHead key={col.key} className={cn(col.align === "right" && "text-right")}>
+                    {col.label}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <TableRow key={i}>
+                    {previewCols.map((col) => (
+                      <TableCell key={col.key}>
+                        <div className="h-4 animate-pulse rounded bg-muted" />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : previewRows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={previewCols.length} className="py-10 text-center text-muted-foreground">
+                    No results
+                  </TableCell>
+                </TableRow>
+              ) : (
+                previewRows.map((row) => (
+                  <TableRow key={row.id}>
+                    {previewCols.map((col) => (
+                      <TableCell key={col.key} className={cn(col.align === "right" && "text-right")}>
+                        {renderCell(row, col, () => {}, currency)}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
     );
   }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
 import { Play, Images, X, ExternalLink, ChevronRight } from "lucide-react";
@@ -23,8 +24,10 @@ import {
 import { StatusBadge } from "@/components/shared/status-badge";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
-import { useAccountId } from "@/hooks/use-account";
+import { useSelectedAccount } from "@/hooks/use-account";
+import { usePlatform } from "@/hooks/use-platform";
 import { useDateRange } from "@/hooks/use-date-range";
+import { useSharedFilterQuery } from "@/hooks/use-shared-query";
 import {
   formatCurrency,
   formatNumber,
@@ -142,7 +145,7 @@ function CreativeThumbnail({
 
 // ─── AdCard (grid) ────────────────────────────────────────────────────────────
 
-function AdCard({ ad, onClick }: { ad: Ad; onClick: () => void }) {
+function AdCard({ ad, onClick, currency }: { ad: Ad; onClick: () => void; currency: string }) {
   const cp = ad.creative_preview;
   const m  = ad.metrics;
 
@@ -174,7 +177,7 @@ function AdCard({ ad, onClick }: { ad: Ad; onClick: () => void }) {
         <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
           <span className="text-muted-foreground">Spend</span>
           <span className="text-right tabular-nums font-medium">
-            {formatCurrency(m?.spend)}
+            {formatCurrency(m?.spend, currency)}
           </span>
           <span className="text-muted-foreground">CTR</span>
           <span className="text-right tabular-nums">{formatPercent(m?.ctr)}</span>
@@ -202,7 +205,7 @@ function AdCard({ ad, onClick }: { ad: Ad; onClick: () => void }) {
 
 // ─── AdRow (list view) ────────────────────────────────────────────────────────
 
-function AdRow({ ad, onClick }: { ad: Ad; onClick: () => void }) {
+function AdRow({ ad, onClick, currency }: { ad: Ad; onClick: () => void; currency: string }) {
   const cp = ad.creative_preview;
   const m  = ad.metrics;
 
@@ -230,7 +233,7 @@ function AdRow({ ad, onClick }: { ad: Ad; onClick: () => void }) {
       <div className="hidden shrink-0 gap-6 text-xs sm:flex">
         <div className="text-right">
           <div className="text-muted-foreground">Spend</div>
-          <div className="tabular-nums font-medium">{formatCurrency(m?.spend)}</div>
+          <div className="tabular-nums font-medium">{formatCurrency(m?.spend, currency)}</div>
         </div>
         <div className="text-right">
           <div className="text-muted-foreground">CTR</div>
@@ -251,9 +254,11 @@ function AdRow({ ad, onClick }: { ad: Ad; onClick: () => void }) {
 function AdDetailSheet({
   ad,
   onClose,
+  currency,
 }: {
   ad: Ad | null;
   onClose: () => void;
+  currency: string;
 }) {
   const { data: creativeRes, isLoading: creativeLoading } = useQuery({
     queryKey: queryKeys.creative(ad?.id ?? ""),
@@ -275,17 +280,17 @@ function AdDetailSheet({
   const m = ad?.metrics;
 
   const metricRows = [
-    { label: "Spend",       value: formatCurrency(m?.spend) },
+    { label: "Spend",       value: formatCurrency(m?.spend, currency) },
     { label: "Impressions", value: formatNumber(m?.impressions) },
     { label: "Reach",       value: formatNumber(m?.reach) },
     { label: "Clicks",      value: formatNumber(m?.clicks) },
     { label: "CTR",         value: formatPercent(m?.ctr) },
-    { label: "CPM",         value: formatCurrency(m?.cpm) },
-    { label: "CPC",         value: formatCurrency(m?.cpc) },
+    { label: "CPM",         value: formatCurrency(m?.cpm, currency) },
+    { label: "CPC",         value: formatCurrency(m?.cpc, currency) },
     { label: "Conversions", value: formatNumber(m?.conversions) },
-    { label: "Conv. Value", value: formatCurrency(m?.conversion_value) },
+    { label: "Conv. Value", value: formatCurrency(m?.conversion_value, currency) },
     { label: "ROAS",        value: formatRoas(m?.roas) },
-    { label: "CPA",         value: formatCurrency(m?.cpa) },
+    { label: "CPA",         value: formatCurrency(m?.cpa, currency) },
   ];
 
   return (
@@ -395,9 +400,11 @@ function AdDetailSheet({
 
 // ─── View ─────────────────────────────────────────────────────────────────────
 
-export function AdsView() {
-  const accountId = useAccountId();
+export function AdsView({ preview = false }: { preview?: boolean } = {}) {
+  const { accountId, currency } = useSelectedAccount();
   const dateRange = useDateRange();
+  const platform  = usePlatform() ?? "meta";
+  const withQuery = useSharedFilterQuery();
 
   const [format,  setFormat]  = useQueryState("format",  { defaultValue: "all" });
   const [adSort,  setAdSort]  = useQueryState("ad_sort", { defaultValue: "spend" });
@@ -470,6 +477,45 @@ export function AdsView() {
     return (
       <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
         No account selected.
+      </div>
+    );
+  }
+
+  // ── Preview mode: top creatives grid + "See All" (no toolbar / load-more) ──
+  if (preview) {
+    const previewAds = filtered.slice(0, 3);
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-base font-semibold">Ads</p>
+            <p className="text-sm text-muted-foreground">Top creatives by spend</p>
+          </div>
+          <Link
+            href={withQuery(`/${platform}/ads`)}
+            className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary hover:underline"
+          >
+            See All <ChevronRight className="size-4" />
+          </Link>
+        </div>
+        {isLoading ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="aspect-[4/5] animate-pulse rounded-lg bg-muted" />
+            ))}
+          </div>
+        ) : previewAds.length === 0 ? (
+          <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+            No ads found
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {previewAds.map((ad) => (
+              <AdCard key={ad.id} ad={ad} currency={currency} onClick={() => setSelectedAd(ad)} />
+            ))}
+          </div>
+        )}
+        <AdDetailSheet ad={selectedAd} currency={currency} onClose={() => setSelectedAd(null)} />
       </div>
     );
   }
@@ -566,13 +612,13 @@ export function AdsView() {
       ) : viewMode === "grid" ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((ad) => (
-            <AdCard key={ad.id} ad={ad} onClick={() => setSelectedAd(ad)} />
+            <AdCard key={ad.id} ad={ad} currency={currency} onClick={() => setSelectedAd(ad)} />
           ))}
         </div>
       ) : (
         <div className="space-y-2">
           {filtered.map((ad) => (
-            <AdRow key={ad.id} ad={ad} onClick={() => setSelectedAd(ad)} />
+            <AdRow key={ad.id} ad={ad} currency={currency} onClick={() => setSelectedAd(ad)} />
           ))}
         </div>
       )}
@@ -591,7 +637,7 @@ export function AdsView() {
       )}
 
       {/* Detail sheet */}
-      <AdDetailSheet ad={selectedAd} onClose={() => setSelectedAd(null)} />
+      <AdDetailSheet ad={selectedAd} currency={currency} onClose={() => setSelectedAd(null)} />
     </div>
   );
 }

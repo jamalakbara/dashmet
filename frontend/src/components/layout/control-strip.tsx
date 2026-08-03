@@ -1,33 +1,64 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { DateRangePicker } from "@/components/shared/date-range-picker";
-import { SyncStatusBadge } from "@/components/shared/sync-status-badge";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { RefreshCw, SlidersHorizontal } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { PlatformTabs } from "@/components/layout/platform-tabs";
+import { useSelectedAccount } from "@/hooks/use-account";
+import { syncApi } from "@/lib/api/sync";
+import { queryKeys } from "@/lib/query-keys";
+import { cn } from "@/lib/utils";
 
 const AccountSwitcher = dynamic(
   () =>
     import("@/components/shared/account-switcher").then((m) => ({
       default: m.AccountSwitcher,
     })),
-  { ssr: false, loading: () => <div className="h-8 w-48 animate-pulse rounded-lg bg-muted" /> }
+  { ssr: false, loading: () => <div className="h-8 w-56 animate-pulse rounded-lg bg-muted" /> }
 );
 
 /**
- * Secondary control bar under the window chrome: platform sub-tabs on the left
- * (self-hides on the combined dashboard), account/date/sync filters on the right.
+ * Action strip under the top bar: primary Sync Data action, the account picker,
+ * the platform view tabs, and a Filter affordance. Manual sync stays here as a
+ * recovery path (P-5) rather than a permanent fixture on every card.
  */
 export function ControlStrip() {
+  const { accountId } = useSelectedAccount();
+  const queryClient = useQueryClient();
+
+  const sync = useMutation({
+    mutationFn: () => syncApi.trigger(accountId!),
+    onSuccess: () => {
+      toast.success("Sync started — data will refresh shortly.");
+      queryClient.invalidateQueries({ queryKey: queryKeys.syncStatus(accountId ?? "") });
+    },
+    onError: () => toast.error("Couldn't start sync. Try again."),
+  });
+
   return (
-    <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-2">
-      <div className="min-h-8 flex items-center">
+    <div className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-5 py-3">
+      <Button
+        size="lg"
+        onClick={() => sync.mutate()}
+        disabled={!accountId || sync.isPending}
+        className="gap-2"
+      >
+        <RefreshCw className={cn("size-4", sync.isPending && "animate-spin")} />
+        Sync Data
+      </Button>
+
+      <AccountSwitcher />
+
+      <div className="hidden items-center rounded-lg border border-border p-0.5 sm:flex">
         <PlatformTabs />
       </div>
-      <div className="flex items-center gap-3">
-        <AccountSwitcher />
-        <DateRangePicker />
-        <SyncStatusBadge />
-      </div>
+
+      <Button variant="outline" size="lg" className="ml-auto gap-2">
+        <SlidersHorizontal className="size-4" />
+        Filter
+      </Button>
     </div>
   );
 }

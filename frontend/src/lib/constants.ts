@@ -98,24 +98,18 @@ export interface PlatformTab {
 export const PLATFORM_TABS: Record<string, PlatformTab[]> = {
   meta: [
     { slug: "overview", label: "Overview" },
-    { slug: "periodic", label: "Periodic" },
     { slug: "table",    label: "Table" },
-    { slug: "funnel",   label: "Funnel" },
     { slug: "ads",      label: "Ads" },
   ],
   tiktok: [
     { slug: "overview",   label: "Overview" },
-    { slug: "periodic",   label: "Periodic" },
     { slug: "table",      label: "Table" },
-    { slug: "funnel",     label: "Funnel" },
     { slug: "ads",        label: "Ads" },
     { slug: "engagement", label: "Engagement" },
   ],
   google_ads: [
     { slug: "overview", label: "Overview" },
-    { slug: "periodic", label: "Periodic" },
     { slug: "table",    label: "Table" },
-    { slug: "funnel",   label: "Funnel" },
     { slug: "ads",      label: "Ads" },
   ],
 };

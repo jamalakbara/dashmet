@@ -37,13 +37,11 @@ export function BentoTile({
       variants={fadeInUp}
       {...(interactive ? hoverLift : {})}
       className={cn(
-        "group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card",
-        "shadow-[var(--shadow-soft)] transition-colors hover:border-white/15",
+        "group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card",
+        "shadow-[var(--shadow-soft)] transition-colors hover:border-primary/30",
         className
       )}
     >
-      {/* hover glow line */}
-      <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
       {(label || action) && (
         <div className="flex items-center justify-between gap-2 px-4 pt-3">

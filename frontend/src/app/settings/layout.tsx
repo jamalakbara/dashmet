@@ -6,7 +6,9 @@ import { SettingsNav } from "@/components/shared/settings-nav";
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar />
+      <Suspense fallback={<div className="w-60 shrink-0 bg-sidebar" />}>
+        <Sidebar />
+      </Suspense>
       <div className="flex flex-1 flex-col overflow-hidden">
         <Suspense fallback={<div className="h-14 shrink-0 border-b bg-card" />}>
           <Header />
