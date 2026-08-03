@@ -236,7 +236,9 @@ Sidebar (`components/layout/sidebar.tsx`) is an **indigo rail** grouped into `DA
 
 ### Action strip — `ControlStrip`
 
-`components/layout/control-strip.tsx` — sits directly under the top bar. Holds the primary **Sync Data** button (`POST /sync/trigger` for the selected account; manual sync is a recovery path per P-5, not a per-card fixture), the `AccountSwitcher`, the `PlatformTabs`, and the **Filter** popover (`FilterPopover`).
+`components/layout/control-strip.tsx` — sits directly under the top bar. Holds the primary **Sync Data** button (`POST /sync/trigger` for the selected account; manual sync is a recovery path per P-5, not a per-card fixture), the `AccountSwitcher`, the `PlatformTabs`, the **Filter** popover (`FilterPopover`), and — on single-account views only — the **Export PPTX** button.
+
+**Export PPTX** — an outline button (`FileDown` icon) shown only on **single-account** (platform-scoped) views, hidden on the combined `/dashboard` where `usePlatform()` is `null` (there's no single-account overview to render). Calls `insightsApi.exportOverviewPptx({ account_id, ...dateRange, ...filter })` — same params as the overview read — then downloads the returned `Blob` client-side (creates an object URL + a temporary `<a download="overview.pptx">`). Pending state pulses the icon; a failure toasts and downloads nothing. Backend endpoint: `GET /insights/overview/export.pptx` (see `docs/backend-api-spec.md`).
 
 **Filter popover** — `components/layout/filter-popover.tsx`. A campaign filter (status dropdown + campaign-name search, debounced 300ms) that writes the shared `status` + `search` URL params. Read back by `useOverviewFilter()` (status `"all"` → omitted) and threaded into the Overview cards, funnel (`insightsApi.overview`), trends (`insightsApi.timeseries`), and the Table/Ads tabs — one filter scopes every view. Trigger shows an active-count badge; a Clear action resets both params. Backend enforces it via `status`/`search` on `GET /insights/overview` + `/insights/timeseries`.
 
@@ -721,7 +723,7 @@ Polls sync status every 60 seconds. Shows dot indicator + last updated time. Tri
 Color-coded badge for entity status. Props: `status: 'active' | 'paused' | 'archived' | 'deleted'`
 
 ### `PlatformBadge`
-Small logo + name badge for platform. Props: `platform: 'meta' | 'google_ads' | 'tiktok'`
+Small platform icon. `meta`/`tiktok` render their brand SVG (`/meta-logo.svg`, `/tiktok-logo.svg`); other platforms fall back to a colored letter tile. Props: `platform: 'meta' | 'google_ads' | 'tiktok'`, `size?: 'sm' | 'md'`
 
 ### `MetricValue`
 Formatted metric display. Handles currency, percentage, multiplier (ROAS), and large number abbreviation (1.2M, 45K). Props: `value`, `type: 'currency' | 'percent' | 'number' | 'roas'`, `currency?: string`

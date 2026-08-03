@@ -37,6 +37,11 @@ All notable changes to this project are documented here. Format follows
   `frontend/src/components/views/{overview-view,funnel-view,table-view,ads-view}.tsx`.
 
 ### Changed
+- **Brand + platform logos now use real SVG assets.** Sidebar brand swapped from the `Sparkles`
+  lucide glyph to `/logo.svg`; `PlatformBadge` renders `/meta-logo.svg` and `/tiktok-logo.svg` for
+  meta/tiktok (other platforms keep the colored letter tile). Assets added under `frontend/public/`.
+  Touches `frontend/src/components/layout/sidebar.tsx`,
+  `frontend/src/components/shared/platform-badge.tsx`.
 - **Icon hover animations now trigger on the whole container, not the icon itself.** `AnimatedIcon`
   with `trigger="hover"` switched from framer-motion `whileHover` (icon-only) to CSS `group-hover:`,
   so hovering the enclosing `<Link>`/`<button>`/row/card animates the icon. Added

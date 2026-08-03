@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   Link2,
   Settings,
-  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AnimatedIcon } from "@/components/shared/animated-icon";
@@ -94,9 +93,8 @@ export function Sidebar() {
           collapsed ? "justify-center px-3" : "gap-3 px-5"
         )}
       >
-        <span className="group flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/20">
-          <AnimatedIcon icon={Sparkles} motionPreset="wiggle" iconClassName="size-5" />
-        </span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo.svg" alt="Base Data" className="size-10 shrink-0 rounded-xl" />
         {!collapsed && (
           <span className="text-[15px] font-bold leading-tight tracking-tight">
             Base Data
