@@ -22,6 +22,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { SyncAwareEmpty } from "@/components/shared/sync-aware-empty";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useSelectedAccount } from "@/hooks/use-account";
@@ -505,9 +506,12 @@ export function AdsView({ preview = false }: { preview?: boolean } = {}) {
             ))}
           </div>
         ) : previewAds.length === 0 ? (
-          <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-            No ads found
-          </div>
+          <SyncAwareEmpty
+            jobType="insights_daily"
+            emptyLabel="No ads for this period"
+            syncingLabel="Syncing ads…"
+            height={160}
+          />
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {previewAds.map((ad) => (
@@ -525,7 +529,7 @@ export function AdsView({ preview = false }: { preview?: boolean } = {}) {
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Format */}
-        <Select value={format} onValueChange={(v) => setFormat(v)}>
+        <Select items={FORMAT_OPTIONS} value={format} onValueChange={(v) => setFormat(v)}>
           <SelectTrigger className="w-36">
             <SelectValue />
           </SelectTrigger>
@@ -537,7 +541,7 @@ export function AdsView({ preview = false }: { preview?: boolean } = {}) {
         </Select>
 
         {/* Sort */}
-        <Select value={adSort} onValueChange={(v) => setAdSort(v)}>
+        <Select items={SORT_OPTIONS} value={adSort} onValueChange={(v) => setAdSort(v)}>
           <SelectTrigger className="w-44">
             <SelectValue />
           </SelectTrigger>
@@ -606,9 +610,12 @@ export function AdsView({ preview = false }: { preview?: boolean } = {}) {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
-          No ads found
-        </div>
+        <SyncAwareEmpty
+          jobType="insights_daily"
+          emptyLabel="No ads for this period"
+          syncingLabel="Syncing ads…"
+          height={256}
+        />
       ) : viewMode === "grid" ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((ad) => (

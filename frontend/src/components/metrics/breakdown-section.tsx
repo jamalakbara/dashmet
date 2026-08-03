@@ -18,6 +18,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { insightsApi } from "@/lib/api/insights";
+import { SyncAwareEmpty } from "@/components/shared/sync-aware-empty";
 import { queryKeys } from "@/lib/query-keys";
 import { useAccountId } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
@@ -42,13 +43,15 @@ function SkeletonChart({ height }: { height: number }) {
 }
 
 function Empty({ height = 280 }: { height?: number }) {
+  // Breakdowns sync on their own (hourly) cadence — an empty result on a fresh
+  // account is usually "not synced yet", not "no data" (P-1).
   return (
-    <div
-      className="flex items-center justify-center text-sm text-muted-foreground"
-      style={{ height }}
-    >
-      No data for selected period
-    </div>
+    <SyncAwareEmpty
+      jobType="breakdown"
+      emptyLabel="No breakdown data for this period"
+      syncingLabel="Syncing breakdowns… this fills in after the first breakdown sync"
+      height={height}
+    />
   );
 }
 

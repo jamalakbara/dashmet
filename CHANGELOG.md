@@ -14,5 +14,10 @@ All notable changes to this project are documented here. Format follows
   `workers/meta_client.py` (`get_insights` now requires `time_range`, no longer accepts `date_preset`).
 
 ### Added
+- Sync-aware empty states — breakdown and ads sections read their own `jobs_status[job_type]`
+  from `/sync/status` and show "Syncing…" instead of "No data"/"No ads found" when the relevant
+  job hasn't completed yet (P-1). New `frontend/src/hooks/use-sync-jobs.ts` +
+  `frontend/src/components/shared/sync-aware-empty.tsx`; wired into `breakdown-section.tsx`
+  (keys on `breakdown`) and `ads-view.tsx` (keys on `insights_daily`, i.e. ad rows).
 - Read-vs-write date-range parity test — `backend/tests/test_date_range_parity.py`
   (presets × timezones; asserts worker `time_range` == read resolver; rejects unknown presets). PRD §11.
