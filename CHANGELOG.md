@@ -37,6 +37,13 @@ All notable changes to this project are documented here. Format follows
   (presets × timezones; asserts worker `time_range` == read resolver; rejects unknown presets). PRD §11.
 
 ### Fixed
+- Dashboard sections now auto-refresh as a sync lands, instead of only the Overview KPI cards.
+  Previously Trends, Breakdown, campaigns Table, and Ads mounted empty, cached for 15–30 min,
+  and never refetched when the background sync wrote data — so after "Updated Xm ago" they stayed
+  blank until a manual refresh. Added `useSyncActive()` (derived from real `sync_jobs` state, not a
+  blind 5-min timer) and gave every section `refetchInterval: syncActive ? 5000 : false`. Replaces
+  the Overview-only 5-min poll timer. `frontend/src/hooks/use-sync-jobs.ts`,
+  `overview-view.tsx`, `periodic-view.tsx`, `table-view.tsx`, `ads-view.tsx`, `breakdown-section.tsx`.
 - Breakdown sync now records a `sync_jobs` row (`job_type = "breakdown"`, committed running
   before the first API call, finalized on every exit path) — previously it had no producer, so
   the freshness badge was permanently stuck on "Partially synced — breakdowns pending" and the

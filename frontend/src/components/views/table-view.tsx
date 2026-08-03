@@ -39,6 +39,7 @@ import { PaginationBar } from "@/components/shared/pagination-bar";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useAccountId } from "@/hooks/use-account";
+import { useSyncActive } from "@/hooks/use-sync-jobs";
 import { usePlatform } from "@/hooks/use-platform";
 import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
 import { useDateRange } from "@/hooks/use-date-range";
@@ -219,6 +220,7 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
   const accountId  = useAccountId();
   const dateRange  = useDateRange();
   const platform   = usePlatform() ?? "meta";
+  const syncActive = useSyncActive();
   const withQuery  = useSharedFilterQuery();
   const { tableMetricDefs, currency } = usePlatformMetrics();
   const { visibleColumns, setVisibleColumns } = useUIStore();
@@ -316,6 +318,8 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
       }),
     enabled: !!accountId,
     staleTime: 15 * 60 * 1000,
+    // Poll while a sync is landing so the table fills in without a manual refresh.
+    refetchInterval: syncActive ? 5000 : false,
   });
 
   const rows: TableRow[]  = res?.data?.data ?? [];
@@ -503,6 +507,7 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
 
           {/* Status filter */}
           <Select
+            items={STATUS_OPTIONS}
             value={status}
             onValueChange={(v) => { setStatus(v); setPage(1); }}
           >

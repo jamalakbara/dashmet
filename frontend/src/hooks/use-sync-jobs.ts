@@ -55,3 +55,19 @@ export function useSyncJobs() {
     },
   };
 }
+
+// Job types that actually feed the dashboard sections and always reach a
+// terminal state (each has a sync_jobs producer). Creatives are excluded on
+// purpose — no producer yet, so it would keep this "active" forever.
+const ACTIVE_JOB_TYPES = ["structure", "insights_daily", "breakdown"];
+
+/**
+ * True while any dashboard-feeding sync job is still pending/running (or has no
+ * row yet, e.g. a fresh connect). Sections use this to poll their query while a
+ * sync lands, then stop once everything is done — so a section fills in ~seconds
+ * after its data arrives instead of staying empty until staleTime expires.
+ */
+export function useSyncActive(): boolean {
+  const { jobState } = useSyncJobs();
+  return ACTIVE_JOB_TYPES.some((t) => jobState(t) === "syncing");
+}

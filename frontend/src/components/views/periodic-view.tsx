@@ -30,6 +30,7 @@ import { BreakdownSection } from "@/components/metrics/breakdown-section";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useAccountId } from "@/hooks/use-account";
+import { useSyncActive } from "@/hooks/use-sync-jobs";
 import { useDateRange } from "@/hooks/use-date-range";
 import { useOverviewFilter } from "@/hooks/use-overview-filter";
 import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
@@ -150,6 +151,7 @@ export function PeriodicView() {
   }, [selectableKeyStr]);
   const comparePrev    = compareStr === "true";
   const isAccountLevel = level === "account";
+  const syncActive     = useSyncActive();
 
   // ── Timeseries ──
   const { data: tsRes, isLoading } = useQuery({
@@ -166,6 +168,8 @@ export function PeriodicView() {
       }),
     enabled: !!accountId,
     staleTime: 15 * 60 * 1000,
+    // Poll while a sync is landing so the trend fills in without a manual refresh.
+    refetchInterval: syncActive ? 5000 : false,
   });
 
   // ── Build chart data ──
@@ -222,7 +226,7 @@ export function PeriodicView() {
     <div className="space-y-6">
       {/* ── Controls ── */}
       <div className="flex flex-wrap items-center gap-3">
-        <Select value={level} onValueChange={(v) => setLevel(v)}>
+        <Select items={LEVELS} value={level} onValueChange={(v) => setLevel(v)}>
           <SelectTrigger className="w-36">
             <SelectValue />
           </SelectTrigger>

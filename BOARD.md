@@ -22,5 +22,6 @@ Sync-freshness UX (fresh-connect "data gone?" confusion) — ordered:
 
 ## Done
 
+- 2026-08-03 P-2 (auto-refresh) — all dashboard sections poll while sync active (`useSyncActive` from real sync_jobs state) so Trends/Breakdown/Table/Ads fill in as data lands, not just Overview KPIs. Replaces blind 5-min timer. Verified in browser (badge green + sections filled).
 - 2026-08-03 §9.2/§11 (breakdown) — breakdown sync writes a `sync_jobs` row (`job_type="breakdown"`, finalized on every exit path); fixes badge stuck "partially synced" + section stuck "Syncing…". Normalized TikTok/Google `"breakdowns"`→`"breakdown"`. Test: `test_sync_jobs_completeness.py`.
 - 2026-08-03 §2.3 / P-7 — Meta workers resolve `date_preset`→`time_range` in account tz (one resolver, read==write). Test: `backend/tests/test_date_range_parity.py`.

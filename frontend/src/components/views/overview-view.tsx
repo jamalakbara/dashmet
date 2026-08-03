@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Wallet, PieChart } from "lucide-react";
@@ -12,6 +11,7 @@ import { AdsView } from "@/components/views/ads-view";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useSelectedAccount } from "@/hooks/use-account";
+import { useSyncActive } from "@/hooks/use-sync-jobs";
 import { useDateRange } from "@/hooks/use-date-range";
 import { usePlatform } from "@/hooks/use-platform";
 import { useOverviewFilter } from "@/hooks/use-overview-filter";
@@ -83,37 +83,20 @@ export function OverviewView() {
   const dateRange = useDateRange();
   const filter = useOverviewFilter();
 
-  const [polling, setPolling] = useState(false);
-  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevAccountId = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!accountId || accountId === prevAccountId.current) return;
-    prevAccountId.current = accountId;
-    setPolling(true);
-    if (pollTimer.current) clearTimeout(pollTimer.current);
-    pollTimer.current = setTimeout(() => setPolling(false), 5 * 60 * 1000);
-    return () => {
-      if (pollTimer.current) clearTimeout(pollTimer.current);
-    };
-  }, [accountId]);
+  // Poll every section's query while a sync is actually landing (derived from
+  // real sync_jobs state), then stop once it's done — replaces a blind 5-min
+  // timer, and is shared by every section so they all fill in together.
+  const syncActive = useSyncActive();
 
   const { data: overviewRes, isLoading } = useQuery({
     queryKey: queryKeys.overview(accountId ?? "", dateRange, filter),
     queryFn: () => insightsApi.overview({ account_id: accountId!, ...dateRange, ...filter }),
     enabled: !!accountId,
     staleTime: 15 * 60 * 1000,
-    refetchInterval: polling ? 5000 : false,
+    refetchInterval: syncActive ? 5000 : false,
   });
 
   const summary: OverviewSummary | undefined = overviewRes?.data?.data?.summary;
-
-  useEffect(() => {
-    if (polling && summary?.spend != null) {
-      setPolling(false);
-      if (pollTimer.current) clearTimeout(pollTimer.current);
-    }
-  }, [polling, summary?.spend]);
 
   if (!accountId) {
     return (

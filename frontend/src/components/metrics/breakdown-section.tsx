@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { insightsApi } from "@/lib/api/insights";
 import { SyncAwareEmpty } from "@/components/shared/sync-aware-empty";
+import { useSyncActive } from "@/hooks/use-sync-jobs";
 import { queryKeys } from "@/lib/query-keys";
 import { useAccountId } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
@@ -190,6 +191,7 @@ export function BreakdownSection() {
   const [activeBreakdown, setActiveBreakdown] = useQueryState("breakdown", {
     defaultValue: "age_gender",
   });
+  const syncActive = useSyncActive();
 
   const { data: bdRes, isLoading: bdLoading } = useQuery({
     queryKey: queryKeys.breakdown(accountId ?? "", dateRange, activeBreakdown ?? ""),
@@ -202,6 +204,8 @@ export function BreakdownSection() {
       }),
     enabled: !!accountId && !!activeBreakdown,
     staleTime: 30 * 60 * 1000,
+    // Poll while a sync is landing so the chart fills in without a manual refresh.
+    refetchInterval: syncActive ? 5000 : false,
   });
 
   const bdRows: BreakdownRow[] = bdRes?.data?.data?.rows ?? [];

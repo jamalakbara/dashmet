@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/sheet";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { SyncAwareEmpty } from "@/components/shared/sync-aware-empty";
+import { useSyncActive } from "@/hooks/use-sync-jobs";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useSelectedAccount } from "@/hooks/use-account";
@@ -414,6 +415,7 @@ export function AdsView({ preview = false }: { preview?: boolean } = {}) {
   const dateRange = useDateRange();
   const platform  = usePlatform() ?? "meta";
   const withQuery = useSharedFilterQuery();
+  const syncActive = useSyncActive();
 
   const [format,  setFormat]  = useQueryState("format",  { defaultValue: "all" });
   const [adSort,  setAdSort]  = useQueryState("ad_sort", { defaultValue: "spend" });
@@ -464,6 +466,9 @@ export function AdsView({ preview = false }: { preview?: boolean } = {}) {
     enabled: !!accountId,
     staleTime: 15 * 60 * 1000,
     refetchInterval: (query) => {
+      // Poll while a sync is landing (ad rows may not exist yet), and while any
+      // row is still missing its lazily-fetched creative preview.
+      if (syncActive) return 5000;
       const pages = query.state.data?.pages ?? [];
       const hasEmpty = pages.some((p) =>
         (p.data?.data ?? []).some((ad: Ad) => !ad.creative_preview)
