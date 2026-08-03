@@ -115,6 +115,7 @@ def sync_accounts_for_connection(self, connection_id: str, org_id: str):
             logger.warning(f"[conn:{connection_id}] No active connection")
             return
 
+        conn_uuid = conn.id  # keep a primitive for use after the session closes
         token = decrypt_token(conn.access_token)
 
         try:
@@ -201,7 +202,32 @@ def sync_accounts_for_connection(self, connection_id: str, org_id: str):
         db.commit()
         logger.info(f"[conn:{connection_id}] Imported {len(ad_accounts)} ad accounts")
 
+    # Structure fans out globally (staggered, skips-fresh — cheap).
     sync_structure_all.delay()
+
+    # D-lite (F/§P-5): don't make a freshly-connected user wait for the next
+    # 15-min/hourly beat for their KPIs and breakdowns. Eager-enqueue insights +
+    # breakdown, but scoped to *this connection's* accounts and via
+    # stagger_dispatch (not raw .delay) so we don't burst the shared token.
+    # Scoping matters for breakdown especially: it has no staleness guard, so a
+    # global fan-out would re-fetch every account's breakdowns on every connect.
+    # insights runs its retry-until-structure-ready guard if it lands first.
+    from workers.tasks.insights import sync_insights_for_account, sync_breakdowns_for_account
+    from workers.dispatch import stagger_dispatch
+
+    with get_worker_db() as db:
+        pairs = [
+            (str(aid), str(cid) if cid else None)
+            for aid, cid in db.query(Account.id, Account.platform_connection_id)
+            .filter(
+                Account.platform_connection_id == conn_uuid,
+                Account.account_status == "active",
+            )
+            .all()
+        ]
+    n_ins = stagger_dispatch(sync_insights_for_account, pairs)
+    n_bd = stagger_dispatch(sync_breakdowns_for_account, pairs, extra_args=("last_30d",))
+    logger.info(f"[conn:{connection_id}] Eager first sync — insights:{n_ins} breakdowns:{n_bd}")
 
 
 @celery_app.task(

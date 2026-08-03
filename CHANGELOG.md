@@ -18,6 +18,11 @@ All notable changes to this project are documented here. Format follows
   `workers/meta_client.py` (`get_insights` now requires `time_range`, no longer accepts `date_preset`).
 
 ### Added
+- Eager first sync on connect — `sync_accounts_for_connection` now enqueues `insights_daily`
+  + `breakdown` for the just-connected connection's accounts (scoped, via `stagger_dispatch`)
+  instead of leaving them for the next 15-min/hourly Beat. Breakdowns are no longer empty for
+  up to an hour after connect. `backend/workers/tasks/structure.py`. Test:
+  `backend/tests/test_stagger_dispatch.py` (dispatch mechanism).
 - Sync-aware empty states — breakdown and ads sections read their own `jobs_status[job_type]`
   from `/sync/status` and show "Syncing…" instead of "No data"/"No ads found" when the relevant
   job hasn't completed yet (P-1). New `frontend/src/hooks/use-sync-jobs.ts` +
