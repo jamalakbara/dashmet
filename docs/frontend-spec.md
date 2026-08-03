@@ -156,7 +156,7 @@ Auth guard is a middleware (`middleware.ts`) that checks for a valid JWT cookie.
 
 ## 4. Global Layout
 
-The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed indigo **sidebar rail** on the left, then a column with a light **top bar** (`TopBar`), an **action strip** (`ControlStrip`) that carries the Sync Data action + account picker + `PlatformTabs` + Filter, and the scrollable content canvas. Base Data light-SaaS theme (white cards floating on a light-gray canvas); the near-black bento "OS-window" chrome was retired.
+The dashboard layout (`(dashboard)/layout.tsx`) renders two inset floating panels (both `m-3 rounded-2xl shadow-xl ring-1 ring-black/5`): the indigo **sidebar rail** on the left, and a right **content panel** holding a light **top bar** (`TopBar`), an **action strip** (`ControlStrip`) that carries the Sync Data action + account picker + `PlatformTabs` + Filter, and the scrollable content canvas. Base Data light-SaaS theme (white cards floating on a light-gray canvas); the near-black bento "OS-window" chrome was retired.
 
 ```
 ┌───────────┬──────────────────────────────────────────────────┐
@@ -232,7 +232,7 @@ USER
   ⚙️  Settings            → /settings/org
 ```
 
-Sidebar (`components/layout/sidebar.tsx`) is an **indigo rail** grouped into `DATA` and `USER` sections. `Platform Data` is a collapsible group (open by default); each platform lands on its first tab (`PLATFORM_TABS[platform][0]`, i.e. Overview) and is highlighted whenever any of its tabs is active (`pathname.startsWith('/{platform}')`). Filter params (account_id, date range) are carried across sidebar + tab navigation by `useSharedFilterQuery()`. The whole rail collapses to an icon-only strip (`w-[68px]`) and expands back to full width (`w-60`) via a toggle in the brand row; the choice lives in the persisted UI store (`ui-store.ts` → `sidebarCollapsed`, key `dashmet-ui`). Collapsed, labels/section headers/chevrons hide, each row centers its icon with a native `title` tooltip, and the `Platform Data` group flattens to its three platform icons (no toggle). Desktop-first — no hamburger.
+Sidebar (`components/layout/sidebar.tsx`) is an **indigo rail** grouped into `DATA` and `USER` sections. `Platform Data` is a collapsible group (open by default); each platform lands on its first tab (`PLATFORM_TABS[platform][0]`, i.e. Overview) and is highlighted whenever any of its tabs is active (`pathname.startsWith('/{platform}')`). Filter params (account_id, date range) are carried across sidebar + tab navigation by `useSharedFilterQuery()`. The rail renders as a **detached floating card** (`m-3 rounded-2xl shadow-xl`), reserving its column but sitting inset from the viewport edges rather than flush. It collapses to an icon-only strip (`w-[68px]`) and expands back to full width (`w-60`) via a round chevron handle straddling the rail's right edge (fixed near the top, same spot in both states so it never jumps on resize); the choice lives in the persisted UI store (`ui-store.ts` → `sidebarCollapsed`, key `dashmet-ui`). Collapsed, labels/section headers/chevrons hide, each row centers its icon with a native `title` tooltip, and the `Platform Data` group flattens to its three platform icons (no toggle). Desktop-first — no hamburger.
 
 ### Action strip — `ControlStrip`
 
@@ -734,6 +734,15 @@ Animated pulse placeholder. Variants: card, table-row, chart.
 
 ### `ConfirmDialog`
 shadcn `AlertDialog` wrapper for destructive actions (disconnect, remove member, delete org). Requires typing a confirmation phrase for high-risk actions.
+
+### `AnimatedIcon`
+`components/shared/animated-icon.tsx` — the single wrapper for giving any `lucide-react` glyph a tasteful micro-animation. Wraps the icon in a framer-motion `motion.span`, so every animation automatically respects the OS "reduce motion" preference via the global `<MotionConfig reducedMotion="user">` in `components/shared/providers.tsx` (no per-call guard). Props: `icon: LucideIcon`, `motionPreset` (name of a preset in `lib/motion.ts`), `trigger?: "hover" | "state"` (default `"hover"`), `active?` + `activeVariant?` + `appear?` (for `trigger="state"`), `iconClassName?`, `size?`, `className?`.
+
+Two modes:
+- `trigger="hover"` (default): plays the preset on hover/tap of the icon — used for nav/menu/action glyphs (Summary, Settings, Bell, Filter, Trash, Export, Star, "See All"/drill chevrons, external-link/plug).
+- `trigger="state"`: drives the animation from a boolean `active` — used for expand/collapse chevrons (rotate on open) and for `appear` "pop-in" of state icons (delta trend arrows, active sort arrow, sync CheckCircle2/AlertTriangle, connection-stage checks).
+
+Animation presets live **only** in `lib/motion.ts` (single source), keyed by name in `ICON_MOTION`. Do not scatter inline motion objects in components — add a new preset there and reference it by name. Current presets: `spin` (90° tip — settings/sliders), `wiggle` (shake — bell/alert/dismiss), `bounce` (vertical hop — download/export, up-down chevrons), `pop` (scale pop; also the mount `hidden→show` for appearing state icons), `draw` (scale+rotate — external-link/plug), `nudge` (subtle lift — generic nav glyphs), `nudgeRight` (slide right — "go/navigate" chevrons), `flip` (180° — expand/collapse chevrons). Platform-badge letter marks (M/T/G) and chart/data-viz inline SVGs (`bento/geo-tile.tsx`, `bento/gauge-tile.tsx`) are **not** routed through `AnimatedIcon` — they animate on their own terms. Active-op spinners (`Loader2`, `RefreshCw` with `animate-spin`) stay as CSS spins since they only run during a live async op.
 
 ---
 

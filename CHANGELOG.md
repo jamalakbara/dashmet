@@ -6,11 +6,28 @@ All notable changes to this project are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **Animated lucide icons** across the dashboard via a new reusable `AnimatedIcon` primitive
+  (`frontend/src/components/shared/animated-icon.tsx`) that wraps any `lucide-react` glyph in a
+  framer-motion `motion.span` — so every animation honors OS reduce-motion through the global
+  `<MotionConfig reducedMotion="user">`. Motion presets are centralized in
+  `frontend/src/lib/motion.ts` (`ICON_MOTION`: `spin`, `wiggle`, `bounce`, `pop`, `draw`,
+  `nudge`, `nudgeRight`, `flip`). Applied to nav/menu/action icons (hover), expand/collapse
+  chevrons (rotate on state), and appearing state icons (delta trend arrows, active sort arrow,
+  sync/connection status checks + warnings). Touches
+  `frontend/src/components/{metrics/delta-pill,metrics/metric-card,metrics/metric-group-card,layout/sidebar,layout/top-bar,layout/filter-popover,shared/date-range-picker,shared/sync-status-badge,shared/sync-aware-empty,shared/user-menu,shared/account-command-list,shared/account-switcher,views/table-view,views/ads-view}.tsx`
+  and `frontend/src/app/{(dashboard)/dashboard/page,settings/members/page,settings/connections/page}.tsx`.
+  Active-op CSS spinners (`Loader2`/`RefreshCw` `animate-spin`), platform-badge letter marks, and
+  chart/data-viz SVGs (`bento/geo-tile.tsx`, `bento/gauge-tile.tsx`) are intentionally left as-is.
 - Left nav sidebar can now **collapse to an icon-only rail** (`w-[68px]`) and expand back to
-  full width (`w-60`) via a toggle in the brand row. Collapsed, labels/section headers/chevrons
-  hide, rows center their icon with a native `title` tooltip, and the `Platform Data` group
-  flattens to its three platform icons. State persists via the existing UI store
-  (`sidebarCollapsed`). `frontend/src/components/layout/sidebar.tsx`.
+  full width (`w-60`) via a round chevron handle on the rail's right edge (vertically centered,
+  same spot in both states). Collapsed, labels/section headers hide, rows center their icon with
+  a native `title` tooltip, and the `Platform Data` group flattens to its three platform icons.
+  State persists via the existing UI store (`sidebarCollapsed`).
+  `frontend/src/components/layout/sidebar.tsx`.
+- Shell is now **two inset floating panels** — the indigo sidebar rail and the right content
+  panel each render as a `rounded-2xl shadow-xl ring-1` card with a gap between them, replacing
+  the flush edge-to-edge layout. `frontend/src/app/(dashboard)/layout.tsx`,
+  `frontend/src/app/settings/layout.tsx`.
 - Compare-previous delta pills now surface the **previous absolute value** (formatted per metric
   type via `formatMetric`), not just the `%` delta: KPI cards and funnel stages show it inline as
   `vs <prev>`; table cells and ad cards/rows reveal `prev <prev>` on hover. Added `variant`,
