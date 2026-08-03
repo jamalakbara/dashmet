@@ -107,6 +107,16 @@ export function SyncStatusBadge() {
   );
   const relevant = resolvedTypes.map((t) => ({ type: t, job: jobs[t] }));
 
+  // Secondary data that lives on the page but syncs on its own cadence
+  // (breakdowns, hourly). Fresh KPIs with a lagging breakdown is a *partial*
+  // state — the badge must not claim "Updated Xm ago" while a section is still
+  // filling in (P-2). Creatives are intentionally excluded: they have no
+  // sync_job producer yet (BOARD item 4), so including them would light the
+  // badge permanently — the exact always-on-warning failure P-2 forbids.
+  const breakdownJob = jobs.breakdown;
+  const breakdownSyncing =
+    !breakdownJob || breakdownJob.status === "pending" || breakdownJob.status === "running";
+
   const structureJob = jobs.structure;
   const isStructureSyncing =
     !structureJob || structureJob.status === "running" || structureJob.status === "pending";
@@ -152,6 +162,19 @@ export function SyncStatusBadge() {
     }
     return (
       <Pill variant="syncing" icon={<RefreshCw className="size-3 animate-spin" />} label={label} />
+    );
+  }
+
+  // Primary (KPI) data is fresh but a secondary section is still catching up —
+  // say so instead of a blanket "Updated Xm ago" that the empty breakdown card
+  // would contradict (P-2).
+  if (breakdownSyncing) {
+    return (
+      <Pill
+        variant="stale"
+        icon={<RefreshCw className="size-3 animate-spin" />}
+        label="Partially synced — breakdowns pending"
+      />
     );
   }
 

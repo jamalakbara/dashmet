@@ -6,6 +6,10 @@ All notable changes to this project are documented here. Format follows
 ## [Unreleased]
 
 ### Changed
+- Sync status badge no longer reports a blanket "Updated Xm ago" when only the primary
+  (`insights_daily`) job is fresh — if the secondary `breakdown` job is still pending/running
+  it shows "Partially synced — breakdowns pending" (P-2). Creatives excluded (no sync_job
+  producer yet). `frontend/src/components/shared/sync-status-badge.tsx`.
 - Meta sync workers now resolve `date_preset` → explicit `time_range` in the account's
   timezone before calling the Graph API, instead of sending the raw preset (PRD §2.3 / P-7).
   Uses the same resolver as the read path (`app.services.insights.resolve_date_range`) via a

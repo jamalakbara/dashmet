@@ -9,7 +9,6 @@ Kanban for PARITY work. One line per item, referencing its PRD identifier
 ## Todo
 
 Sync-freshness UX (fresh-connect "data gone?" confusion) — ordered:
-2. [C] P-2 — global freshness badge = worst/oldest of relevant job_types, not just `insights_daily` (e.g. "Partially synced — breakdowns pending").
 3. [D-lite] P-5 — on connect, eager-enqueue `insights_daily` + `breakdown` via `stagger_dispatch` (not raw `.delay`); mirror existing structure dispatch. No banner, creatives stay lazy.
 4. §9.2/§11 — `creatives` job_type has no producer → `jobs_status["creatives"]` permanently "never synced" (P-2 lit-warning). Make `sync_creatives_for_account` write a sync_job, or drop `creatives` from `sync.py:48` list.
 5. Ads image row-level UX — render ad row immediately + placeholder/shimmer thumbnail + auto-refetch after lazy `sync_creative`; never hide a row for a missing `creative_preview`.
@@ -19,6 +18,7 @@ Sync-freshness UX (fresh-connect "data gone?" confusion) — ordered:
 ## In Progress
 
 - [A] P-1/P-2 — section empty states read own `jobs_status[jt]`: no completed job → "Syncing…"; completed+0 rows → "No data". Ads-empty keys on `insights_daily` (ad rows), not creatives. Code-complete (tsc+build green); NOT Done — no frontend test harness, needs browser verify or vitest for `jobState`.
+- [C] P-2 — global badge = worst of primary(`insights_daily`)+secondary(`breakdown`); primary fresh + breakdown pending → "Partially synced — breakdowns pending". Excludes creatives (item 4).
 
 ## Done
 
