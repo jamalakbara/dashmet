@@ -23,8 +23,9 @@ import {
 } from "@/components/ui/sheet";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { SyncAwareEmpty } from "@/components/shared/sync-aware-empty";
+import { DeltaPill } from "@/components/metrics/delta-pill";
 import { useSyncActive } from "@/hooks/use-sync-jobs";
-import { insightsApi } from "@/lib/api/insights";
+import { insightsApi, type MetricsPrevious } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useSelectedAccount } from "@/hooks/use-account";
 import { usePlatform } from "@/hooks/use-platform";
@@ -83,6 +84,7 @@ interface Ad {
   adgroup_name?: string;
   creative_preview?: CreativePreview | null;
   metrics?: AdMetrics;
+  metrics_previous?: MetricsPrevious;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -153,9 +155,21 @@ function CreativeThumbnail({
 
 // ─── AdCard (grid) ────────────────────────────────────────────────────────────
 
-function AdCard({ ad, onClick, currency }: { ad: Ad; onClick: () => void; currency: string }) {
+function AdCard({
+  ad,
+  onClick,
+  currency,
+  compare = false,
+}: {
+  ad: Ad;
+  onClick: () => void;
+  currency: string;
+  compare?: boolean;
+}) {
   const cp = ad.creative_preview;
   const m  = ad.metrics;
+  const mp = ad.metrics_previous;
+  const showDelta = compare && !!mp;
 
   return (
     <Card
@@ -185,17 +199,33 @@ function AdCard({ ad, onClick, currency }: { ad: Ad; onClick: () => void; curren
         {/* Metrics */}
         <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
           <span className="text-muted-foreground">Spend</span>
-          <span className="text-right tabular-nums font-medium">
+          <span className="flex items-center justify-end gap-1 text-right tabular-nums font-medium">
             {formatCurrency(m?.spend, currency)}
+            {showDelta && (
+              <DeltaPill current={m?.spend} previous={mp?.spend} metricKey="spend" variant="tooltip" currency={currency} />
+            )}
           </span>
           <span className="text-muted-foreground">CTR</span>
-          <span className="text-right tabular-nums">{formatPercent(m?.ctr)}</span>
+          <span className="flex items-center justify-end gap-1 text-right tabular-nums">
+            {formatPercent(m?.ctr)}
+            {showDelta && (
+              <DeltaPill current={m?.ctr} previous={mp?.ctr} metricKey="ctr" variant="tooltip" currency={currency} />
+            )}
+          </span>
           <span className="text-muted-foreground">Conv.</span>
-          <span className="text-right tabular-nums">
+          <span className="flex items-center justify-end gap-1 text-right tabular-nums">
             {formatNumber(m?.conversions)}
+            {showDelta && (
+              <DeltaPill current={m?.conversions} previous={mp?.conversions} metricKey="conversions" variant="tooltip" currency={currency} />
+            )}
           </span>
           <span className="text-muted-foreground">ROAS</span>
-          <span className="text-right tabular-nums">{formatRoas(m?.roas)}</span>
+          <span className="flex items-center justify-end gap-1 text-right tabular-nums">
+            {formatRoas(m?.roas)}
+            {showDelta && (
+              <DeltaPill current={m?.roas} previous={mp?.roas} metricKey="roas" variant="tooltip" currency={currency} />
+            )}
+          </span>
         </div>
 
         {/* Status + Campaign */}
@@ -214,9 +244,21 @@ function AdCard({ ad, onClick, currency }: { ad: Ad; onClick: () => void; curren
 
 // ─── AdRow (list view) ────────────────────────────────────────────────────────
 
-function AdRow({ ad, onClick, currency }: { ad: Ad; onClick: () => void; currency: string }) {
+function AdRow({
+  ad,
+  onClick,
+  currency,
+  compare = false,
+}: {
+  ad: Ad;
+  onClick: () => void;
+  currency: string;
+  compare?: boolean;
+}) {
   const cp = ad.creative_preview;
   const m  = ad.metrics;
+  const mp = ad.metrics_previous;
+  const showDelta = compare && !!mp;
 
   return (
     <div
@@ -242,15 +284,30 @@ function AdRow({ ad, onClick, currency }: { ad: Ad; onClick: () => void; currenc
       <div className="hidden shrink-0 gap-6 text-xs sm:flex">
         <div className="text-right">
           <div className="text-muted-foreground">Spend</div>
-          <div className="tabular-nums font-medium">{formatCurrency(m?.spend, currency)}</div>
+          <div className="flex items-center justify-end gap-1 tabular-nums font-medium">
+            {formatCurrency(m?.spend, currency)}
+            {showDelta && (
+              <DeltaPill current={m?.spend} previous={mp?.spend} metricKey="spend" variant="tooltip" currency={currency} />
+            )}
+          </div>
         </div>
         <div className="text-right">
           <div className="text-muted-foreground">CTR</div>
-          <div className="tabular-nums">{formatPercent(m?.ctr)}</div>
+          <div className="flex items-center justify-end gap-1 tabular-nums">
+            {formatPercent(m?.ctr)}
+            {showDelta && (
+              <DeltaPill current={m?.ctr} previous={mp?.ctr} metricKey="ctr" variant="tooltip" currency={currency} />
+            )}
+          </div>
         </div>
         <div className="text-right">
           <div className="text-muted-foreground">ROAS</div>
-          <div className="tabular-nums">{formatRoas(m?.roas)}</div>
+          <div className="flex items-center justify-end gap-1 tabular-nums">
+            {formatRoas(m?.roas)}
+            {showDelta && (
+              <DeltaPill current={m?.roas} previous={mp?.roas} metricKey="roas" variant="tooltip" currency={currency} />
+            )}
+          </div>
         </div>
       </div>
       <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
@@ -420,6 +477,8 @@ export function AdsView({ preview = false }: { preview?: boolean } = {}) {
   const [format,  setFormat]  = useQueryState("format",  { defaultValue: "all" });
   const [adSort,  setAdSort]  = useQueryState("ad_sort", { defaultValue: "spend" });
   const [search,  setSearch]  = useQueryState("search");
+  const [compareStr] = useQueryState("compare");
+  const compare = compareStr === "true";
 
   const [searchInput, setSearchInput] = useState(search ?? "");
   useEffect(() => {
@@ -443,6 +502,7 @@ export function AdsView({ preview = false }: { preview?: boolean } = {}) {
         sort_by:    adSort,
         sort_order: "desc",
         search:     search ?? undefined,
+        compare_previous: compare || undefined,
       }),
       "infinite",
     ],
@@ -456,6 +516,7 @@ export function AdsView({ preview = false }: { preview?: boolean } = {}) {
         search:     search ?? undefined,
         page:       pageParam as number,
         per_page:   PER_PAGE,
+        compare_previous: compare || undefined,
       }),
     initialPageParam: 1,
     getNextPageParam: (lastPage) => {
@@ -528,7 +589,7 @@ export function AdsView({ preview = false }: { preview?: boolean } = {}) {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {previewAds.map((ad) => (
-              <AdCard key={ad.id} ad={ad} currency={currency} onClick={() => setSelectedAd(ad)} />
+              <AdCard key={ad.id} ad={ad} currency={currency} compare={compare} onClick={() => setSelectedAd(ad)} />
             ))}
           </div>
         )}
@@ -632,13 +693,13 @@ export function AdsView({ preview = false }: { preview?: boolean } = {}) {
       ) : viewMode === "grid" ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((ad) => (
-            <AdCard key={ad.id} ad={ad} currency={currency} onClick={() => setSelectedAd(ad)} />
+            <AdCard key={ad.id} ad={ad} currency={currency} compare={compare} onClick={() => setSelectedAd(ad)} />
           ))}
         </div>
       ) : (
         <div className="space-y-2">
           {filtered.map((ad) => (
-            <AdRow key={ad.id} ad={ad} currency={currency} onClick={() => setSelectedAd(ad)} />
+            <AdRow key={ad.id} ad={ad} currency={currency} compare={compare} onClick={() => setSelectedAd(ad)} />
           ))}
         </div>
       )}

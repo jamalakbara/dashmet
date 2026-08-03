@@ -161,7 +161,7 @@ The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed indigo **sidebar
 ```
 ┌───────────┬──────────────────────────────────────────────────┐
 │  DASH·MET │  TOP BAR                                          │
-│ (indigo)  │  [MetaAds · updated]      [DateRange] [🔔] [👤]   │
+│ (indigo)  │  [MetaAds·updated]  [DateRange][Compare◑][🔔][👤] │
 │           ├──────────────────────────────────────────────────┤
 │ DATA      │  ACTION STRIP                                     │
 │  Summary  │  [Sync Data] [Account ▾] [Overview…Ads]  [Filter] │
@@ -195,6 +195,12 @@ The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed indigo **sidebar
 - A 30-day note appears in the custom view **only when** the chosen range reaches back past 30 days (breakdowns cover ~30d; see breakdown sync).
 - Selection stored in URL: `?date_preset=last_30d` or `?date_start=2026-05-01&date_end=2026-05-30`. Default: `last_30d`. Survives nav via `useSharedFilterQuery`.
 
+**Compare-previous toggle** — shadcn `Switch` labeled "Compare prev.", sits next to the `DateRangePicker`.
+- **Global** period-over-period switch driven by URL state `?compare=true` (via `useQueryState("compare")`); absence = off (no `compare=false` in the URL).
+- Drives every Overview section at once: the Trends prior-period overlay plus the period-over-period **delta pills** on KPI cards, funnel stages, table cells, and ad cards/rows. Trends no longer owns its own compare switch — it reads the same URL param read-only (see §6.2).
+- Delta pills stay **silent** when a comparison can't be made (missing current/previous or a zero baseline) per P-2 — no permanently-lit neutral badge.
+- Delta pills also surface the **previous absolute value** (formatted per metric type via `formatMetric`): KPI cards and funnel stages show it inline as `vs <prev>` next to the `%` pill (`variant="inline"`); table cells and ad cards/rows keep the compact pill and reveal `prev <prev>` on hover (`variant="tooltip"`).
+
 **`SyncStatusBadge`**
 - The **single** sync indicator, rendered as a labeled pill in the `TopBar` (the old full-width `SyncStatusBar` freshness banner was removed to avoid a redundant second indicator; its per-preset job-resolution logic was folded into this badge).
 - Resolves the jobs relevant to the active `date_preset` + platform (`RANGE_JOBS` / `insights_historical_or_async` → `insights_historical` for TikTok else `insights_async`) and reports inline, color-coded:
@@ -226,7 +232,7 @@ USER
   ⚙️  Settings            → /settings/org
 ```
 
-Sidebar (`components/layout/sidebar.tsx`) is an **indigo rail** grouped into `DATA` and `USER` sections. `Platform Data` is a collapsible group (open by default); each platform lands on its first tab (`PLATFORM_TABS[platform][0]`, i.e. Overview) and is highlighted whenever any of its tabs is active (`pathname.startsWith('/{platform}')`). Filter params (account_id, date range) are carried across sidebar + tab navigation by `useSharedFilterQuery()`. Fixed width (`w-60`), desktop-first — no collapse/hamburger.
+Sidebar (`components/layout/sidebar.tsx`) is an **indigo rail** grouped into `DATA` and `USER` sections. `Platform Data` is a collapsible group (open by default); each platform lands on its first tab (`PLATFORM_TABS[platform][0]`, i.e. Overview) and is highlighted whenever any of its tabs is active (`pathname.startsWith('/{platform}')`). Filter params (account_id, date range) are carried across sidebar + tab navigation by `useSharedFilterQuery()`. The whole rail collapses to an icon-only strip (`w-[68px]`) and expands back to full width (`w-60`) via a toggle in the brand row; the choice lives in the persisted UI store (`ui-store.ts` → `sidebarCollapsed`, key `dashmet-ui`). Collapsed, labels/section headers/chevrons hide, each row centers its icon with a native `title` tooltip, and the `Platform Data` group flattens to its three platform icons (no toggle). Desktop-first — no hamburger.
 
 ### Action strip — `ControlStrip`
 
@@ -328,14 +334,14 @@ The embedded sub-views are self-contained (own data hooks off the shared URL par
 └──────────────────────────────────────┘
 ```
 
-Props: `title`, `headline` (formatted), `icon` (Lucide), `accent` (chip bg class), `subMetrics` (`{key,label,value}[]`), `previewCount?`, `detailHref?`, `loading?`.
+Props: `title`, `headline` (formatted), `icon` (Lucide), `accent` (chip bg class), `subMetrics` (`{key,label,value,raw?}[]`), `previewCount?`, `detailHref?`, `loading?`, plus period-over-period props `compare?`, `previous?` (raw prior values keyed by metric), `headlineKey?`, `headlineValue?`, `currency?`. When `compare` is on and `previous` is present, an inline `DeltaPill` renders next to the headline and each sub-metric (using each `SubMetric.raw` vs `previous[key]`), including a muted `vs <prev>` absolute value; `currency` is threaded through so currency metrics format correctly.
 
-`overview-view.tsx` builds two cards: **Spend** (delivery family — Reach, Impressions, Frequency, CTR, CPM, CPC, Clicks, Link Clicks…) headlined by spend, and a **Results** card headlined by the first present of `roas → conversions → web_purchases → result → engagement_rate → outbound_clicks` (title = that metric's label). Sub-metrics are filtered to keys present in the overview `summary`; labels/format come from `METRIC_REGISTRY` (`metricLabel`/`metricType`), so the grid adapts per platform and account type. `See Detail` links to the platform's Table view.
+`overview-view.tsx` builds two cards: **Spend** (delivery family — Reach, Impressions, Frequency, CTR, CPM, CPC, Clicks, Link Clicks…) headlined by spend, and a **Results** card headlined by the first present of `roas → conversions → web_purchases → result → engagement_rate → outbound_clicks` (title = that metric's label). Sub-metrics are filtered to keys present in the overview `summary`; labels/format come from `METRIC_REGISTRY` (`metricLabel`/`metricType`), so the grid adapts per platform and account type. `See Detail` links to the platform's Table view. Both cards receive the global `compare` flag (from `?compare`) plus the overview response's `previous` summary, so the headline and sub-metric delta pills light up when compare is on.
 
 #### Embedded sub-views
 
 - **Trends** — `<PeriodicView />` (see §6.2): metric-tab time-series charts + `BreakdownSection`.
-- **Funnel** — `<FunnelView />`: step bar chart + conversion-rate table.
+- **Funnel** — `<FunnelView />`: step bar chart + conversion-rate table. When the global `?compare` toggle is on, each step shows an inline `DeltaPill` (step value vs the overview response's `previous[step.key]`) with a muted `vs <prev>` absolute value.
 - **Table preview** — `<TableView preview />`: a "Data Based On" card with the top campaigns by spend (visible columns only, no expand/pagination) + **See All →** `/table`.
 - **Ads preview** — `<AdsView preview />`: top 3 creatives as `AdCard`s (click opens the shared `AdDetailSheet`) + **See All →** `/ads`.
 
@@ -359,7 +365,7 @@ const { data, isLoading } = useQuery({
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  CONTROLS BAR                                                 │
-│  [Level ▾] [Metrics ▾] [Time ▾ Day/Week/Month] [Compare ○]  │
+│  [Level ▾] [Metrics ▾] [Time ▾ Day/Week/Month]              │
 ├──────────────────────────────────────────────────────────────┤
 │                                                               │
 │  MAIN CHART (line or bar, switchable)                         │
@@ -391,8 +397,8 @@ const { data, isLoading } = useQuery({
 - Options: Day · Week · Month
 - Default: Day
 
-**Compare previous period** — shadcn `Switch`
-- When on: overlays the prior period as a dashed line on the same chart
+**Compare previous period** — no longer a Trends-local control. The toggle moved to a **global** `Switch` in the `TopBar` (see §4), driven by `?compare=true`. Trends reads that URL param **read-only** (`useQueryState("compare")` without a setter) and still renders the prior-period dashed-line overlay when it's on:
+- When on: overlays the prior period as a dashed line on the same chart (fetched via `compare_previous=true` on `timeseries`)
 - Period label shown in the chart legend (e.g. "May 2026" vs "Apr 2026")
 
 #### Main chart
@@ -494,6 +500,8 @@ shadcn `Tabs` — Campaigns · Ad Groups · Ads. Switching resets sort, keeps da
 
 **Ads level:** same as campaigns, plus a **Creative preview** column (thumbnail + headline, leftmost after Name), minus Budget columns.
 
+**Compare deltas:** when the global `?compare` toggle is on, `TableView` sends `compare_previous=true` and every numeric metric cell (currency/number/percent/roas) renders a `DeltaPill` beneath the value using `row.metrics_previous[col.metricKey]` — cost metrics color-inverted per `metricDelta`, with the previous absolute value shown on hover (`variant="tooltip"`). The `compare` flag is part of the query key so cached results split by compare on/off.
+
 #### Row interactions
 
 - Click row → expand inline detail panel (not a new page) showing:
@@ -567,6 +575,7 @@ Server-side. 25 rows per page default. shadcn `Pagination` component at the bott
 - Carousel ads: show first image with a carousel indicator badge
 - Missing creative (not yet fetched): show gray placeholder with animated pulse
 - Clicking any card opens the `AdDetailSheet`
+- **Compare deltas:** when the global `?compare` toggle is on, `AdsView` requests `compare_previous=true` (via `level=ad` on `/insights/table`); `AdCard` and `AdRow` render a `DeltaPill` next to Spend/CTR/Conv./ROAS using `ad.metrics_previous`, with the previous absolute value shown on hover (`variant="tooltip"`). The `compare` flag is part of the infinite-query key.
 
 #### `AdDetailSheet` (shadcn `Sheet` — slides in from right)
 
@@ -705,6 +714,9 @@ Server-pagination footer: "Showing X–Y of N" + numbered page buttons (collapse
 ### `SyncStatusBadge`
 Polls sync status every 60 seconds. Shows dot indicator + last updated time. Triggers manual sync on click (owner only).
 
+### `DeltaPill`
+`components/metrics/delta-pill.tsx` — period-over-period delta badge (`▲ +12%`) used by KPI cards, funnel stages, table cells, and ad cards/rows. Computes the delta via the `metricDelta` helper (`lib/formatters.ts`), whose `direction` is **semantic (good/bad)**, not raw sign: for cost/efficiency metrics (`COST_METRICS` = `cpa`/`cpc`/`cpm`/`cpp`/`frequency`, plus any `cost_per_*` key) the direction is inverted so a decrease reads green ("up"). Props: `current`, `previous`, `metricKey`, `className?`, `variant?` (`"inline" | "tooltip"`, default `"tooltip"`), `currency?` (default `"USD"`), `valueType?` (overrides the type otherwise derived from `metricKey` via `metricType`). Renders **nothing** when there's no usable comparison (missing current/previous or a zero baseline) — stays silent per P-2. When a comparison exists it also shows the **previous absolute value**, formatted via `formatMetric(previous, type, currency)`: `variant="inline"` appends a muted `vs <prev>` after the pill (KPI cards, funnel); `variant="tooltip"` reveals `prev <prev>` on hover via the shadcn `Tooltip` (`components/ui/tooltip.tsx`, table cells + ad cards/rows). `DeltaBadge` (the raw visual, given a pre-computed `label`+`direction`) is exported for callers that already have a formatted change, e.g. `metric-tile.tsx`.
+
 ### `StatusBadge`
 Color-coded badge for entity status. Props: `status: 'active' | 'paused' | 'archived' | 'deleted'`
 
@@ -744,7 +756,7 @@ Primary state for all dashboard filters — ensures shareable, bookmarkable URLs
 | `trend_level` | Trends/Periodic | `?trend_level=account` (default `account`; separate key from `level` so both can co-mount on Overview) |
 | `metrics` | Periodic | `?metrics=spend,ctr` |
 | `time_increment` | Periodic | `?time_increment=day` |
-| `compare` | Periodic | `?compare=true` |
+| `compare` | Global (TopBar) | `?compare=true` — drives Trends overlay + delta pills on cards/funnel/table/ads |
 | `breakdown` | Periodic | `?breakdown=age_gender` |
 | `status` | Table | `?status=active` |
 | `sort_by` | Table | `?sort_by=spend` |

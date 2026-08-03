@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useQueryState } from "nuqs";
 import { motion } from "framer-motion";
 import { Wallet, PieChart } from "lucide-react";
 import { MetricGroupCard, type SubMetric } from "@/components/metrics/metric-group-card";
@@ -73,6 +74,7 @@ function buildSubMetrics(
       key: k,
       label: metricLabel(k),
       value: formatMetric(summary[k], metricType(k), currency),
+      raw: summary[k],
     }));
 }
 
@@ -82,6 +84,8 @@ export function OverviewView() {
   const withQuery = useSharedFilterQuery();
   const dateRange = useDateRange();
   const filter = useOverviewFilter();
+  const [compareStr] = useQueryState("compare");
+  const compare = compareStr === "true";
 
   // Poll every section's query while a sync is actually landing (derived from
   // real sync_jobs state), then stop once it's done — replaces a blind 5-min
@@ -97,6 +101,8 @@ export function OverviewView() {
   });
 
   const summary: OverviewSummary | undefined = overviewRes?.data?.data?.summary;
+  const previous: Record<string, number | null> | undefined =
+    overviewRes?.data?.data?.previous;
 
   if (!accountId) {
     return (
@@ -129,18 +135,28 @@ export function OverviewView() {
           icon={Wallet}
           accent="bg-orange-500"
           headline={formatCurrency(summary?.spend ?? 0, currency)}
+          headlineKey="spend"
+          headlineValue={summary?.spend ?? null}
           subMetrics={spendSub}
           detailHref={withQuery(`/${platform}/table`)}
           loading={isLoading}
+          compare={compare}
+          previous={previous}
+          currency={currency}
         />
         <MetricGroupCard
           title={resultTitle}
           icon={PieChart}
           accent="bg-emerald-500"
           headline={resultHeadline}
+          headlineKey={resultHeadlineKey}
+          headlineValue={summary?.[resultHeadlineKey] ?? null}
           subMetrics={resultSub}
           detailHref={withQuery(`/${platform}/table`)}
           loading={isLoading}
+          compare={compare}
+          previous={previous}
+          currency={currency}
         />
       </div>
 

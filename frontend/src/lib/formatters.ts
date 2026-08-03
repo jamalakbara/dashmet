@@ -51,3 +51,44 @@ export function formatChange(pct: number | null | undefined): {
     direction: pct > 0 ? "up" : pct < 0 ? "down" : "neutral",
   };
 }
+
+/**
+ * Cost/efficiency metrics where a DECREASE is the good outcome, so the
+ * delta pill's semantic color is inverted (a drop → green/"up").
+ */
+export const COST_METRICS = new Set(["cpa", "cpc", "cpm", "cpp", "frequency"]);
+
+function isCostMetric(metricKey: string): boolean {
+  return COST_METRICS.has(metricKey) || metricKey.startsWith("cost_per_");
+}
+
+/**
+ * Period-over-period delta for a single metric, with semantic direction.
+ *
+ * `direction` encodes GOOD/BAD, not raw sign:
+ *  - normal metric: increase → "up" (green), decrease → "down" (red)
+ *  - cost metric (COST_METRICS or `cost_per_*`): the direction is inverted so
+ *    a decrease reads as "up" (good/green) and an increase as "down" (bad/red).
+ *
+ * Returns a neutral "—" when there's no usable comparison (missing current/
+ * previous, or a zero baseline that would divide by zero).
+ */
+export function metricDelta(
+  current: number | null | undefined,
+  previous: number | null | undefined,
+  metricKey: string,
+): { label: string; direction: "up" | "down" | "neutral" } {
+  if (current == null || previous == null || previous === 0) {
+    return { label: "—", direction: "neutral" };
+  }
+  const pct = ((current - previous) / previous) * 100;
+  const sign = pct > 0 ? "+" : "";
+  const label = `${sign}${pct.toFixed(1)}%`;
+
+  if (pct === 0) return { label, direction: "neutral" };
+
+  // Raw sign of the change, then invert for cost metrics so "good" is "up".
+  const rawUp = pct > 0;
+  const good = isCostMetric(metricKey) ? !rawUp : rawUp;
+  return { label, direction: good ? "up" : "down" };
+}

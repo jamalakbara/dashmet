@@ -99,6 +99,7 @@ class PeriodInfo(BaseModel):
 class OverviewResponse(BaseModel):
     period: PeriodInfo
     summary: MetricsSummary
+    previous: MetricsSummary
     vs_previous: VsPrevious
     top_campaigns: list[TopCampaignRow]
 
@@ -254,6 +255,9 @@ class TableRow(BaseModel):
     effective_status: str
     platform: str
     metrics: TableMetrics
+    # Present only when the request sets compare_previous=true. Same key set as
+    # `metrics`; entities with no prior-window data get a metrics dict of nulls.
+    metrics_previous: Optional[TableMetrics] = None
     period: PeriodInfo
     # Campaign-specific
     objective: Optional[str] = None

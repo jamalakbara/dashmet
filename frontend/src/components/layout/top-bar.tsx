@@ -1,8 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useQueryState } from "nuqs";
 import { Bell } from "lucide-react";
 import { DateRangePicker } from "@/components/shared/date-range-picker";
+import { Switch } from "@/components/ui/switch";
 import { SyncStatusBadge } from "@/components/shared/sync-status-badge";
 import { UserMenu } from "@/components/shared/user-menu";
 import { PlatformBadge } from "@/components/shared/platform-badge";
@@ -30,6 +32,10 @@ export function TopBar() {
     staleTime: 60 * 60 * 1000,
   });
 
+  // Global "compare previous period" toggle — drives every Overview section
+  // (Trends overlay, card/funnel/table/ad delta pills) via URL state.
+  const [compareStr, setCompareStr] = useQueryState("compare");
+
   return (
     <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-border bg-card px-5">
       {/* Left: platform identity */}
@@ -46,6 +52,13 @@ export function TopBar() {
       {/* Right: date · notifications · user */}
       <div className="flex items-center gap-3">
         <DateRangePicker />
+        <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap text-sm text-muted-foreground">
+          <Switch
+            checked={compareStr === "true"}
+            onCheckedChange={(v) => setCompareStr(v ? "true" : null)}
+          />
+          Compare prev.
+        </label>
         <button
           type="button"
           aria-label="Notifications"

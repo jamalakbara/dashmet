@@ -34,7 +34,15 @@ export type TableParams = InsightParams & {
   per_page?: number;
   campaign_id?: string;
   adgroup_id?: string;
+  /** When true, each row also carries `metrics_previous` (prior period). */
+  compare_previous?: boolean;
 };
+
+/**
+ * Prior-period metric values for a table/ad row, present on each row only when
+ * the request was made with `compare_previous: true`. Same keys as `metrics`.
+ */
+export type MetricsPrevious = Record<string, number | null>;
 
 export type BreakdownParams = InsightParams & {
   breakdown_type: string;

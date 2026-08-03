@@ -188,6 +188,7 @@ def table(
     sort_order: str = Query("desc"),
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=1, le=200),
+    compare_previous: bool = Query(False),
 ):
     ds, de, account, preset = _resolve_dates(
         account_id, current_user["org_id"], db, date_preset, date_start, date_end
@@ -204,6 +205,7 @@ def table(
         page=page,
         per_page=per_page,
         date_preset=preset,
+        compare_previous=compare_previous,
     )
 
     if level == "ad":

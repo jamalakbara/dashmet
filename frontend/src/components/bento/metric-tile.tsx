@@ -1,10 +1,10 @@
 "use client";
 
 import { AreaChart, Area, ResponsiveContainer } from "recharts";
-import { TrendingUp, TrendingDown, Minus, type LucideIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { type LucideIcon } from "lucide-react";
 import { BentoTile } from "./bento-tile";
 import { AnimatedNumber } from "@/components/shared/animated-number";
+import { DeltaBadge } from "@/components/metrics/delta-pill";
 import { formatChange } from "@/lib/formatters";
 import { chartAnimation, irisColor } from "@/lib/chart-theme";
 
@@ -40,22 +40,10 @@ export function MetricTile({
   const sparkData = (sparkline ?? []).map((v) => ({ v }));
   const doAnimate = numericValue != null && format != null;
   const gid = `bento-spark-${label.replace(/\W+/g, "")}-${accentIndex}`;
-  const TrendIcon =
-    direction === "up" ? TrendingUp : direction === "down" ? TrendingDown : Minus;
 
   const deltaPill =
     !loading && change != null ? (
-      <span
-        className={cn(
-          "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-mono text-[10px] font-semibold",
-          direction === "up" && "bg-emerald-500/15 text-emerald-400",
-          direction === "down" && "bg-red-500/15 text-red-400",
-          direction === "neutral" && "bg-muted text-muted-foreground"
-        )}
-      >
-        <TrendIcon className="size-3" />
-        {changeLabel}
-      </span>
+      <DeltaBadge label={changeLabel} direction={direction} />
     ) : null;
 
   return (

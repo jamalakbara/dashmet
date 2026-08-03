@@ -25,7 +25,6 @@ import {
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Switch } from "@/components/ui/switch";
 import { BreakdownSection } from "@/components/metrics/breakdown-section";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
@@ -131,7 +130,8 @@ export function PeriodicView() {
   const [level, setLevel]               = useQueryState("trend_level",    { defaultValue: "account" });
   const [metricsStr, setMetricsStr]     = useQueryState("metrics",        { defaultValue: "spend,clicks" });
   const [timeIncrement, setTimeIncrement] = useQueryState("time_increment", { defaultValue: "day" });
-  const [compareStr, setCompareStr]     = useQueryState("compare");
+  // Read-only here — the compare toggle now lives globally in the top bar.
+  const [compareStr]                    = useQueryState("compare");
 
   const [chartType, setChartType] = useState<"line" | "bar">("line");
 
@@ -262,14 +262,6 @@ export function PeriodicView() {
           value={timeIncrement}
           onChange={(v) => setTimeIncrement(v)}
         />
-
-        <label className="flex cursor-pointer items-center gap-2 text-sm">
-          <Switch
-            checked={comparePrev}
-            onCheckedChange={(v) => setCompareStr(v ? "true" : null)}
-          />
-          Compare prev. period
-        </label>
       </div>
 
       {/* ── Main Chart ── */}

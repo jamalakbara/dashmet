@@ -5,7 +5,29 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- Left nav sidebar can now **collapse to an icon-only rail** (`w-[68px]`) and expand back to
+  full width (`w-60`) via a toggle in the brand row. Collapsed, labels/section headers/chevrons
+  hide, rows center their icon with a native `title` tooltip, and the `Platform Data` group
+  flattens to its three platform icons. State persists via the existing UI store
+  (`sidebarCollapsed`). `frontend/src/components/layout/sidebar.tsx`.
+- Compare-previous delta pills now surface the **previous absolute value** (formatted per metric
+  type via `formatMetric`), not just the `%` delta: KPI cards and funnel stages show it inline as
+  `vs <prev>`; table cells and ad cards/rows reveal `prev <prev>` on hover. Added `variant`,
+  `currency`, and `valueType` props to `DeltaPill` and a new shadcn `Tooltip` primitive.
+  `frontend/src/components/metrics/delta-pill.tsx`, `frontend/src/components/ui/tooltip.tsx`,
+  `frontend/src/components/metrics/metric-group-card.tsx`,
+  `frontend/src/components/views/{overview-view,funnel-view,table-view,ads-view}.tsx`.
+
 ### Changed
+- Compare-previous is now a **global** toggle in the top bar (URL `?compare=true`) instead of a
+  Trends-local switch. It drives the Trends prior-period overlay plus period-over-period delta pills
+  across every Overview section. `frontend/src/components/layout/top-bar.tsx`,
+  `frontend/src/components/views/periodic-view.tsx` (Trends switch removed, now reads `?compare` read-only).
+- `GET /insights/overview` response `data` gained a `previous` object (full prior-period summary,
+  same keys as `summary`; always present). `GET /insights/table` gained a `compare_previous` query
+  param; when true each row also carries `metrics_previous`. `backend/app/schemas/insights.py`,
+  `backend/app/services/insights.py`, `backend/app/api/v1/endpoints/insights.py`.
 - Ad creative thumbnails now use a 4:5 portrait frame with `object-contain` (zero crop)
   instead of a 16:9 `object-cover` frame that cropped heads/text off Meta feed creatives.
   Applies to grid `AdCard`s and the detail sheet; skeletons match. Added a `fit` prop to
@@ -23,6 +45,16 @@ All notable changes to this project are documented here. Format follows
   `workers/meta_client.py` (`get_insights` now requires `time_range`, no longer accepts `date_preset`).
 
 ### Added
+- Period-over-period delta pills across the Overview — KPI cards (headline + sub-metrics), funnel
+  stages, table cells, and ad cards/rows. New shared `frontend/src/components/metrics/delta-pill.tsx`
+  (`DeltaPill` + `DeltaBadge`) + `metricDelta`/`COST_METRICS` helper in `frontend/src/lib/formatters.ts`;
+  cost metrics (`cpa`/`cpc`/`cpm`/`cpp`/`frequency`, `cost_per_*`) are color-inverted so a drop reads
+  green. Pills stay silent when no usable comparison exists (P-2). Wired into `metric-group-card.tsx`,
+  `overview-view.tsx`, `funnel-view.tsx`, `table-view.tsx`, `ads-view.tsx`.
+- Prior-period metrics on read endpoints backing the delta pills — `previous` on the overview response
+  and `metrics_previous` per table/ad row (opt-in via `compare_previous`), both reusing the same
+  aggregate-then-ratio path as the current period. `frontend/src/lib/api/insights.ts` gained the
+  `compare_previous` param + `MetricsPrevious` type. `backend/app/services/insights.py`.
 - Eager first sync on connect — `sync_accounts_for_connection` now enqueues `insights_daily`
   + `breakdown` for the just-connected connection's accounts (scoped, via `stagger_dispatch`)
   instead of leaving them for the next 15-min/hourly Beat. Breakdowns are no longer empty for

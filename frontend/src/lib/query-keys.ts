@@ -10,6 +10,7 @@ export type TableFilters = {
   page?: number;
   campaign_id?: string;
   adgroup_id?: string;
+  compare_previous?: boolean;
 };
 
 // Shared Overview-page campaign filter (status + campaign name). Kept out of

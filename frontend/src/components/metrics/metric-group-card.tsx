@@ -6,11 +6,15 @@ import { motion } from "framer-motion";
 import { ChevronDown, ArrowUpRight, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fadeInUp } from "@/lib/motion";
+import { DeltaPill } from "@/components/metrics/delta-pill";
 
 export interface SubMetric {
   key: string;
   label: string;
+  /** Formatted value shown to the user. */
   value: string;
+  /** Raw numeric backing `value`, for period-over-period delta pills. */
+  raw?: number | null;
 }
 
 interface MetricGroupCardProps {
@@ -25,6 +29,15 @@ interface MetricGroupCardProps {
   previewCount?: number;
   detailHref?: string;
   loading?: boolean;
+  /** When true (and `previous` present), render period-over-period delta pills. */
+  compare?: boolean;
+  /** Previous-period raw numeric values, keyed by metric key. */
+  previous?: Record<string, number | null>;
+  /** Metric key + raw numeric backing the headline, for its delta pill. */
+  headlineKey?: string;
+  headlineValue?: number | null;
+  /** Account currency, threaded to delta pills so `vs <prev>` formats correctly. */
+  currency?: string;
 }
 
 /**
@@ -41,10 +54,16 @@ export function MetricGroupCard({
   previewCount = 4,
   detailHref,
   loading,
+  compare,
+  previous,
+  headlineKey,
+  headlineValue,
+  currency = "USD",
 }: MetricGroupCardProps) {
   const [expanded, setExpanded] = useState(false);
   const hasMore = subMetrics.length > previewCount;
   const shown = expanded ? subMetrics : subMetrics.slice(0, previewCount);
+  const showDelta = !!compare && !!previous;
 
   return (
     <motion.div
@@ -80,7 +99,18 @@ export function MetricGroupCard({
         {loading ? (
           <div className="h-8 w-40 animate-pulse rounded bg-muted" />
         ) : (
-          <p className="text-2xl font-bold tracking-tight tabular-nums">{headline}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-2xl font-bold tracking-tight tabular-nums">{headline}</p>
+            {showDelta && headlineKey && (
+              <DeltaPill
+                current={headlineValue}
+                previous={previous?.[headlineKey]}
+                metricKey={headlineKey}
+                variant="inline"
+                currency={currency}
+              />
+            )}
+          </div>
         )}
       </div>
 
@@ -103,6 +133,17 @@ export function MetricGroupCard({
               <div key={m.key} className="min-w-0">
                 <p className="truncate text-sm text-muted-foreground">{m.label}</p>
                 <p className="mt-0.5 font-semibold tabular-nums">{m.value}</p>
+                {showDelta && (
+                  <div className="mt-0.5">
+                    <DeltaPill
+                      current={m.raw}
+                      previous={previous?.[m.key]}
+                      metricKey={m.key}
+                      variant="inline"
+                      currency={currency}
+                    />
+                  </div>
+                )}
               </div>
             ))}
           </div>

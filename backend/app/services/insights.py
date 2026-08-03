@@ -234,6 +234,24 @@ def _finalize_metrics(m: dict) -> dict:
     return m
 
 
+def _align_keys(a: dict, b: dict) -> None:
+    """Make both dicts expose the union of their keys (in place).
+
+    Raw action-count keys (e.g. add_to_cart, shares, web_purchases) are only
+    added by the pivot for a window that actually has action rows, so a period
+    with no action data ends up missing keys the other period has. Fill any key
+    present in one dict but not the other with None in the dict that lacks it.
+
+    Null-fill only: an existing value (including an already-present None) is
+    never touched, and no ratio is recomputed. A null here is honest absence of
+    a metric, not a fake zero (P-1 / P-4).
+    """
+    for k in a.keys() - b.keys():
+        b[k] = None
+    for k in b.keys() - a.keys():
+        a[k] = None
+
+
 def _fetch_action_metrics(db, sql: str, params: dict, key: Optional[str] = None) -> dict:
     """Run a pivot query; return {row[key]: action_dict} or a single action_dict if key is None."""
     rows = db.execute(text(sql), params).mappings().all()
@@ -414,29 +432,40 @@ def get_overview(
     action = _fetch_action_metrics(
         db, _ACTION_OVERVIEW_SQL, {**params, "entity_type": "campaign"}
     )
+    prior_action = _fetch_action_metrics(
+        db, _ACTION_OVERVIEW_SQL, {**prior_params, "entity_type": "campaign"}
+    )
 
-    summary = {
-        "spend": curr.get("spend"),
-        "impressions": _safe_int(curr.get("impressions")),
-        "reach": _safe_int(curr.get("reach")),
-        "frequency": curr.get("frequency"),
-        "clicks": _safe_int(curr.get("clicks")),
-        "inline_link_clicks": _safe_int(curr.get("inline_link_clicks")),
-        "ctr": curr.get("ctr"),
-        "cpm": curr.get("cpm"),
-        "cpc": curr.get("cpc"),
-        "cpp": curr.get("cpp"),
-        "conversions": curr.get("conversions"),
-        "conversion_value": curr.get("conversion_value"),
-        "roas": curr.get("roas"),
-        "cpa": curr.get("cpa"),
-        "outbound_clicks": curr.get("outbound_clicks"),
-        "outbound_clicks_ctr": curr.get("outbound_clicks_ctr"),
-        "inline_post_engagement": _safe_int(curr.get("inline_post_engagement")),
-        "estimated_ad_recallers": _safe_int(curr.get("estimated_ad_recallers")),
-    }
-    summary.update(action)
-    _finalize_metrics(summary)
+    def _build_summary(base: dict, act: dict) -> dict:
+        s = {
+            "spend": base.get("spend"),
+            "impressions": _safe_int(base.get("impressions")),
+            "reach": _safe_int(base.get("reach")),
+            "frequency": base.get("frequency"),
+            "clicks": _safe_int(base.get("clicks")),
+            "inline_link_clicks": _safe_int(base.get("inline_link_clicks")),
+            "ctr": base.get("ctr"),
+            "cpm": base.get("cpm"),
+            "cpc": base.get("cpc"),
+            "cpp": base.get("cpp"),
+            "conversions": base.get("conversions"),
+            "conversion_value": base.get("conversion_value"),
+            "roas": base.get("roas"),
+            "cpa": base.get("cpa"),
+            "outbound_clicks": base.get("outbound_clicks"),
+            "outbound_clicks_ctr": base.get("outbound_clicks_ctr"),
+            "inline_post_engagement": _safe_int(base.get("inline_post_engagement")),
+            "estimated_ad_recallers": _safe_int(base.get("estimated_ad_recallers")),
+        }
+        s.update(act)
+        _finalize_metrics(s)
+        return s
+
+    summary = _build_summary(curr, action)
+    previous = _build_summary(prev, prior_action)
+    # Guarantee an identical key set across the pair: a window with no action
+    # rows would otherwise omit raw action-count keys the other window has.
+    _align_keys(summary, previous)
 
     return {
         "period": {
@@ -445,6 +474,7 @@ def get_overview(
             "preset": date_preset,
         },
         "summary": summary,
+        "previous": previous,
         "vs_previous": {
             "spend": _pct_change(curr.get("spend"), prev.get("spend")),
             "impressions": _pct_change(curr.get("impressions"), prev.get("impressions")),
@@ -768,6 +798,20 @@ ORDER BY {sort_col} {sort_dir}
 LIMIT :per_page OFFSET :offset
 """
 
+# Prior-period base metrics for "compare previous". Reuses the SAME entity_metrics
+# CTE body as TABLE_SQL (identical SUM/ratio definitions — ratios computed AFTER
+# aggregation, never average-of-averages) but keyed by entity_id with no pagination,
+# ordering, entity-table join, or search/status filter (the current-period query
+# already resolved which entities are on the page; we only look up their prior
+# numbers). :entity_type / :date_start / :date_end are rebound to the prior window.
+_TABLE_CTE_BODY = TABLE_SQL[
+    TABLE_SQL.index("WITH entity_metrics AS ("): TABLE_SQL.index("\nSELECT\n    e.*")
+]
+TABLE_PREV_SQL = (
+    _TABLE_CTE_BODY
+    + "\nSELECT e.*, e.entity_id::text AS entity_id_str FROM entity_metrics e"
+)
+
 TABLE_SQL_ADGROUP = TABLE_SQL.replace(
     "JOIN campaigns c ON c.id = e.entity_id",
     "JOIN ad_groups c ON c.id = e.entity_id\nLEFT JOIN campaigns camp ON camp.id = c.campaign_id",
@@ -825,6 +869,7 @@ def get_table(
     page: int = 1,
     per_page: int = 25,
     date_preset: Optional[str] = None,
+    compare_previous: bool = False,
 ) -> tuple[list[dict], int]:
     account = assert_account_belongs_to_org(db, account_id, org_id)
 
@@ -876,29 +921,53 @@ def get_table(
         key="entity_id",
     )
 
+    def _row_metrics(base, action: dict) -> dict:
+        m = {
+            "spend": _safe_float(base.get("spend")),
+            "impressions": _safe_int(base.get("impressions")),
+            "reach": _safe_int(base.get("reach")),
+            "frequency": _safe_float(base.get("frequency")),
+            "clicks": _safe_int(base.get("clicks")),
+            "inline_link_clicks": _safe_int(base.get("inline_link_clicks")),
+            "ctr": _safe_float(base.get("ctr")),
+            "cpm": _safe_float(base.get("cpm")),
+            "cpc": _safe_float(base.get("cpc")),
+            "cpp": _safe_float(base.get("cpp")),
+            "conversions": _safe_float(base.get("conversions")),
+            "conversion_value": _safe_float(base.get("conversion_value")),
+            "roas": _safe_float(base.get("roas")),
+            "cpa": _safe_float(base.get("cpa")),
+            "inline_post_engagement": _safe_int(base.get("inline_post_engagement")),
+            "estimated_ad_recallers": _safe_int(base.get("estimated_ad_recallers")),
+        }
+        m.update(action)
+        _finalize_metrics(m)
+        return m
+
+    # Prior-period base + action metrics, keyed by entity_id, computed only when
+    # comparison is requested. Same SQL/finalize path as the current period so
+    # prior ratios are aggregated then divided, never averaged.
+    prev_base_by_entity: dict = {}
+    prev_action_by_entity: dict = {}
+    if compare_previous:
+        prior_start, prior_end = resolve_prior_period(date_start, date_end)
+        prior_params = {
+            "account_id": uuid.UUID(account_id),
+            "entity_type": entity_type,
+            "date_start": prior_start,
+            "date_end": prior_end,
+        }
+        prev_rows = db.execute(text(TABLE_PREV_SQL), prior_params).mappings().all()
+        prev_base_by_entity = {r["entity_id_str"]: r for r in prev_rows}
+        prev_action_by_entity = _fetch_action_metrics(
+            db, _ACTION_BY_ENTITY_SQL, prior_params, key="entity_id"
+        )
+
     result = []
     for r in rows:
-        metrics = {
-            "spend": _safe_float(r.get("spend")),
-            "impressions": _safe_int(r.get("impressions")),
-            "reach": _safe_int(r.get("reach")),
-            "frequency": _safe_float(r.get("frequency")),
-            "clicks": _safe_int(r.get("clicks")),
-            "inline_link_clicks": _safe_int(r.get("inline_link_clicks")),
-            "ctr": _safe_float(r.get("ctr")),
-            "cpm": _safe_float(r.get("cpm")),
-            "cpc": _safe_float(r.get("cpc")),
-            "cpp": _safe_float(r.get("cpp")),
-            "conversions": _safe_float(r.get("conversions")),
-            "conversion_value": _safe_float(r.get("conversion_value")),
-            "roas": _safe_float(r.get("roas")),
-            "cpa": _safe_float(r.get("cpa")),
-            "inline_post_engagement": _safe_int(r.get("inline_post_engagement")),
-            "estimated_ad_recallers": _safe_int(r.get("estimated_ad_recallers")),
-        }
-        metrics.update(action_by_entity.get(r["entity_id_str"], {}))
-        _finalize_metrics(metrics)
-        result.append({
+        eid = r["entity_id_str"]
+        metrics = _row_metrics(r, action_by_entity.get(eid, {}))
+        row = {
             "id": r["entity_id_str"],
             "name": r["entity_name"],
             "status": r["entity_status"],
@@ -923,7 +992,18 @@ def get_table(
                 "date_stop": date_end,
                 "preset": date_preset,
             },
-        })
+        }
+        if compare_previous:
+            # Same key set as `metrics`; entities absent from the prior window get
+            # a dict of nulls (empty base + empty action, finalized).
+            row["metrics_previous"] = _row_metrics(
+                prev_base_by_entity.get(eid, {}),
+                prev_action_by_entity.get(eid, {}),
+            )
+            # If one window had action rows and the other didn't, their raw
+            # action-count keys diverge; union them so both dicts match.
+            _align_keys(metrics, row["metrics_previous"])
+        result.append(row)
 
     return result, total
 

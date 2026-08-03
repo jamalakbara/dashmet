@@ -782,6 +782,22 @@ When either is set, the summary, `vs_previous`, and `top_campaigns` aggregate on
       "roas":             6.39,
       "cpa":              5.27
     },
+    "previous": {
+      "spend":            1099.10,
+      "impressions":      465000,
+      "reach":            205000,
+      "frequency":        2.27,
+      "clicks":           8190,
+      "inline_link_clicks": 6800,
+      "ctr":              1.762,
+      "cpm":              2.36,
+      "cpc":              0.13,
+      "cpp":              5.36,
+      "conversions":      191,
+      "conversion_value": 7010.00,
+      "roas":             6.38,
+      "cpa":              5.75
+    },
     "vs_previous": {
       "spend":       12.3,
       "impressions": -3.1,
@@ -806,6 +822,8 @@ When either is set, the summary, `vs_previous`, and `top_campaigns` aggregate on
   }
 }
 ```
+
+**`previous`:** the full prior-period summary — the exact same key set as `summary`, aggregated over the prior period (see *Prior-period resolution* below). Always present (not gated behind a query param); the frontend uses it to render period-over-period delta pills. Same one-writer/aggregate-then-ratio path as `summary` (ratios computed after aggregation, never average-of-averages).
 
 **`vs_previous` values:** percentage change vs the **prior period** (see *Prior-period resolution* below). Positive = improved, negative = declined. `null` if no prior data.
 
@@ -923,6 +941,7 @@ Tabular view of campaigns / ad groups / ads with their performance metrics. Powe
 |---|---|---|---|
 | `level` | string | `campaign` | `campaign` \| `adgroup` \| `ad` |
 | `search` | string | — | Filter rows by name (case-insensitive substring) |
+| `compare_previous` | boolean | `false` | When `true`, each row also carries `metrics_previous` (prior-period values, same key set as `metrics`) for period-over-period delta pills |
 
 **Response `200`**
 ```json
@@ -984,6 +1003,16 @@ Tabular view of campaigns / ad groups / ads with their performance metrics. Powe
     "cta_type":      "shop_now"
   },
   "metrics": { "..." : "..." }
+}
+```
+
+**`compare_previous=true`** — each row additionally carries `metrics_previous`, the same key set as `metrics` aggregated over the prior period (see *Prior-period resolution* in §6.8). Entities absent from the prior window (e.g. launched after it) get a `metrics_previous` dict of nulls rather than being omitted. Prior-period metrics reuse the same aggregate-then-ratio SQL/finalize path as the current period (ratios computed after aggregation). The Ads dashboard view drives its per-ad-card delta pills off this via `level=ad`:
+```json
+{
+  "id": "uuid",
+  "name": "Summer Sale Campaign",
+  "metrics":          { "spend": 780.00, "roas": 7.00, "..." : "..." },
+  "metrics_previous": { "spend": 690.00, "roas": 6.80, "..." : "..." }
 }
 ```
 

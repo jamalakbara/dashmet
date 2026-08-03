@@ -36,7 +36,8 @@ import Link from "next/link";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PaginationBar } from "@/components/shared/pagination-bar";
-import { insightsApi } from "@/lib/api/insights";
+import { DeltaPill } from "@/components/metrics/delta-pill";
+import { insightsApi, type MetricsPrevious } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useAccountId } from "@/hooks/use-account";
 import { useSyncActive } from "@/hooks/use-sync-jobs";
@@ -50,6 +51,7 @@ import {
   formatNumber,
   formatPercent,
   formatRoas,
+  type MetricType,
 } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 import type { EntityStatus } from "@/types/enums";
@@ -111,6 +113,7 @@ interface TableRow {
   has_creative?: boolean;
   creative_preview?: CreativePreview;
   metrics?: Metrics;
+  metrics_previous?: MetricsPrevious;
 }
 
 // ─── Column definitions ───────────────────────────────────────────────────────
@@ -135,8 +138,35 @@ function getCellValue(row: TableRow, col: ColDef): unknown {
   return (row as unknown as Record<string, unknown>)[col.key] ?? null;
 }
 
-function renderCell(row: TableRow, col: ColDef, onDrillDown: () => void, currency: string): React.ReactNode {
+function renderCell(
+  row: TableRow,
+  col: ColDef,
+  onDrillDown: () => void,
+  currency: string,
+  compare = false,
+): React.ReactNode {
   const v = getCellValue(row, col);
+
+  // Numeric metric columns get a period-over-period delta pill underneath when
+  // comparing and the row carries a prior-period value for this metric.
+  const isNumeric =
+    col.cell === "currency" ||
+    col.cell === "number" ||
+    col.cell === "percent" ||
+    col.cell === "roas";
+  const deltaPill =
+    compare && isNumeric && col.metricKey && row.metrics_previous ? (
+      <div className="mt-0.5 flex justify-end">
+        <DeltaPill
+          current={v as number | null}
+          previous={row.metrics_previous[col.metricKey]}
+          metricKey={col.metricKey}
+          variant="tooltip"
+          valueType={col.cell as MetricType}
+          currency={currency}
+        />
+      </div>
+    ) : null;
 
   switch (col.cell) {
     case "name":
@@ -170,13 +200,33 @@ function renderCell(row: TableRow, col: ColDef, onDrillDown: () => void, currenc
     case "text":
       return <span className="text-sm">{v != null ? String(v) : "—"}</span>;
     case "currency":
-      return <span className="tabular-nums">{formatCurrency(v as number, currency)}</span>;
+      return (
+        <div>
+          <span className="tabular-nums">{formatCurrency(v as number, currency)}</span>
+          {deltaPill}
+        </div>
+      );
     case "number":
-      return <span className="tabular-nums">{formatNumber(v as number)}</span>;
+      return (
+        <div>
+          <span className="tabular-nums">{formatNumber(v as number)}</span>
+          {deltaPill}
+        </div>
+      );
     case "percent":
-      return <span className="tabular-nums">{formatPercent(v as number)}</span>;
+      return (
+        <div>
+          <span className="tabular-nums">{formatPercent(v as number)}</span>
+          {deltaPill}
+        </div>
+      );
     case "roas":
-      return <span className="tabular-nums">{formatRoas(v as number)}</span>;
+      return (
+        <div>
+          <span className="tabular-nums">{formatRoas(v as number)}</span>
+          {deltaPill}
+        </div>
+      );
     default:
       return "—";
   }
@@ -269,6 +319,8 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
   const [campaignId, setCampaignId] = useQueryState("campaign_id");
   const [adgroupId,  setAdgroupId]  = useQueryState("adgroup_id");
   const [search,     setSearch]     = useQueryState("search");
+  const [compareStr] = useQueryState("compare");
+  const compare = compareStr === "true";
 
   // Local search input — debounce → URL
   const [searchInput, setSearchInput] = useState(search ?? "");
@@ -301,6 +353,7 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
       page,
       campaign_id: campaignId ?? undefined,
       adgroup_id:  adgroupId ?? undefined,
+      compare_previous: compare || undefined,
     }),
     queryFn: () =>
       insightsApi.table({
@@ -315,6 +368,7 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
         per_page:    PER_PAGE,
         campaign_id: campaignId ?? undefined,
         adgroup_id:  adgroupId ?? undefined,
+        compare_previous: compare || undefined,
       }),
     enabled: !!accountId,
     staleTime: 15 * 60 * 1000,
@@ -427,7 +481,7 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
                   <TableRow key={row.id}>
                     {previewCols.map((col) => (
                       <TableCell key={col.key} className={cn(col.align === "right" && "text-right")}>
-                        {renderCell(row, col, () => {}, currency)}
+                        {renderCell(row, col, () => {}, currency, compare)}
                       </TableCell>
                     ))}
                   </TableRow>
@@ -618,7 +672,7 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
                               col.key === "name" && "sticky left-0 bg-card"
                             )}
                           >
-                            {renderCell(row, col, () => drillDown(row), currency)}
+                            {renderCell(row, col, () => drillDown(row), currency, compare)}
                           </TableCell>
                         ))}
                       </TableRow>

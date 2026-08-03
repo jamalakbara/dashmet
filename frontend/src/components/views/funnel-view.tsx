@@ -1,7 +1,9 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useQueryState } from "nuqs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DeltaPill } from "@/components/metrics/delta-pill";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useSelectedAccount } from "@/hooks/use-account";
@@ -32,6 +34,8 @@ export function FunnelView() {
   const platform = usePlatform() ?? "meta";
   const dateRange = useDateRange();
   const filter = useOverviewFilter();
+  const [compareStr] = useQueryState("compare");
+  const compare = compareStr === "true";
 
   const { data: res, isLoading } = useQuery({
     queryKey: queryKeys.overview(accountId ?? "", dateRange, filter),
@@ -49,6 +53,7 @@ export function FunnelView() {
   }
 
   const summary: Summary = res?.data?.data?.summary ?? {};
+  const previous: Summary = res?.data?.data?.previous ?? {};
   const allSteps = FUNNEL_STEPS[platform] ?? FUNNEL_STEPS.meta;
 
   // Keep only steps that actually have data (so no-Pixel accounts collapse cleanly).
@@ -108,6 +113,18 @@ export function FunnelView() {
                     </div>
                     {/* Right-side stats */}
                     <div className="w-44 shrink-0 text-right text-xs text-muted-foreground">
+                      {compare && (
+                        <div className="mb-0.5 flex justify-end">
+                          <DeltaPill
+                            current={step.value}
+                            previous={previous[step.key]}
+                            metricKey={step.key}
+                            variant="inline"
+                            valueType="number"
+                            currency={currency}
+                          />
+                        </div>
+                      )}
                       <div>{formatPercent(pctOfTop)} of top</div>
                       <div>
                         {stepRate !== null ? `${formatPercent(stepRate)} from prev` : "—"}
