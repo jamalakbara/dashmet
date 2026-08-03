@@ -132,7 +132,10 @@ export const iconFlip: Variants = {
   tap: { rotate: 180, scale: 0.9 },
 };
 
-/** Lookup used by <AnimatedIcon> to resolve a preset name → variants. */
+/** Lookup used by <AnimatedIcon> to resolve a preset name → variants.
+ *  Still used by trigger="state" (chevron flip, delta pill) and the `appear`
+ *  mount pop. The hover trigger uses ICON_HOVER_CLASS (CSS group-hover) instead
+ *  so any parent container — not just a motion element — can drive it. */
 export const ICON_MOTION: Record<IconMotionPreset, Variants> = {
   spin: iconSpin,
   wiggle: iconWiggle,
@@ -142,4 +145,34 @@ export const ICON_MOTION: Record<IconMotionPreset, Variants> = {
   nudge: iconNudge,
   nudgeRight: iconNudgeRight,
   flip: iconFlip,
+};
+
+/**
+ * CSS-driven hover animations for <AnimatedIcon trigger="hover">.
+ *
+ * These fire on `group-hover:` so ANY parent container marked with the Tailwind
+ * `group` class — a <Link>, <button>, row <div>, card, etc. — triggers the icon
+ * animation, without that parent having to be a framer-motion component.
+ *
+ * The nearest interactive/hover ancestor of the icon MUST carry `group` in its
+ * className, or these classes are inert. All entries honor OS reduce-motion via
+ * `motion-reduce:` guards.
+ */
+export const ICON_HOVER_CLASS: Record<IconMotionPreset, string> = {
+  spin:
+    "transition-transform duration-200 ease-out group-hover:rotate-90 motion-reduce:transition-none motion-reduce:transform-none",
+  flip:
+    "transition-transform duration-200 ease-out group-hover:rotate-180 motion-reduce:transition-none motion-reduce:transform-none",
+  nudge:
+    "transition-transform duration-200 ease-out group-hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:transform-none",
+  nudgeRight:
+    "transition-transform duration-200 ease-out group-hover:translate-x-0.5 motion-reduce:transition-none motion-reduce:transform-none",
+  bounce:
+    "transition-transform duration-200 ease-out group-hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:transform-none",
+  pop:
+    "transition-transform duration-200 ease-out group-hover:scale-110 motion-reduce:transition-none motion-reduce:transform-none",
+  draw:
+    "transition-transform duration-200 ease-out group-hover:rotate-12 group-hover:scale-110 motion-reduce:transition-none motion-reduce:transform-none",
+  wiggle:
+    "transition-transform duration-200 ease-out group-hover:animate-[icon-wiggle_0.4s_ease-in-out] motion-reduce:group-hover:animate-none motion-reduce:transition-none motion-reduce:transform-none",
 };

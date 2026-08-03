@@ -37,6 +37,18 @@ All notable changes to this project are documented here. Format follows
   `frontend/src/components/views/{overview-view,funnel-view,table-view,ads-view}.tsx`.
 
 ### Changed
+- **Icon hover animations now trigger on the whole container, not the icon itself.** `AnimatedIcon`
+  with `trigger="hover"` switched from framer-motion `whileHover` (icon-only) to CSS `group-hover:`,
+  so hovering the enclosing `<Link>`/`<button>`/row/card animates the icon. Added
+  `ICON_HOVER_CLASS` (Tailwind `group-hover:` + `motion-reduce:` guards) to
+  `frontend/src/lib/motion.ts` and an `@keyframes icon-wiggle` to `frontend/src/app/globals.css`;
+  `frontend/src/components/shared/animated-icon.tsx` now renders hover icons as a plain `<span>`.
+  Every hover call site's nearest interactive container gained the `group` class
+  (`layout/sidebar` [shared `ITEM`], `layout/top-bar`, `layout/filter-popover`,
+  `shared/date-range-picker`, `shared/user-menu`, `shared/account-command-list`,
+  `shared/account-switcher` [shared `TRIGGER_CLASS`], `metrics/metric-group-card`, `views/table-view`,
+  `views/ads-view`, `settings/members/page`, `settings/connections/page`). `trigger="state"`/`appear`
+  paths (framer-motion) are unchanged.
 - Compare-previous is now a **global** toggle in the top bar (URL `?compare=true`) instead of a
   Trends-local switch. It drives the Trends prior-period overlay plus period-over-period delta pills
   across every Overview section. `frontend/src/components/layout/top-bar.tsx`,

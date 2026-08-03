@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Star } from "lucide-react";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import {
   Command,
   CommandEmpty,
@@ -143,10 +144,12 @@ export function AccountCommandList({
             e.stopPropagation();
             togglePin(account.id);
           }}
-          className="shrink-0 rounded p-0.5 hover:bg-accent"
+          className="group shrink-0 rounded p-0.5 hover:bg-accent"
         >
-          <Star
-            className={cn(
+          <AnimatedIcon
+            icon={Star}
+            motionPreset="pop"
+            iconClassName={cn(
               "size-3.5",
               pinnedNow ? "fill-amber-400 text-amber-400" : "text-muted-foreground"
             )}

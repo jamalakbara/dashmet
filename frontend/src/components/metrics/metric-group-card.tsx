@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ChevronDown, ArrowUpRight, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fadeInUp } from "@/lib/motion";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { DeltaPill } from "@/components/metrics/delta-pill";
 
 export interface SubMetric {
@@ -86,9 +87,13 @@ export function MetricGroupCard({
         {detailHref && (
           <Link
             href={detailHref}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-accent"
+            className="group inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-accent"
           >
-            <ArrowUpRight className="size-4" />
+            <AnimatedIcon
+              icon={ArrowUpRight}
+              motionPreset="draw"
+              iconClassName="size-4"
+            />
             See Detail
           </Link>
         )}
@@ -158,8 +163,12 @@ export function MetricGroupCard({
           className="flex items-center justify-center gap-1.5 border-t border-border py-3 text-sm font-medium text-primary transition-colors hover:bg-accent/50"
         >
           {expanded ? "See Less" : "See More"}
-          <ChevronDown
-            className={cn("size-4 transition-transform", expanded && "rotate-180")}
+          <AnimatedIcon
+            icon={ChevronDown}
+            motionPreset="flip"
+            trigger="state"
+            active={expanded}
+            iconClassName="size-4"
           />
         </button>
       )}

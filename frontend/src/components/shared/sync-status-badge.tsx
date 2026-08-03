@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
 import { formatDistanceToNow } from "date-fns";
 import { RefreshCw, AlertTriangle, Info, CheckCircle2 } from "lucide-react";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { syncApi } from "@/lib/api/sync";
 import { accountsApi } from "@/lib/api/accounts";
 import { queryKeys } from "@/lib/query-keys";
@@ -141,7 +142,16 @@ export function SyncStatusBadge() {
     return (
       <Pill
         variant="error"
-        icon={<AlertTriangle className="size-3" />}
+        icon={
+          <AnimatedIcon
+            icon={AlertTriangle}
+            motionPreset="pop"
+            trigger="state"
+            appear
+            activeVariant="show"
+            iconClassName="size-3"
+          />
+        }
         label={`Sync failed · ${rangeLabel}`}
       />
     );
@@ -191,7 +201,16 @@ export function SyncStatusBadge() {
   return (
     <Pill
       variant="fresh"
-      icon={<CheckCircle2 className="size-3" />}
+      icon={
+        <AnimatedIcon
+          icon={CheckCircle2}
+          motionPreset="pop"
+          trigger="state"
+          appear
+          activeVariant="show"
+          iconClassName="size-3"
+        />
+      }
       label={ago ? `Updated ${ago}` : "Up to date"}
     />
   );

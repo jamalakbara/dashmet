@@ -9,6 +9,7 @@ import { z } from "zod";
 import { formatDistanceToNow } from "date-fns";
 import { CheckCircle2, XCircle, Plug, ExternalLink, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -151,7 +152,15 @@ function SyncProgressBanner({ platformKey, platformName, onDismiss }: {
               {stages.map((stage, i) => (
                 <div key={i} className="flex items-center gap-2 text-xs">
                   {stage.done
-                    ? <CheckCircle2 className="size-3 shrink-0 text-green-500" />
+                    ? <AnimatedIcon
+                        icon={CheckCircle2}
+                        motionPreset="pop"
+                        trigger="state"
+                        appear
+                        activeVariant="show"
+                        className="shrink-0"
+                        iconClassName="size-3 text-green-500"
+                      />
                     : <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
                   }
                   <span>{stage.label}</span>
@@ -162,8 +171,8 @@ function SyncProgressBanner({ platformKey, platformName, onDismiss }: {
               ))}
             </div>
           </div>
-          <button onClick={onDismiss} className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground">
-            <X className="size-3.5" />
+          <button onClick={onDismiss} className="group shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground">
+            <AnimatedIcon icon={X} motionPreset="wiggle" iconClassName="size-3.5" />
           </button>
         </div>
       </AlertDescription>
@@ -360,7 +369,14 @@ function ConnectionsSettingsPageInner() {
                         {conn ? (
                           <div className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
                             <div className="flex items-center gap-1">
-                              <CheckCircle2 className="size-3 text-green-500" />
+                              <AnimatedIcon
+                                icon={CheckCircle2}
+                                motionPreset="pop"
+                                trigger="state"
+                                appear
+                                activeVariant="show"
+                                iconClassName="size-3 text-green-500"
+                              />
                               <span>Connected</span>
                               {conn.token_type && <span>· {conn.token_type.replace(/_/g, " ")}</span>}
                             </div>
@@ -394,15 +410,16 @@ function ConnectionsSettingsPageInner() {
                     ) : platform.auth_type === "oauth" ? (
                       <Button
                         size="sm"
+                        className="group"
                         onClick={() => handleOAuthConnect(platform)}
                         disabled={oauthLoading}
                       >
-                        <ExternalLink className="size-3.5" />
+                        <AnimatedIcon icon={ExternalLink} motionPreset="draw" iconClassName="size-3.5" />
                         {oauthLoading ? "Redirecting…" : "Connect"}
                       </Button>
                     ) : (
-                      <Button size="sm" onClick={() => openConnect(platform)}>
-                        <Plug className="size-3.5" />
+                      <Button size="sm" className="group" onClick={() => openConnect(platform)}>
+                        <AnimatedIcon icon={Plug} motionPreset="draw" iconClassName="size-3.5" />
                         Connect
                       </Button>
                     )}

@@ -14,6 +14,7 @@ import {
 import { motion } from "framer-motion";
 import { AlertTriangle, Activity, Layers } from "lucide-react";
 import { format, parseISO } from "date-fns";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BentoTile } from "@/components/bento/bento-tile";
 import { MetricTile } from "@/components/bento/metric-tile";
@@ -140,7 +141,15 @@ export default function CombinedDashboardPage() {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-          <AlertTriangle className="size-4 shrink-0" />
+          <AnimatedIcon
+            icon={AlertTriangle}
+            motionPreset="pop"
+            trigger="state"
+            appear
+            activeVariant="show"
+            className="shrink-0"
+            iconClassName="size-4"
+          />
           Mixed currencies ({ov.currencies.join(", ")}) — totals can&apos;t be combined. Showing each account separately.
         </div>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { RefreshCw, AlertTriangle } from "lucide-react";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { useSyncJobs } from "@/hooks/use-sync-jobs";
 import { cn } from "@/lib/utils";
 
@@ -34,7 +35,16 @@ export function SyncAwareEmpty({
     label = syncingLabel;
     tone = "text-amber-600";
   } else if (state === "failed") {
-    icon = <AlertTriangle className="size-3.5" />;
+    icon = (
+      <AnimatedIcon
+        icon={AlertTriangle}
+        motionPreset="pop"
+        trigger="state"
+        appear
+        activeVariant="show"
+        iconClassName="size-3.5"
+      />
+    );
     label = "Sync failed — it will retry automatically";
     tone = "text-red-600";
   }

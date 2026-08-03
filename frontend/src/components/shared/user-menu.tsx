@@ -2,7 +2,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { LogOut, Settings, User } from "lucide-react";
+import { LogOut, Settings } from "lucide-react";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -57,13 +58,13 @@ export function UserMenu() {
           <span className="text-xs text-muted-foreground truncate">{me?.email ?? "—"}</span>
         </div>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => router.push("/settings/org")}>
-          <Settings className="size-4" />
+        <DropdownMenuItem className="group" onClick={() => router.push("/settings/org")}>
+          <AnimatedIcon icon={Settings} motionPreset="spin" iconClassName="size-4" />
           Settings
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onClick={handleSignOut}>
-          <LogOut className="size-4" />
+        <DropdownMenuItem className="group" variant="destructive" onClick={handleSignOut}>
+          <AnimatedIcon icon={LogOut} motionPreset="nudgeRight" iconClassName="size-4" />
           Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>

@@ -26,7 +26,7 @@ const PLATFORM_NAV: { platform: string; label: string }[] = [
 ];
 
 const ITEM =
-  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors";
+  "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors";
 const ACTIVE = "bg-sidebar-primary text-sidebar-primary-foreground";
 const INACTIVE =
   "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground";
@@ -94,7 +94,7 @@ export function Sidebar() {
           collapsed ? "justify-center px-3" : "gap-3 px-5"
         )}
       >
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/20">
+        <span className="group flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/20">
           <AnimatedIcon icon={Sparkles} motionPreset="wiggle" iconClassName="size-5" />
         </span>
         {!collapsed && (

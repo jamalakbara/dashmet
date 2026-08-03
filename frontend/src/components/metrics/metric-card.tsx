@@ -8,6 +8,7 @@ import { AnimatedNumber } from "@/components/shared/animated-number";
 import { cn } from "@/lib/utils";
 import { formatChange } from "@/lib/formatters";
 import { fadeInUp, hoverLift } from "@/lib/motion";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { chartAnimation } from "@/lib/chart-theme";
 
 /** Pastel tints (registered in globals.css @theme). Round-robin across cards. */
@@ -110,7 +111,14 @@ export function MetricCard({
                   direction === "neutral" && "bg-muted text-muted-foreground"
                 )}
               >
-                <TrendIcon className="size-3" />
+                <AnimatedIcon
+                  icon={TrendIcon}
+                  motionPreset="pop"
+                  trigger="state"
+                  appear
+                  activeVariant="show"
+                  iconClassName="size-3"
+                />
                 {changeLabel}
               </span>
             ) : null}

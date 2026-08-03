@@ -214,3 +214,15 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Shake keyframe for <AnimatedIcon motionPreset="wiggle" trigger="hover">.
+   Driven via group-hover:animate-[icon-wiggle_...] (see lib/motion.ts
+   ICON_HOVER_CLASS). Small rotate back-and-forth; suppressed under
+   motion-reduce by the accompanying motion-reduce:group-hover:animate-none. */
+@keyframes icon-wiggle {
+  0% { transform: rotate(0deg); }
+  25% { transform: rotate(-12deg); }
+  50% { transform: rotate(10deg); }
+  75% { transform: rotate(-6deg); }
+  100% { transform: rotate(0deg); }
+}

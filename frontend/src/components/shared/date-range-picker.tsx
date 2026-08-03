@@ -5,6 +5,7 @@ import { useQueryState } from "nuqs";
 import { CalendarDays, ChevronDown, ChevronLeft } from "lucide-react";
 import { format, parseISO, subDays } from "date-fns";
 import type { DateRange as DayRange } from "react-day-picker";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -76,10 +77,16 @@ export function DateRangePicker() {
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger
         render={
-          <Button variant="outline" className="gap-2">
-            <CalendarDays className="size-4" />
+          <Button variant="outline" className="group gap-2">
+            <AnimatedIcon icon={CalendarDays} motionPreset="bounce" iconClassName="size-4" />
             {triggerLabel}
-            <ChevronDown className="size-3.5 text-muted-foreground" />
+            <AnimatedIcon
+              icon={ChevronDown}
+              motionPreset="flip"
+              trigger="state"
+              active={open}
+              iconClassName="size-3.5 text-muted-foreground"
+            />
           </Button>
         }
       />
@@ -120,9 +127,9 @@ export function DateRangePicker() {
           <div className="flex w-72 flex-col">
             <button
               onClick={() => setView("presets")}
-              className="flex items-center gap-1 border-b px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+              className="group flex items-center gap-1 border-b px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
-              <ChevronLeft className="size-3.5" /> Presets
+              <AnimatedIcon icon={ChevronLeft} motionPreset="nudge" iconClassName="size-3.5" /> Presets
             </button>
             <Calendar
               mode="range"

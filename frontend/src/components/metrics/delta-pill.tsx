@@ -4,6 +4,7 @@ import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { metricDelta, formatMetric, type MetricType } from "@/lib/formatters";
 import { metricType } from "@/lib/metrics";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 type Direction = "up" | "down" | "neutral";
@@ -35,7 +36,14 @@ function DeltaBadge({
         className,
       )}
     >
-      <TrendIcon className="size-3" />
+      <AnimatedIcon
+        icon={TrendIcon}
+        motionPreset="pop"
+        trigger="state"
+        appear
+        activeVariant="show"
+        iconClassName="size-3"
+      />
       {label}
     </span>
   );

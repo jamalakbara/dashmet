@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useQueryState } from "nuqs";
 import { ChevronsUpDown } from "lucide-react";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PlatformBadge } from "@/components/shared/platform-badge";
 import { AccountCommandList } from "@/components/shared/account-command-list";
@@ -11,7 +12,7 @@ import { usePlatform } from "@/hooks/use-platform";
 import { cn } from "@/lib/utils";
 
 const TRIGGER_CLASS =
-  "flex h-8 w-56 items-center gap-2 rounded-lg border border-input bg-transparent px-2.5 text-sm hover:bg-accent";
+  "group flex h-8 w-56 items-center gap-2 rounded-lg border border-input bg-transparent px-2.5 text-sm hover:bg-accent";
 
 /** Polls the account count briefly after connecting (when none exist yet). */
 function useConnectPolling(): number | null {
@@ -59,7 +60,12 @@ function SingleAccountSwitcher({ platform }: { platform: string }) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger className={TRIGGER_CLASS}>
-        <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+        <AnimatedIcon
+          icon={ChevronsUpDown}
+          motionPreset="bounce"
+          className="shrink-0"
+          iconClassName="size-3.5 text-muted-foreground"
+        />
         {account && <PlatformBadge platform={account.platform} size="sm" />}
         <span className="truncate text-sm">{account?.name ?? "Select account"}</span>
       </PopoverTrigger>
@@ -108,7 +114,12 @@ function MultiAccountSwitcher() {
   return (
     <Popover>
       <PopoverTrigger className={TRIGGER_CLASS}>
-        <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+        <AnimatedIcon
+          icon={ChevronsUpDown}
+          motionPreset="bounce"
+          className="shrink-0"
+          iconClassName="size-3.5 text-muted-foreground"
+        />
         <span className="truncate">{label}</span>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-0">

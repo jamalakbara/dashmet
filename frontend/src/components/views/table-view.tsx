@@ -10,7 +10,6 @@ import {
   Search,
   Download,
   ChevronRight,
-  ChevronDown,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,6 +33,7 @@ import {
 } from "@/components/ui/table";
 import Link from "next/link";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PaginationBar } from "@/components/shared/pagination-bar";
 import { DeltaPill } from "@/components/metrics/delta-pill";
@@ -259,9 +259,27 @@ function SortIcon({ col, sortBy, sortOrder }: {
 }) {
   if (!col.sortable) return null;
   if (sortBy !== col.key) return <ArrowUpDown className="ml-1 inline size-3 opacity-40" />;
-  return sortOrder === "asc"
-    ? <ArrowUp className="ml-1 inline size-3" />
-    : <ArrowDown className="ml-1 inline size-3" />;
+  return sortOrder === "asc" ? (
+    <AnimatedIcon
+      icon={ArrowUp}
+      motionPreset="pop"
+      trigger="state"
+      appear
+      activeVariant="show"
+      className="ml-1 inline-flex"
+      iconClassName="size-3"
+    />
+  ) : (
+    <AnimatedIcon
+      icon={ArrowDown}
+      motionPreset="pop"
+      trigger="state"
+      appear
+      activeVariant="show"
+      className="ml-1 inline-flex"
+      iconClassName="size-3"
+    />
+  );
 }
 
 // ─── View ─────────────────────────────────────────────────────────────────────
@@ -443,9 +461,9 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
           </div>
           <Link
             href={withQuery(`/${platform}/table?level=campaign`)}
-            className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary hover:underline"
+            className="group inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary hover:underline"
           >
-            See All <ChevronRight className="size-4" />
+            See All <AnimatedIcon icon={ChevronRight} motionPreset="nudgeRight" iconClassName="size-4" />
           </Link>
         </div>
         <div className="overflow-x-auto">
@@ -600,10 +618,11 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
           <Button
             variant="outline"
             size="sm"
+            className="group"
             onClick={() => exportCSV(rows, visibleCols)}
             disabled={rows.length === 0}
           >
-            <Download className="size-3.5" />
+            <AnimatedIcon icon={Download} motionPreset="bounce" iconClassName="size-3.5" />
             Export
           </Button>
         </div>
@@ -657,11 +676,15 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
                           setExpandedId(expandedId === row.id ? null : row.id)
                         }
                       >
-                        {/* Expand chevron */}
+                        {/* Expand chevron — right → rotates 90° to point down */}
                         <TableCell className="w-8 text-muted-foreground">
-                          {expandedId === row.id
-                            ? <ChevronDown className="size-3.5" />
-                            : <ChevronRight className="size-3.5" />}
+                          <AnimatedIcon
+                            icon={ChevronRight}
+                            motionPreset="spin"
+                            trigger="state"
+                            active={expandedId === row.id}
+                            iconClassName="size-3.5"
+                          />
                         </TableCell>
 
                         {visibleCols.map((col) => (
@@ -686,17 +709,17 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
                               {level === "campaign" && (
                                 <button
                                   onClick={() => drillDown(row)}
-                                  className="flex items-center gap-1 text-primary hover:underline"
+                                  className="group flex items-center gap-1 text-primary hover:underline"
                                 >
-                                  View ad groups <ChevronRight className="size-3.5" />
+                                  View ad groups <AnimatedIcon icon={ChevronRight} motionPreset="nudgeRight" iconClassName="size-3.5" />
                                 </button>
                               )}
                               {level === "adgroup" && (
                                 <button
                                   onClick={() => drillDown(row)}
-                                  className="flex items-center gap-1 text-primary hover:underline"
+                                  className="group flex items-center gap-1 text-primary hover:underline"
                                 >
-                                  View ads <ChevronRight className="size-3.5" />
+                                  View ads <AnimatedIcon icon={ChevronRight} motionPreset="nudgeRight" iconClassName="size-3.5" />
                                 </button>
                               )}
                               {level === "ad" && row.creative_preview && (

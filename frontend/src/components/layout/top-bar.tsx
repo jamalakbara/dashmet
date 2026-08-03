@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
 import { Bell } from "lucide-react";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { DateRangePicker } from "@/components/shared/date-range-picker";
 import { Switch } from "@/components/ui/switch";
 import { SyncStatusBadge } from "@/components/shared/sync-status-badge";
@@ -62,9 +63,9 @@ export function TopBar() {
         <button
           type="button"
           aria-label="Notifications"
-          className="relative flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          className="group relative flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
         >
-          <Bell className="size-[18px]" />
+          <AnimatedIcon icon={Bell} motionPreset="wiggle" iconClassName="size-[18px]" />
         </button>
         <div className="flex items-center gap-2.5">
           <div className="hidden text-right leading-tight sm:block">

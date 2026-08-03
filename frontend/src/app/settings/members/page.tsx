@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
 import { UserPlus, Trash2 } from "lucide-react";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -108,8 +109,8 @@ export default function MembersSettingsPage() {
               <CardTitle className="text-base">Members</CardTitle>
               <CardDescription>Manage who has access to this organization.</CardDescription>
             </div>
-            <Button size="sm" onClick={() => { setInviteOpen(true); setInviteSuccess(null); setInviteError(null); reset(); }}>
-              <UserPlus className="size-4" />
+            <Button size="sm" className="group" onClick={() => { setInviteOpen(true); setInviteSuccess(null); setInviteError(null); reset(); }}>
+              <AnimatedIcon icon={UserPlus} motionPreset="pop" iconClassName="size-4" />
               Invite member
             </Button>
           </div>
@@ -169,10 +170,10 @@ export default function MembersSettingsPage() {
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          className="text-destructive hover:text-destructive"
+                          className="group text-destructive hover:text-destructive"
                           onClick={() => setRemoveId(m.id)}
                         >
-                          <Trash2 className="size-3.5" />
+                          <AnimatedIcon icon={Trash2} motionPreset="wiggle" iconClassName="size-3.5" />
                         </Button>
                       )}
                     </TableCell>

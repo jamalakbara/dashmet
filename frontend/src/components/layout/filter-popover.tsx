@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useQueryState } from "nuqs";
 import { SlidersHorizontal, X } from "lucide-react";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -58,9 +59,9 @@ export function FilterPopover() {
   return (
     <Popover>
       <PopoverTrigger
-        className={cn(buttonVariants({ variant: "outline", size: "lg" }), "ml-auto gap-2")}
+        className={cn(buttonVariants({ variant: "outline", size: "lg" }), "group ml-auto gap-2")}
       >
-        <SlidersHorizontal className="size-4" />
+        <AnimatedIcon icon={SlidersHorizontal} motionPreset="spin" iconClassName="size-4" />
         Filter
         {activeCount > 0 && (
           <Badge variant="secondary" className="ml-0.5 h-5 min-w-5 justify-center px-1.5">
@@ -74,9 +75,9 @@ export function FilterPopover() {
           {activeCount > 0 && (
             <button
               onClick={clearAll}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
-              <X className="size-3" />
+              <AnimatedIcon icon={X} motionPreset="wiggle" iconClassName="size-3" />
               Clear
             </button>
           )}

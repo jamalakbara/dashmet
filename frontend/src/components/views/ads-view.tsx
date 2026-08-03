@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
 import { Play, Images, X, ExternalLink, ChevronRight } from "lucide-react";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -262,7 +263,7 @@ function AdRow({
 
   return (
     <div
-      className="flex cursor-pointer items-center gap-3 rounded-lg border bg-card p-3 hover:bg-accent/30 transition-colors"
+      className="group flex cursor-pointer items-center gap-3 rounded-lg border bg-card p-3 hover:bg-accent/30 transition-colors"
       onClick={onClick}
     >
       <CreativeThumbnail
@@ -310,7 +311,12 @@ function AdRow({
           </div>
         </div>
       </div>
-      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+      <AnimatedIcon
+        icon={ChevronRight}
+        motionPreset="nudgeRight"
+        className="shrink-0"
+        iconClassName="size-4 text-muted-foreground"
+      />
     </div>
   );
 }
@@ -432,9 +438,9 @@ function AdDetailSheet({
                   href={creative.destination_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-xs text-primary hover:underline"
+                  className="group flex items-center gap-1 text-xs text-primary hover:underline"
                 >
-                  <ExternalLink className="size-3" />
+                  <AnimatedIcon icon={ExternalLink} motionPreset="draw" iconClassName="size-3" />
                   <span className="truncate">{creative.destination_url}</span>
                 </a>
               )}
@@ -568,9 +574,9 @@ export function AdsView({ preview = false }: { preview?: boolean } = {}) {
           </div>
           <Link
             href={withQuery(`/${platform}/ads`)}
-            className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary hover:underline"
+            className="group inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary hover:underline"
           >
-            See All <ChevronRight className="size-4" />
+            See All <AnimatedIcon icon={ChevronRight} motionPreset="nudgeRight" iconClassName="size-4" />
           </Link>
         </div>
         {isLoading ? (
@@ -636,10 +642,10 @@ export function AdsView({ preview = false }: { preview?: boolean } = {}) {
           />
           {searchInput && (
             <button
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              className="group absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               onClick={() => { setSearchInput(""); setSearch(null); }}
             >
-              <X className="size-3.5" />
+              <AnimatedIcon icon={X} motionPreset="wiggle" iconClassName="size-3.5" />
             </button>
           )}
         </div>

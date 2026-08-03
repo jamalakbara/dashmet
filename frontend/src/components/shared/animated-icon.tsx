@@ -1,23 +1,29 @@
 "use client";
 
+import type { ComponentPropsWithoutRef } from "react";
 import { motion, type HTMLMotionProps } from "framer-motion";
 import type { LucideIcon, LucideProps } from "lucide-react";
-import { ICON_MOTION, type IconMotionPreset } from "@/lib/motion";
+import { ICON_HOVER_CLASS, ICON_MOTION, type IconMotionPreset } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 /**
  * Wrapper that gives any lucide icon a tasteful micro-animation while honoring
- * OS reduce-motion (framer-motion's global <MotionConfig reducedMotion="user">
- * neutralizes every transform below when the user asks for less motion, so no
- * per-call guard is needed).
+ * OS reduce-motion.
  *
  * Two modes:
- *  - trigger="hover" (default): plays the preset on hover/tap of the icon (or,
- *    with `group`, the nearest `.group` ancestor — e.g. a whole button/link).
- *  - trigger="state": drives the animation from a boolean `active` prop — used
- *    for expand/collapse (chevron rotate), pending spinners, and appear pops.
+ *  - trigger="hover" (default): CSS `group-hover` drives the preset. The icon
+ *    renders as a plain <span> carrying `group-hover:` transform classes
+ *    (ICON_HOVER_CLASS in lib/motion.ts), so ANY parent container — a <Link>,
+ *    <button>, row <div>, card, etc. — animates the icon when hovered, without
+ *    that parent needing to be a motion component. This REQUIRES the nearest
+ *    interactive/hover ancestor to carry the Tailwind `group` class; otherwise
+ *    the classes are inert. reduce-motion is honored via `motion-reduce:` guards.
+ *  - trigger="state": framer-motion drives the animation from a boolean `active`
+ *    prop (chevron flip, pending spinners) and the `appear` mount pop. Container
+ *    hover isn't needed here, so it stays a motion.span.
  *
- * The preset variants live in lib/motion.ts (single source), keyed by name.
+ * The preset definitions live in lib/motion.ts (single source): ICON_MOTION
+ * (framer variants, state/appear) and ICON_HOVER_CLASS (CSS classes, hover).
  */
 export interface AnimatedIconProps
   extends Omit<HTMLMotionProps<"span">, "children"> {
@@ -43,7 +49,7 @@ export interface AnimatedIconProps
   /** Props forwarded to the underlying lucide icon (className, size, etc.). */
   iconClassName?: string;
   size?: LucideProps["size"];
-  /** className on the wrapping motion.span. */
+  /** className on the wrapping span. */
   className?: string;
 }
 
@@ -75,17 +81,19 @@ export function AnimatedIcon({
     );
   }
 
+  // trigger="hover": CSS group-hover drives the animation. Rendered as a plain
+  // <span> (not motion.span) so a parent container of ANY type — marked with
+  // `group` — can trigger it. `rest` is HTMLMotionProps, a superset of the
+  // intrinsic span attributes actually used at hover call sites; the framer-only
+  // members are structurally compatible with span props (both optional) and are
+  // never passed on this path.
+  const spanProps = rest as ComponentPropsWithoutRef<"span">;
   return (
-    <motion.span
-      className={cn("inline-flex", className)}
-      variants={variants}
-      initial="rest"
-      animate="rest"
-      whileHover="hover"
-      whileTap="tap"
-      {...rest}
+    <span
+      className={cn("inline-flex", ICON_HOVER_CLASS[motionPreset], className)}
+      {...spanProps}
     >
       <Icon className={iconClassName} size={size} aria-hidden />
-    </motion.span>
+    </span>
   );
 }
