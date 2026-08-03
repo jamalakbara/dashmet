@@ -126,12 +126,15 @@ def overview(
     date_preset: Optional[str] = Query(None),
     date_start: Optional[date] = Query(None),
     date_end: Optional[date] = Query(None),
+    status: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
 ):
     ds, de, account, preset = _resolve_dates(
         account_id, current_user["org_id"], db, date_preset, date_start, date_end
     )
     data = insights_svc.get_overview(
-        db, account_id, current_user["org_id"], ds, de, date_preset=preset
+        db, account_id, current_user["org_id"], ds, de, date_preset=preset,
+        status=status, search=search,
     )
     return DataResponse(data=data)
 
@@ -148,6 +151,8 @@ def timeseries(
     metrics: str = Query("spend,impressions,clicks,ctr"),
     time_increment: str = Query("day"),
     compare_previous: bool = Query(False),
+    status: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
 ):
     ds, de, account, preset = _resolve_dates(
         account_id, current_user["org_id"], db, date_preset, date_start, date_end
@@ -160,6 +165,8 @@ def timeseries(
         time_increment=time_increment,
         compare_previous=compare_previous,
         date_preset=preset,
+        status=status,
+        search=search,
     )
     return DataResponse(data=data)
 

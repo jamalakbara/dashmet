@@ -2,10 +2,11 @@
 
 import dynamic from "next/dynamic";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, SlidersHorizontal } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PlatformTabs } from "@/components/layout/platform-tabs";
+import { FilterPopover } from "@/components/layout/filter-popover";
 import { useSelectedAccount } from "@/hooks/use-account";
 import { syncApi } from "@/lib/api/sync";
 import { queryKeys } from "@/lib/query-keys";
@@ -55,10 +56,7 @@ export function ControlStrip() {
         <PlatformTabs />
       </div>
 
-      <Button variant="outline" size="lg" className="ml-auto gap-2">
-        <SlidersHorizontal className="size-4" />
-        Filter
-      </Button>
+      <FilterPopover />
     </div>
   );
 }

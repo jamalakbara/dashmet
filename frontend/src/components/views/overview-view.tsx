@@ -14,6 +14,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useSelectedAccount } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
 import { usePlatform } from "@/hooks/use-platform";
+import { useOverviewFilter } from "@/hooks/use-overview-filter";
 import { useSharedFilterQuery } from "@/hooks/use-shared-query";
 import { staggerGrid } from "@/lib/motion";
 import { metricLabel, metricType } from "@/lib/metrics";
@@ -80,6 +81,7 @@ export function OverviewView() {
   const platform = usePlatform() ?? "meta";
   const withQuery = useSharedFilterQuery();
   const dateRange = useDateRange();
+  const filter = useOverviewFilter();
 
   const [polling, setPolling] = useState(false);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -97,8 +99,8 @@ export function OverviewView() {
   }, [accountId]);
 
   const { data: overviewRes, isLoading } = useQuery({
-    queryKey: queryKeys.overview(accountId ?? "", dateRange),
-    queryFn: () => insightsApi.overview({ account_id: accountId!, ...dateRange }),
+    queryKey: queryKeys.overview(accountId ?? "", dateRange, filter),
+    queryFn: () => insightsApi.overview({ account_id: accountId!, ...dateRange, ...filter }),
     enabled: !!accountId,
     staleTime: 15 * 60 * 1000,
     refetchInterval: polling ? 5000 : false,

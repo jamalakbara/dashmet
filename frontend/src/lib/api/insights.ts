@@ -7,6 +7,12 @@ export type InsightParams = {
   date_end?: string;
 };
 
+// Overview cards + funnel share the campaign filter (status + campaign name).
+export type OverviewParams = InsightParams & {
+  status?: string;
+  search?: string;
+};
+
 export type TimeseriesParams = InsightParams & {
   level?: string;
   metrics?: string;
@@ -14,6 +20,8 @@ export type TimeseriesParams = InsightParams & {
   compare_previous?: boolean;
   campaign_id?: string;
   adgroup_id?: string;
+  status?: string;
+  search?: string;
 };
 
 export type TableParams = InsightParams & {
@@ -43,7 +51,7 @@ export type CombinedParams = {
 };
 
 export const insightsApi = {
-  overview: (params: InsightParams) =>
+  overview: (params: OverviewParams) =>
     apiClient.get("/insights/overview", { params }),
   timeseries: (params: TimeseriesParams) =>
     apiClient.get("/insights/timeseries", { params }),

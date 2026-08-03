@@ -554,6 +554,8 @@ Disabled accounts (`account_status = "disabled"`) are always excluded.
 
 Single account detail.
 
+Disabled accounts (`account_status = "disabled"`) read as **`404`**, mirroring `GET /accounts` — a stale client selection (an `account_id` kept from before a disconnect+reconnect) resolves to gone so the UI falls back to a live account. Cross-org access is still `403` (checked before the status filter, so status never leaks).
+
 **Response `200`** — same shape as single item above, plus:
 ```json
 {
@@ -744,7 +746,16 @@ The main summary panel — aggregated metrics for an account over a period, with
 
 #### `GET /api/v1/insights/overview`
 
-**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`
+**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `status`, `search`
+
+**Campaign filter** (shared with `timeseries` and the Table/Ads tabs — driven by the Control-strip Filter popover):
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `status` | string | — | Restrict to campaigns with this status (`active` \| `paused` \| `archived`). Omitted = all. |
+| `search` | string | — | Restrict to campaigns whose name matches (`ILIKE '%search%'`). |
+
+When either is set, the summary, `vs_previous`, and `top_campaigns` aggregate only the matching campaigns' rows. A filter that matches no campaign yields empty/`null` metrics (not a silent all-rows fallback). Resolved once via `_resolve_campaign_ids` → `entity_id = ANY(...)` predicate in `app/services/insights.py`.
 
 **Response `200`**
 ```json
@@ -813,7 +824,7 @@ Daily metric trend data — powers line/bar charts in the Periodic view.
 
 #### `GET /api/v1/insights/timeseries`
 
-**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `level`, `campaign_id`, `adgroup_id`, `metrics` (comma-separated list), `time_increment`
+**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `level`, `campaign_id`, `adgroup_id`, `metrics` (comma-separated list), `time_increment`, `status`, `search`
 
 **Additional params:**
 
@@ -823,6 +834,8 @@ Daily metric trend data — powers line/bar charts in the Periodic view.
 | `metrics` | string | `spend,impressions,clicks,ctr` | Comma-separated metric names to include |
 | `time_increment` | string | `day` | `day` \| `week` \| `month` |
 | `compare_previous` | boolean | `false` | Include previous period data for overlay comparison |
+| `status` | string | — | Campaign filter — same semantics as `overview`. Applied to the `account`-level series and to the `campaign`-level breakdown; ignored for `adgroup`/`ad` breakdowns (campaign ids don't match those grains). |
+| `search` | string | — | Campaign-name filter — same semantics as `overview`. |
 
 **Response `200`**
 ```json

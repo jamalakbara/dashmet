@@ -7,6 +7,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useSelectedAccount } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
 import { usePlatform } from "@/hooks/use-platform";
+import { useOverviewFilter } from "@/hooks/use-overview-filter";
 import { FUNNEL_STEPS, CHART_COLORS } from "@/lib/constants";
 import { formatMetric, formatPercent } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
@@ -30,10 +31,11 @@ export function FunnelView() {
   const { accountId, currency } = useSelectedAccount();
   const platform = usePlatform() ?? "meta";
   const dateRange = useDateRange();
+  const filter = useOverviewFilter();
 
   const { data: res, isLoading } = useQuery({
-    queryKey: queryKeys.overview(accountId ?? "", dateRange),
-    queryFn: () => insightsApi.overview({ account_id: accountId!, ...dateRange }),
+    queryKey: queryKeys.overview(accountId ?? "", dateRange, filter),
+    queryFn: () => insightsApi.overview({ account_id: accountId!, ...dateRange, ...filter }),
     enabled: !!accountId,
     staleTime: 15 * 60 * 1000,
   });

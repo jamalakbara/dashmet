@@ -12,6 +12,13 @@ export type TableFilters = {
   adgroup_id?: string;
 };
 
+// Shared Overview-page campaign filter (status + campaign name). Kept out of
+// DateRange so it can vary independently and stay in the query cache key.
+export type OverviewFilter = {
+  status?: string;
+  search?: string;
+};
+
 export const queryKeys = {
   me: () => ["me"] as const,
   accounts: () => ["accounts"] as const,
@@ -22,16 +29,17 @@ export const queryKeys = {
   accountsCount: () => ["accounts", "count"] as const,
   account: (id: string) => ["account", id] as const,
   syncStatus: (accountId: string) => ["sync-status", accountId] as const,
-  overview: (accountId: string, dateRange: DateRange) =>
-    ["overview", accountId, dateRange] as const,
+  overview: (accountId: string, dateRange: DateRange, filter: OverviewFilter = {}) =>
+    ["overview", accountId, dateRange, filter] as const,
   timeseries: (
     accountId: string,
     dateRange: DateRange,
     level: string,
     metrics: string[],
     timeIncrement: string,
-    comparePrev: boolean
-  ) => ["timeseries", accountId, dateRange, level, metrics, timeIncrement, comparePrev] as const,
+    comparePrev: boolean,
+    filter: OverviewFilter = {}
+  ) => ["timeseries", accountId, dateRange, level, metrics, timeIncrement, comparePrev, filter] as const,
   table: (accountId: string, dateRange: DateRange, level: string, filters: TableFilters) =>
     ["table", accountId, dateRange, level, filters] as const,
   breakdown: (accountId: string, dateRange: DateRange, type: string) =>

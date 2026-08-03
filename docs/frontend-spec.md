@@ -183,7 +183,7 @@ The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed indigo **sidebar
 - Two modes via a shared `AccountCommandList` (`components/shared/`):
   - **Platform route** (`/meta`, `/tiktok`) → single-select, scoped to that platform. Updates `account_id`.
   - **Combined dashboard** (`/dashboard`) → multi-select, results grouped by platform. Updates `accounts` (comma-separated). `null` param = **All accounts**, `""` = none.
-- **Pinned + Recent** groups at the top, persisted in `ui-store` (localStorage) as denormalized `accountSnapshots` so they render without re-fetching. Star icon toggles pin.
+- **Pinned + Recent** groups at the top, persisted in `ui-store` (localStorage) as denormalized `accountSnapshots` so they render without re-fetching. Star icon toggles pin. Stale snapshots (accounts the API no longer returns after a disconnect/reconnect, e.g. `account_status="disabled"`) are pruned against the live list — but only when absence is conclusive (idle, non-truncated page); a capped or still-loading page never drops an account that merely sits beyond the first page.
 - Rows: platform badge, **account name (primary)**, business name / external id (secondary muted line), currency, star. Name always takes priority width (`flex-1` + truncate) so long ids never squeeze it out.
 - "No accounts connected" empty state (via `useAccountsCount`); brief on-connect polling.
 
@@ -230,7 +230,9 @@ Sidebar (`components/layout/sidebar.tsx`) is an **indigo rail** grouped into `DA
 
 ### Action strip — `ControlStrip`
 
-`components/layout/control-strip.tsx` — sits directly under the top bar. Holds the primary **Sync Data** button (`POST /sync/trigger` for the selected account; manual sync is a recovery path per P-5, not a per-card fixture), the `AccountSwitcher`, the `PlatformTabs`, and a **Filter** affordance.
+`components/layout/control-strip.tsx` — sits directly under the top bar. Holds the primary **Sync Data** button (`POST /sync/trigger` for the selected account; manual sync is a recovery path per P-5, not a per-card fixture), the `AccountSwitcher`, the `PlatformTabs`, and the **Filter** popover (`FilterPopover`).
+
+**Filter popover** — `components/layout/filter-popover.tsx`. A campaign filter (status dropdown + campaign-name search, debounced 300ms) that writes the shared `status` + `search` URL params. Read back by `useOverviewFilter()` (status `"all"` → omitted) and threaded into the Overview cards, funnel (`insightsApi.overview`), trends (`insightsApi.timeseries`), and the Table/Ads tabs — one filter scopes every view. Trigger shows an active-count badge; a Clear action resets both params. Backend enforces it via `status`/`search` on `GET /insights/overview` + `/insights/timeseries`.
 
 ### Platform tab bar — `PlatformTabs`
 
@@ -694,7 +696,7 @@ Tiny inline Recharts `LineChart` (no axes, no tooltip) for KPI card trends.
 Single popover, two views: preset buttons and a `Custom range…` reveal that swaps in a `react-day-picker` range calendar (future dates disabled). Apply sets `date_start`/`date_end` and clears `date_preset`. Syncs to URL.
 
 ### `AccountSwitcher` / `AccountCommandList`
-Server-side searched `cmdk` combobox (`?search=&platform=`) — single-select on platform routes, multi-select (grouped by platform) on the combined dashboard. Pinned + Recent groups persisted in `ui-store` via `accountSnapshots`. Syncs `account_id` (or `accounts`) to URL.
+Server-side searched `cmdk` combobox (`?search=&platform=`) — single-select on platform routes, multi-select (grouped by platform) on the combined dashboard. Pinned + Recent groups persisted in `ui-store` via `accountSnapshots`, pruned against the live account list when a snapshot is conclusively gone (idle, non-truncated page). Syncs `account_id` (or `accounts`) to URL. `useSelectedAccount` validates a selected `account_id` that isn't on the live first page via `GET /accounts/:id` (a snapshot alone is not trusted); a `404` (disabled/removed account) drops the dead selection and falls back to the first live remembered/first-page account, which the switcher then writes back to the URL.
 
 ### `PaginationBar`
 Server-pagination footer: "Showing X–Y of N" + numbered page buttons (collapses to first/last with `…` past 7 pages) and prev/next. Props: `page`, `totalPages`, `total`, `perPage`, `onPage`. Used by `TableView` and `/settings/accounts`.

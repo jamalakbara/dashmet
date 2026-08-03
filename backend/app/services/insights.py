@@ -155,18 +155,29 @@ _ACTION_WHERE = (
     "  AND date BETWEEN :date_start AND :date_end"
 )
 
-_ACTION_OVERVIEW_SQL = f"SELECT\n{_ACTION_PIVOT_COLS}\n{_ACTION_WHERE}"
+# Optional campaign-scope filter shared by the Overview-page queries (cards,
+# funnel, trends). When :campaign_ids is NULL the predicate is a no-op; otherwise
+# only rows whose entity_id is one of the pre-resolved campaign ids survive. Bare
+# `entity_id` variant for metric_action_stats (no table alias in _ACTION_WHERE).
+_CAMPAIGN_FILTER_BARE = (
+    "\n  AND (CAST(:campaign_ids AS uuid[]) IS NULL"
+    " OR entity_id = ANY(CAST(:campaign_ids AS uuid[])))"
+)
+_ACTION_WHERE_CF = _ACTION_WHERE + _CAMPAIGN_FILTER_BARE
+
+_ACTION_OVERVIEW_SQL = f"SELECT\n{_ACTION_PIVOT_COLS}\n{_ACTION_WHERE_CF}"
 _ACTION_BY_DATE_SQL = (
     f"SELECT date_trunc(:increment, date)::date AS period_date,\n{_ACTION_PIVOT_COLS}\n"
-    f"{_ACTION_WHERE}\nGROUP BY period_date"
+    f"{_ACTION_WHERE_CF}\nGROUP BY period_date"
 )
+# get_table consumer — no campaign filter, stays on the plain WHERE.
 _ACTION_BY_ENTITY_SQL = (
     f"SELECT entity_id::text AS entity_id,\n{_ACTION_PIVOT_COLS}\n"
     f"{_ACTION_WHERE}\nGROUP BY entity_id"
 )
 _ACTION_BY_ENTITY_DATE_SQL = (
     f"SELECT entity_id::text AS entity_id, date_trunc(:increment, date)::date AS period_date,\n"
-    f"{_ACTION_PIVOT_COLS}\n{_ACTION_WHERE}\nGROUP BY entity_id, period_date"
+    f"{_ACTION_PIVOT_COLS}\n{_ACTION_WHERE_CF}\nGROUP BY entity_id, period_date"
 )
 
 # Count metrics (integer) vs value/avg metrics (float) returned by the pivot.
@@ -290,6 +301,8 @@ LEFT JOIN metric_action_stats oc
 WHERE md.account_id = :account_id
   AND md.entity_type = 'campaign'
   AND md.date BETWEEN :date_start AND :date_end
+  AND (CAST(:campaign_ids AS uuid[]) IS NULL
+       OR md.entity_id = ANY(CAST(:campaign_ids AS uuid[])))
 """
 
 TOP_CAMPAIGNS_SQL = """
@@ -331,10 +344,37 @@ LEFT JOIN metric_action_stats oc
 WHERE md.account_id = :account_id
   AND md.entity_type = 'campaign'
   AND md.date BETWEEN :date_start AND :date_end
+  AND (CAST(:campaign_ids AS uuid[]) IS NULL
+       OR md.entity_id = ANY(CAST(:campaign_ids AS uuid[])))
 GROUP BY c.id, c.name
 ORDER BY SUM(md.spend) DESC NULLS LAST
 LIMIT 5
 """
+
+
+def _resolve_campaign_ids(
+    db: Session,
+    account_id: str,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+) -> Optional[list[str]]:
+    """Resolve the Overview-page campaign filter to a concrete id list.
+
+    Returns None when no filter is active (SQL predicate becomes a no-op). When a
+    filter is active but matches nothing, returns [] so downstream queries yield
+    zero rows rather than silently ignoring the filter.
+    """
+    if not status and not search:
+        return None
+    sql = "SELECT id::text FROM campaigns WHERE account_id = :account_id"
+    p: dict = {"account_id": uuid.UUID(account_id)}
+    if status:
+        sql += " AND status = :status"
+        p["status"] = status
+    if search:
+        sql += " AND name ILIKE '%' || :search || '%'"
+        p["search"] = search
+    return [r[0] for r in db.execute(text(sql), p).all()]
 
 
 def get_overview(
@@ -344,12 +384,16 @@ def get_overview(
     date_start: date,
     date_end: date,
     date_preset: Optional[str] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
 ) -> dict:
     assert_account_belongs_to_org(db, account_id, org_id)
+    campaign_ids = _resolve_campaign_ids(db, account_id, status, search)
     params = {
         "account_id": uuid.UUID(account_id),
         "date_start": date_start,
         "date_end": date_end,
+        "campaign_ids": campaign_ids,
     }
 
     row = db.execute(text(OVERVIEW_SQL), params).mappings().first()
@@ -472,6 +516,8 @@ LEFT JOIN metric_action_stats oc
 WHERE md.account_id = :account_id
   AND md.entity_type = 'campaign'
   AND md.date BETWEEN :date_start AND :date_end
+  AND (CAST(:campaign_ids AS uuid[]) IS NULL
+       OR md.entity_id = ANY(CAST(:campaign_ids AS uuid[])))
 GROUP BY period_date
 ORDER BY period_date
 """
@@ -517,6 +563,8 @@ LEFT JOIN (
 WHERE md.account_id = :account_id
   AND md.entity_type = :entity_type
   AND md.date BETWEEN :date_start AND :date_end
+  AND (CAST(:campaign_ids AS uuid[]) IS NULL
+       OR md.entity_id = ANY(CAST(:campaign_ids AS uuid[])))
 GROUP BY md.entity_id, entity_name, period_date
 ORDER BY SUM(md.spend) DESC NULLS LAST, md.entity_id, period_date
 """
@@ -533,16 +581,20 @@ def get_timeseries(
     time_increment: str = "day",
     compare_previous: bool = False,
     date_preset: Optional[str] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
 ) -> dict:
     assert_account_belongs_to_org(db, account_id, org_id)
     increment_map = {"day": "day", "week": "week", "month": "month"}
     pg_increment = increment_map.get(time_increment, "day")
 
+    campaign_ids = _resolve_campaign_ids(db, account_id, status, search)
     params = {
         "account_id": uuid.UUID(account_id),
         "date_start": date_start,
         "date_end": date_end,
         "increment": pg_increment,
+        "campaign_ids": campaign_ids,
     }
     rows = db.execute(text(TIMESERIES_SQL), params).mappings().all()
     action_by_date = _fetch_action_metrics(
@@ -584,7 +636,14 @@ def get_timeseries(
         entity_type_map = {"campaign": "campaign", "adgroup": "adgroup", "ad": "ad"}
         entity_type = entity_type_map.get(level, "campaign")
 
-        entity_params = {**params, "entity_type": entity_type}
+        # The campaign filter is expressed as campaign ids, so it only lines up
+        # with entity_id when the breakdown itself is at campaign grain. For
+        # adgroup/ad breakdowns drop it (else every id mismatches → zero rows).
+        entity_params = {
+            **params,
+            "entity_type": entity_type,
+            "campaign_ids": campaign_ids if entity_type == "campaign" else None,
+        }
         entity_rows = db.execute(text(TIMESERIES_BY_ENTITY_SQL), entity_params).mappings().all()
         entity_action_rows = db.execute(
             text(_ACTION_BY_ENTITY_DATE_SQL), entity_params

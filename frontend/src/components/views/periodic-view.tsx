@@ -31,6 +31,7 @@ import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useAccountId } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
+import { useOverviewFilter } from "@/hooks/use-overview-filter";
 import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
 import { metricLabel, metricType } from "@/lib/metrics";
 import { CHART_COLORS, gridProps, axisProps, tooltipProps } from "@/lib/chart-theme";
@@ -121,6 +122,7 @@ function SegmentControl<T extends string>({
 export function PeriodicView() {
   const accountId     = useAccountId();
   const dateRange     = useDateRange();
+  const filter        = useOverviewFilter();
   const { selectableMetrics, currency } = usePlatformMetrics();
 
   // Own param key (not the shared "level" used by the Table view) so the two can
@@ -151,7 +153,7 @@ export function PeriodicView() {
 
   // ── Timeseries ──
   const { data: tsRes, isLoading } = useQuery({
-    queryKey: queryKeys.timeseries(accountId ?? "", dateRange, level, metrics, timeIncrement, comparePrev),
+    queryKey: queryKeys.timeseries(accountId ?? "", dateRange, level, metrics, timeIncrement, comparePrev, filter),
     queryFn: () =>
       insightsApi.timeseries({
         account_id: accountId!,
@@ -160,6 +162,7 @@ export function PeriodicView() {
         metrics: metrics.join(","),
         time_increment: timeIncrement,
         compare_previous: comparePrev,
+        ...filter,
       }),
     enabled: !!accountId,
     staleTime: 15 * 60 * 1000,
