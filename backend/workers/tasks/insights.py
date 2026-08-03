@@ -214,6 +214,10 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
         connection_id = str(conn.id)
         token = decrypt_token(conn.access_token)
         ext_id = account.external_id  # already has "act_" prefix
+        # Resolve preset → explicit time_range in the account tz once, up front —
+        # the same resolver the read path uses, so synced days == queried days (§2.3).
+        from workers.date_range import meta_time_range
+        time_range = meta_time_range(date_preset, account.timezone)
 
     # Gate: skip the whole token while it's rate-limit paused (shared app quota)
     paused = connection_paused_remaining(connection_id)
@@ -261,7 +265,7 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
                 ext_id,
                 fields=NON_UNIQUE_FIELDS,
                 level="campaign",
-                date_preset=date_preset,
+                time_range=time_range,
                 time_increment=1,
                 action_attribution_windows=attribution_window,
                 account_id=account_id,
@@ -286,7 +290,7 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
                 ext_id,
                 fields=UNIQUE_FIELDS,
                 level="campaign",
-                date_preset=date_preset,
+                time_range=time_range,
                 time_increment=1,
                 account_id=account_id,
                 connection_id=connection_id,
@@ -328,7 +332,7 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
                 platform_campaign_id,
                 fields=ADGROUP_NON_UNIQUE_FIELDS,
                 level="adset",
-                date_preset=date_preset,
+                time_range=time_range,
                 time_increment=1,
                 action_attribution_windows=attribution_window,
                 account_id=account_id,
@@ -339,7 +343,7 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
                 platform_campaign_id,
                 fields=ADGROUP_UNIQUE_FIELDS,
                 level="adset",
-                date_preset=date_preset,
+                time_range=time_range,
                 time_increment=1,
                 account_id=account_id,
                 connection_id=connection_id,
@@ -349,7 +353,7 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
                 platform_campaign_id,
                 fields=AD_NON_UNIQUE_FIELDS,
                 level="ad",
-                date_preset=date_preset,
+                time_range=time_range,
                 time_increment=1,
                 action_attribution_windows=attribution_window,
                 account_id=account_id,
@@ -360,7 +364,7 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
                 platform_campaign_id,
                 fields=AD_UNIQUE_FIELDS,
                 level="ad",
-                date_preset=date_preset,
+                time_range=time_range,
                 time_increment=1,
                 account_id=account_id,
                 connection_id=connection_id,
@@ -568,6 +572,7 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
         connection_id = str(conn.id)
         account_id_obj = account.id
         platform_id = account.platform_id
+        account_tz = account.timezone
         config = (
             db.query(AccountConfig)
             .filter(AccountConfig.account_id == account.id)
@@ -591,6 +596,10 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
         return
 
     try:
+        # Resolve preset → explicit time_range in the account tz (§2.3): same
+        # resolver as the read path, so breakdown days == queried days.
+        from workers.date_range import meta_time_range
+        time_range = meta_time_range(date_preset, account_tz)
         with get_worker_db() as db:
             client = MetaClient(token)
             total = 0
@@ -600,7 +609,7 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
                 params = {
                     "fields": BREAKDOWN_FIELDS,
                     "level": "account",
-                    "date_preset": date_preset,
+                    "time_range": time_range,
                     "time_increment": 1,
                     "breakdowns": cfg["breakdowns"],
                     "limit": 500,

@@ -185,16 +185,23 @@ Call 1 — non-unique scalars:
             video_p100_watched_actions,video_thruplay_watched_actions,
             video_avg_time_watched_actions
     &level=campaign
-    &date_preset=last_7d
+    &time_range={"since":"2026-07-27","until":"2026-08-03"}   ← resolved, see below
     &time_increment=1     ← one row per day
 
 Call 2 — unique metrics (separate call, slower):
   GET /act_{id}/insights
     ?fields=reach,unique_clicks,unique_inline_link_clicks,unique_ctr
     &level=campaign
-    &date_preset=last_7d
+    &time_range={"since":"2026-07-27","until":"2026-08-03"}
     &time_increment=1
 ```
+
+> **`date_preset` is never sent to Meta (PRD §2.3 / P-7).** The task takes a
+> preset (`last_7d`, `last_30d`, …) but resolves it to an explicit `time_range`
+> in the account's timezone via `workers.date_range.meta_time_range`, which wraps
+> the same `app.services.insights.resolve_date_range` the read/API path uses.
+> This guarantees synced days == queried days by construction. Enforced by
+> `tests/test_date_range_parity.py`.
 
 Both calls write to the same `metrics_daily` rows via upsert — they merge, not overwrite.
 
@@ -403,7 +410,7 @@ Step 1: Submit
   POST /v25.0/act_{id}/insights
     ?level=ad
     &fields=...
-    &date_preset=last_90d
+    &time_range={"since":...,"until":...}   ← preset resolved in account tz (§2.3)
     → { "report_run_id": "6023920149050" }
   
   → Store report_run_id in sync_jobs.platform_job_id
@@ -619,7 +626,7 @@ for each active account:
         account_id,
         fields=NON_UNIQUE_FIELDS,
         level='campaign',
-        date_preset=date_preset,
+        time_range=meta_time_range(date_preset, account.timezone),  # §2.3
         time_increment=1
     )
     check_api_error(response)
@@ -636,7 +643,7 @@ for each active account:
         account_id,
         fields=UNIQUE_FIELDS,  # reach, unique_clicks, unique_ctr, ...
         level='campaign',
-        date_preset=date_preset,
+        time_range=meta_time_range(date_preset, account.timezone),  # §2.3
         time_increment=1
     )
     check_api_error(response)
@@ -660,7 +667,7 @@ for each active account:
         account_id,
         fields=FULL_AD_LEVEL_FIELDS,
         level='ad',
-        date_preset='last_90d'
+        time_range=meta_time_range('last_90d', account.timezone)  # §2.3
     )
     check_api_error(response)
 

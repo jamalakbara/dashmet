@@ -162,18 +162,22 @@ class MetaClient:
         entity_id: str,
         fields: str,
         level: str,
-        date_preset: str,
+        time_range: str,
         time_increment: int = 1,
         action_attribution_windows: str | None = None,
         account_id=None,
         connection_id=None,
     ) -> list[dict]:
         """Fetch insights for any entity. Pass 'act_123' for account-level,
-        bare campaign/adset/ad ID for entity-level."""
+        bare campaign/adset/ad ID for entity-level.
+
+        `time_range` is a Meta time_range JSON string (see workers.date_range) —
+        never a `date_preset`. Sending an explicit range in the account timezone
+        is a hard requirement (PRD §2.3)."""
         params = {
             "fields": fields,
             "level": level,
-            "date_preset": date_preset,
+            "time_range": time_range,
             "time_increment": time_increment,
             "limit": 200,
         }

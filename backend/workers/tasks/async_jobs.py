@@ -112,6 +112,7 @@ def submit_async_job_for_account(self, account_id: str, date_preset: str = "last
         connection_id = str(conn.id)
         token = decrypt_token(conn.access_token)
         ext_id = account.external_id.replace("act_", "")
+        account_tz = account.timezone
 
     # Gate: skip the whole token while it's rate-limit paused (shared app quota)
     paused = connection_paused_remaining(connection_id)
@@ -125,13 +126,16 @@ def submit_async_job_for_account(self, account_id: str, date_preset: str = "last
 
     try:
         apply_backoff(account_id, connection_id)
+        # Resolve preset → explicit time_range in the account tz (§2.3): same
+        # resolver as the read path, so the async report days == queried days.
+        from workers.date_range import meta_time_range
         client = MetaClient(token)
         report_run_id = client.post_async_job(
             ext_id,
             {
                 "fields": ASYNC_FIELDS,
                 "level": "campaign",
-                "date_preset": date_preset,
+                "time_range": meta_time_range(date_preset, account_tz),
                 "time_increment": "1",
             },
         )
