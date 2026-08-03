@@ -547,7 +547,7 @@ BREAKDOWN_FIELDS = "impressions,reach,clicks,spend,ctr,cpm,cpc,actions,date_star
 )
 def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_30d"):
     from celery.exceptions import SoftTimeLimitExceeded
-    from workers.db_helpers import get_worker_db
+    from workers.db_helpers import get_worker_db, create_sync_job, finalize_sync_job
     from workers.meta_client import MetaClient, MetaAPIError
     from workers.rate_limit import (
         apply_backoff, RateLimitState, RateLimitBackoff,
@@ -594,6 +594,11 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
     if not lock_token:
         logger.info(f"[{account_id}] Breakdown sync already running — skip")
         return
+
+    # Commit a "running" job before the first API call (P-8) so the breakdown
+    # section/badge can tell "syncing" from "done" — without this, job_type
+    # "breakdown" has no producer and the badge is stuck "partially synced".
+    job_id = create_sync_job(account_id_obj, platform_id, "breakdown")
 
     try:
         # Resolve preset → explicit time_range in the account tz (§2.3): same
@@ -677,19 +682,30 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
 
             logger.info(f"[{account_id}] Breakdown sync complete: {total} rows")
 
+        finalize_sync_job(job_id, "completed", rows_written=total)
+
     except RateLimitBackoff as b:
+        # Throttled mid-run: reschedule off the error-retry budget (skipped, not failed).
+        finalize_sync_job(job_id, "skipped")
         logger.info(f"[{account_id}] Breakdown rescheduled in {b.countdown}s ({b.scope})")
         self.apply_async(args=[account_id, date_preset], countdown=b.countdown)
         return
-    except SoftTimeLimitExceeded:
+    except SoftTimeLimitExceeded as e:
+        finalize_sync_job(job_id, "failed", error=e)
         logger.error(f"[{account_id}] Breakdown sync exceeded soft time limit")
         return
     except MetaAPIError as e:
         if is_meta_rate_limit_error(e.code, e.subcode):
             pause_connection(connection_id, HARD_PAUSE_SECONDS)
+            finalize_sync_job(job_id, "skipped")
             logger.warning(f"[{account_id}] Breakdown Meta rate-limit (code {e.code}) — pausing connection {HARD_PAUSE_SECONDS}s")
             self.apply_async(args=[account_id, date_preset], countdown=HARD_PAUSE_SECONDS)
             return
+        finalize_sync_job(job_id, "failed", error=e)
+        logger.error(f"[{account_id}] Breakdown sync failed: {e}")
+        raise self.retry(exc=e)
+    except Exception as e:
+        finalize_sync_job(job_id, "failed", error=e)
         logger.error(f"[{account_id}] Breakdown sync failed: {e}")
         raise self.retry(exc=e)
     finally:

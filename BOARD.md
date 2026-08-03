@@ -9,7 +9,7 @@ Kanban for PARITY work. One line per item, referencing its PRD identifier
 ## Todo
 
 Sync-freshness UX (fresh-connect "data gone?" confusion) — ordered:
-4. §9.2/§11 — `creatives` job_type has no producer → `jobs_status["creatives"]` permanently "never synced" (P-2 lit-warning). Make `sync_creatives_for_account` write a sync_job, or drop `creatives` from `sync.py:48` list.
+4. §9.2/§11 — `creatives` job_type still has no producer → `jobs_status["creatives"]` permanently "never synced" (P-2 lit-warning). Make `sync_creatives_for_account` write a sync_job, or drop `creatives` from `sync.py:48` list. (Breakdown half done — see Done.)
 5. Ads image row-level UX — render ad row immediately + placeholder/shimmer thumbnail + auto-refetch after lazy `sync_creative`; never hide a row for a missing `creative_preview`.
 
 - §2.3 date resolver off-by-one — `last_Nd` spans N+1 days (`today-N..today`); make it exactly N (`today-(N-1)..today`). Shared resolver → shifts read + write together.
@@ -22,4 +22,5 @@ Sync-freshness UX (fresh-connect "data gone?" confusion) — ordered:
 
 ## Done
 
+- 2026-08-03 §9.2/§11 (breakdown) — breakdown sync writes a `sync_jobs` row (`job_type="breakdown"`, finalized on every exit path); fixes badge stuck "partially synced" + section stuck "Syncing…". Normalized TikTok/Google `"breakdowns"`→`"breakdown"`. Test: `test_sync_jobs_completeness.py`.
 - 2026-08-03 §2.3 / P-7 — Meta workers resolve `date_preset`→`time_range` in account tz (one resolver, read==write). Test: `backend/tests/test_date_range_parity.py`.

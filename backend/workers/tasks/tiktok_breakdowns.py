@@ -123,7 +123,7 @@ def sync_tiktok_breakdowns_for_account(self, account_id: str, date_preset: str =
         logger.info("TikTok breakdowns already running for %s — skip", account_id)
         return
 
-    job_id = create_sync_job(account_uuid, "tiktok", "breakdowns")
+    job_id = create_sync_job(account_uuid, "tiktok", "breakdown")
 
     try:
         with get_worker_db() as db:

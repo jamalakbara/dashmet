@@ -30,3 +30,13 @@ All notable changes to this project are documented here. Format follows
   (keys on `breakdown`) and `ads-view.tsx` (keys on `insights_daily`, i.e. ad rows).
 - Read-vs-write date-range parity test — `backend/tests/test_date_range_parity.py`
   (presets × timezones; asserts worker `time_range` == read resolver; rejects unknown presets). PRD §11.
+
+### Fixed
+- Breakdown sync now records a `sync_jobs` row (`job_type = "breakdown"`, committed running
+  before the first API call, finalized on every exit path) — previously it had no producer, so
+  the freshness badge was permanently stuck on "Partially synced — breakdowns pending" and the
+  breakdown section's empty state permanently showed "Syncing…" (P-2/P-8).
+  `backend/workers/tasks/insights.py`. Also normalized TikTok/Google breakdown producers from
+  the plural `"breakdowns"` to `"breakdown"` to match the `/sync/status` envelope —
+  `backend/workers/tasks/tiktok_breakdowns.py`, `backend/workers/tasks/google_breakdowns.py`.
+  Test: `backend/tests/test_sync_jobs_completeness.py` (§11 sync_jobs completeness).

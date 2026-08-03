@@ -209,6 +209,8 @@ Both calls write to the same `metrics_daily` rows via upsert — they merge, not
 
 Breakdowns are synced hourly via the `sync_breakdowns_all` beat task → `sync_breakdowns_for_account` per account. Each run fetches `last_30d` of data, covering the default UI date range. Results are stored in `metric_breakdowns` and queried directly by the breakdown API.
 
+Each run records a `sync_jobs` row with `job_type = "breakdown"` (singular, matching `JOB_TTLS` and the `/sync/status` envelope) — committed running before the first API call, finalized on every exit path (P-8). This is what lets the freshness badge / breakdown section tell "syncing" from "done"; without it the badge is stuck on "partially synced". All platforms use the singular `"breakdown"` string (Meta, TikTok, Google).
+
 Supported breakdown dimensions:
 - `age,gender` (always fetched together as a compound)
 - `country`

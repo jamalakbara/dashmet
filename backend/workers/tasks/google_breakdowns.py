@@ -144,7 +144,7 @@ def sync_google_breakdowns_for_account(self, account_id: str, date_preset: str =
         logger.info("Google breakdowns already running for %s — skip", account_id)
         return
 
-    job_id = create_sync_job(account_uuid, "google_ads", "breakdowns")
+    job_id = create_sync_job(account_uuid, "google_ads", "breakdown")
     connection_id = None
 
     try:
