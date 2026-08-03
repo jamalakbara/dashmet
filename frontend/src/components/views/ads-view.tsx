@@ -109,10 +109,12 @@ function CreativeThumbnail({
   creative,
   className,
   showOverlay = true,
+  fit = "cover",
 }: {
   creative?: CreativePreview | Creative | null;
   className?: string;
   showOverlay?: boolean;
+  fit?: "cover" | "contain";
 }) {
   const src = (creative as Creative)?.image_url || creative?.thumbnail_url;
 
@@ -127,7 +129,11 @@ function CreativeThumbnail({
   return (
     <div className={cn("relative overflow-hidden bg-muted", className)}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={src} alt="" className="h-full w-full object-cover" />
+      <img
+        src={src}
+        alt=""
+        className={cn("h-full w-full", fit === "contain" ? "object-contain" : "object-cover")}
+      />
       {showOverlay && creative.format === "video" && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/30">
           <div className="flex size-10 items-center justify-center rounded-full bg-white/90">
@@ -155,10 +161,11 @@ function AdCard({ ad, onClick, currency }: { ad: Ad; onClick: () => void; curren
       className="cursor-pointer overflow-hidden transition-shadow hover:shadow-md"
       onClick={onClick}
     >
-      {/* Creative thumbnail — 16:9 */}
+      {/* Creative thumbnail — 4:5 portrait, zero crop (letterbox on bg) */}
       <CreativeThumbnail
         creative={cp}
-        className="aspect-video w-full rounded-none"
+        fit="contain"
+        className="aspect-[4/5] w-full rounded-none"
       />
 
       <CardContent className="p-3 space-y-3">
@@ -325,11 +332,12 @@ function AdDetailSheet({
           <div className="min-w-0 flex-1 space-y-4">
             {/* Thumbnail */}
             {creativeLoading || isFetching ? (
-              <div className="aspect-video w-full animate-pulse rounded-lg bg-muted" />
+              <div className="aspect-[4/5] w-full animate-pulse rounded-lg bg-muted" />
             ) : (
               <CreativeThumbnail
                 creative={creative}
-                className="aspect-video w-full rounded-lg"
+                fit="contain"
+                className="aspect-[4/5] w-full rounded-lg"
               />
             )}
 

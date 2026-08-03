@@ -544,7 +544,7 @@ Server-side. 25 rows per page default. shadcn `Pagination` component at the bott
 ```
 ┌────────────────────────┐
 │  [Creative image/video │
-│   thumbnail 16:9]      │
+│   thumbnail 4:5]       │
 │                        │
 │  Format badge (video)  │
 ├────────────────────────┤
@@ -561,6 +561,7 @@ Server-side. 25 rows per page default. shadcn `Pagination` component at the bott
 └────────────────────────┘
 ```
 
+- Creative thumbnails use a 4:5 portrait frame with `object-contain` (zero crop) — full asset shown, letterboxed on a muted background rather than cropped to fill
 - Image ads: show `image_url` directly
 - Video ads: show `thumbnail_url` with a play icon overlay
 - Carousel ads: show first image with a carousel indicator badge

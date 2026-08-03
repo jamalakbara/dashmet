@@ -6,6 +6,11 @@ All notable changes to this project are documented here. Format follows
 ## [Unreleased]
 
 ### Changed
+- Ad creative thumbnails now use a 4:5 portrait frame with `object-contain` (zero crop)
+  instead of a 16:9 `object-cover` frame that cropped heads/text off Meta feed creatives.
+  Applies to grid `AdCard`s and the detail sheet; skeletons match. Added a `fit` prop to
+  `CreativeThumbnail` (list-view row thumb stays `cover`).
+  `frontend/src/components/views/ads-view.tsx`.
 - Sync status badge no longer reports a blanket "Updated Xm ago" when only the primary
   (`insights_daily`) job is fresh — if the secondary `breakdown` job is still pending/running
   it shows "Partially synced — breakdowns pending" (P-2). Creatives excluded (no sync_job
