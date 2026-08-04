@@ -30,8 +30,10 @@ All notable changes to this project are documented here. Format follows
   `backend/.env.example`; `openai` added to `backend/requirements.txt`. Frontend: typed
   `insightsApi.generateSummary` (`OverviewSummary` with the four fields) + `include_ai_summary` on
   `exportOverviewPptx` (`frontend/src/lib/api/insights.ts`), an **AI Summary** card rendering the
-  four labeled sections with idle/loading/success/error states
-  (`frontend/src/components/views/overview-view.tsx`), and an **Include AI summary** toggle next to
+  four labeled sections with idle/loading/success/error states — keyed on account + period + filter
+  so a context change remounts it to the idle state and a summary is never shown stale against
+  numbers it wasn't generated for (P-1) (`frontend/src/components/views/overview-view.tsx`), and an
+  **Include AI summary** toggle next to
   Export PPTX (`frontend/src/components/layout/control-strip.tsx`). Tests:
   `backend/tests/test_ai_summary.py`, `backend/tests/test_overview_summary_endpoint.py`,
   `backend/tests/test_export_overview.py`.

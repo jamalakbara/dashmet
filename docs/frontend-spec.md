@@ -350,6 +350,8 @@ Props: `title`, `headline` (formatted), `icon` (Lucide), `accent` (chip bg class
 
 Calls `insightsApi.generateSummary({ account_id, ...dateRange, ...filter })` → `POST /insights/overview/summary` (top-level response, not `{ data }`-wrapped; typed `OverviewSummary` with the four `headline`/`driver`/`watch`/`next_step` fields). A failure surfaces as a `502` whose `detail` is shown to the user.
 
+The card is **keyed on account + period + filter**, so changing any of them remounts it back to the Idle state rather than leaving a previous period's diagnosis displayed against the new numbers (P-1: a summary is only ever shown against the numbers it was generated for). Regeneration stays an explicit click — the reset never auto-spends tokens.
+
 #### Embedded sub-views
 
 - **Trends** — `<PeriodicView />` (see §6.2): metric-tab time-series charts + `BreakdownSection`.

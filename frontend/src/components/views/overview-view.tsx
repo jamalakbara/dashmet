@@ -281,8 +281,17 @@ export function OverviewView() {
         />
       </div>
 
-      {/* AI narrative summary (on-demand, grounded in the same overview numbers) */}
-      <AiSummaryCard accountId={accountId} dateRange={dateRange} filter={filter} />
+      {/* AI narrative summary (on-demand, grounded in the same overview numbers).
+          Keyed on account + period + filter so a context change remounts the
+          card back to its idle state — a summary is only ever shown against the
+          numbers it was generated for (P-1), never left stale after the period
+          changes. Regeneration stays an explicit click (no auto token spend). */}
+      <AiSummaryCard
+        key={`${accountId}:${JSON.stringify(dateRange)}:${JSON.stringify(filter)}`}
+        accountId={accountId}
+        dateRange={dateRange}
+        filter={filter}
+      />
 
       {/* Trends (periodic charts with metric tabs) */}
       <section className="space-y-3">
