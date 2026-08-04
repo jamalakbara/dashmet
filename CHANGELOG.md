@@ -101,6 +101,13 @@ All notable changes to this project are documented here. Format follows
   `frontend/src/components/views/{overview-view,funnel-view,table-view,ads-view}.tsx`.
 
 ### Changed
+- **Conversion funnel redesign (UI-only, no data/behavior change)** — replaced the proportional
+  horizontal bars (deep steps collapsed to ~2% slivers) with uniform left-aligned rows: label,
+  power-scaled bar fill (`^0.4`, 6% floor) so every step stays visible, a fixed-width value +
+  `DeltaPill` block, and a muted `% of top · vs <prev>` line. Step-to-step conversion (`↳ X%
+  continue · cost/ea`) now renders as a thin indented connector between rows. Fixes the
+  compare-on overlap where the delta pill collided with the value
+  (`frontend/src/components/views/funnel-view.tsx`).
 - **App font switched to Rubik.** Replaced Inter/Geist/Manrope with Rubik as the sans + display
   family (`--font-sans`, `--font-display`); Geist Mono retained for `--font-mono`
   (`frontend/src/app/layout.tsx`, `frontend/src/app/globals.css`).

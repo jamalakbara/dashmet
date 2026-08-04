@@ -12,7 +12,6 @@ import { usePlatform } from "@/hooks/use-platform";
 import { useOverviewFilter } from "@/hooks/use-overview-filter";
 import { FUNNEL_STEPS, CHART_COLORS } from "@/lib/constants";
 import { formatMetric, formatPercent } from "@/lib/formatters";
-import { cn } from "@/lib/utils";
 
 // Step key → the cost-per-step metric key (when one exists in the overview summary).
 const COST_KEY: Record<string, string> = {
@@ -81,7 +80,7 @@ export function FunnelView() {
               No funnel data for selected period
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1">
               {steps.map((step, i) => {
                 const pctOfTop = topValue > 0 ? (step.value / topValue) * 100 : 0;
                 const prev = i > 0 ? steps[i - 1] : null;
@@ -91,46 +90,64 @@ export function FunnelView() {
                 const cost = costKey ? summary[costKey] : null;
                 const color = CHART_COLORS[i % CHART_COLORS.length];
 
+                // Bar fill is power-scaled so deep steps stay visible instead of
+                // collapsing to a 2% sliver. The real share is the "% of top" text.
+                const fillPct =
+                  topValue > 0
+                    ? Math.max(Math.pow(step.value / topValue, 0.4) * 100, 6)
+                    : 0;
+
                 return (
-                  <div key={step.key} className="flex items-center gap-3">
-                    {/* Label + bar */}
-                    <div className="w-40 shrink-0 text-sm font-medium">{step.label}</div>
-                    <div className="relative h-10 flex-1 rounded bg-muted/40">
-                      <div
-                        className={cn(
-                          "flex h-full items-center rounded px-3 text-sm font-medium text-white transition-all",
-                          pctOfTop < 18 && "justify-end pr-0 text-foreground",
-                        )}
-                        style={{
-                          width: `${Math.max(pctOfTop, 2)}%`,
-                          backgroundColor: color,
-                        }}
-                      >
-                        <span className={cn(pctOfTop < 18 && "ml-2 text-foreground")}>
-                          {formatMetric(step.value, "number", currency)}
+                  <div key={step.key}>
+                    {/* Conversion connector between this step and the one above */}
+                    {prev && (
+                      <div className="flex items-center gap-1.5 pl-36 text-[11px] text-muted-foreground">
+                        <span aria-hidden>↳</span>
+                        <span className="font-medium text-foreground">
+                          {formatPercent(stepRate)}
                         </span>
+                        <span>continue</span>
+                        {cost != null && (
+                          <span className="text-muted-foreground/70">
+                            · {formatMetric(cost as number, "currency", currency)}/ea
+                          </span>
+                        )}
                       </div>
-                    </div>
-                    {/* Right-side stats */}
-                    <div className="w-44 shrink-0 text-right text-xs text-muted-foreground">
-                      {compare && (
-                        <div className="mb-0.5 flex justify-end">
-                          <DeltaPill
-                            current={step.value}
-                            previous={previous[step.key]}
-                            metricKey={step.key}
-                            variant="inline"
-                            valueType="number"
-                            currency={currency}
-                          />
+                    )}
+
+                    {/* Step row: label · bar · value · share */}
+                    <div className="flex items-center gap-3 py-1">
+                      <div className="w-32 shrink-0 truncate text-sm font-medium">
+                        {step.label}
+                      </div>
+                      <div className="h-9 flex-1 overflow-hidden rounded-lg bg-muted/40">
+                        <div
+                          className="h-full rounded-lg transition-all"
+                          style={{ width: `${fillPct}%`, backgroundColor: color }}
+                        />
+                      </div>
+                      <div className="w-44 shrink-0 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <span className="font-display text-sm font-semibold tabular-nums">
+                            {formatMetric(step.value, "number", currency)}
+                          </span>
+                          {compare && (
+                            <DeltaPill
+                              current={step.value}
+                              previous={previous[step.key]}
+                              metricKey={step.key}
+                              variant="inline"
+                              valueType="number"
+                              currency={currency}
+                            />
+                          )}
                         </div>
-                      )}
-                      <div>{formatPercent(pctOfTop)} of top</div>
-                      <div>
-                        {stepRate !== null ? `${formatPercent(stepRate)} from prev` : "—"}
-                        {cost != null
-                          ? ` · ${formatMetric(cost as number, "currency", currency)}/ea`
-                          : ""}
+                        <div className="text-[11px] tabular-nums text-muted-foreground">
+                          {formatPercent(pctOfTop)} of top
+                          {compare && previous[step.key] != null && (
+                            <> · vs {formatMetric(previous[step.key], "number", currency)}</>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
