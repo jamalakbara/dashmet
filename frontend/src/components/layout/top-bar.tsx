@@ -43,19 +43,19 @@ export function TopBar() {
   return (
     <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-border bg-card px-5">
       {/* Left: platform identity · freshness · account picker */}
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center gap-3">
         {platform ? (
           <PlatformBadge platform={platform} size="md" />
         ) : null}
-        <span className="text-lg font-bold tracking-tight">{title}</span>
-        <div className="hidden md:block">
+        <span className="shrink-0 text-lg font-bold tracking-tight">{title}</span>
+        <div className="hidden min-w-0 md:block">
           <SyncStatusBadge />
         </div>
         <AccountSwitcher />
       </div>
 
       {/* Right: date · notifications · user */}
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-3">
         <DateRangePicker />
         <button
           type="button"

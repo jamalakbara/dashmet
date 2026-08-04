@@ -249,12 +249,12 @@ function Pill({
   return (
     <div
       className={cn(
-        "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
+        "flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
         VARIANT_STYLE[variant]
       )}
     >
       <span className="flex shrink-0 items-center">{icon}</span>
-      <span className="max-w-[280px] truncate">{label}</span>
+      <span className="min-w-0 max-w-[16rem] truncate">{label}</span>
       {onSync && (
         <button
           type="button"
