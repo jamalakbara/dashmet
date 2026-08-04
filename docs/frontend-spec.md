@@ -156,15 +156,15 @@ Auth guard is a middleware (`middleware.ts`) that checks for a valid JWT cookie.
 
 ## 4. Global Layout
 
-The dashboard layout (`(dashboard)/layout.tsx`) renders two inset floating panels (both `m-3 rounded-2xl shadow-xl ring-1 ring-black/5`): the indigo **sidebar rail** on the left, and a right **content panel** holding a light **top bar** (`TopBar`), an **action strip** (`ControlStrip`) that carries the Sync Data action + account picker + `PlatformTabs` + Filter, and the scrollable content canvas. Base Data light-SaaS theme (white cards floating on a light-gray canvas); the near-black bento "OS-window" chrome was retired.
+The dashboard layout (`(dashboard)/layout.tsx`) renders two inset floating panels (both `m-3 rounded-2xl shadow-xl ring-1 ring-black/5`): the indigo **sidebar rail** on the left, and a right **content panel** holding a light **top bar** (`TopBar`) that carries the platform identity + freshness chip + account picker (left) and DateRange / notifications / user (right), a **control strip** (`ControlStrip`) that carries `PlatformTabs` + Compare toggle + Filter + Export, and the scrollable content canvas. There is **no permanent "Sync Data" button** — manual sync is a recovery path surfaced contextually inside the freshness chip (P-5). Base Data light-SaaS theme (white cards floating on a light-gray canvas); the near-black bento "OS-window" chrome was retired.
 
 ```
 ┌───────────┬──────────────────────────────────────────────────┐
 │  DASH·MET │  TOP BAR                                          │
-│ (indigo)  │  [MetaAds·updated]  [DateRange][Compare◑][🔔][👤] │
+│ (indigo)  │ [MetaAds·fresh·Account▾]   [DateRange][🔔][👤]    │
 │           ├──────────────────────────────────────────────────┤
-│ DATA      │  ACTION STRIP                                     │
-│  Summary  │  [Sync Data] [Account ▾] [Overview…Ads]  [Filter] │
+│ DATA      │  CONTROL STRIP                                    │
+│  Summary  │  [Overview…Ads] [Compare◑]      [Filter][Export] │
 │  Platform ├──────────────────────────────────────────────────┤
 │   Meta    │                                                   │
 │   TikTok  │   PAGE CONTENT (active tab)                       │
@@ -195,7 +195,7 @@ The dashboard layout (`(dashboard)/layout.tsx`) renders two inset floating panel
 - A 30-day note appears in the custom view **only when** the chosen range reaches back past 30 days (breakdowns cover ~30d; see breakdown sync).
 - Selection stored in URL: `?date_preset=last_30d` or `?date_start=2026-05-01&date_end=2026-05-30`. Default: `last_30d`. Survives nav via `useSharedFilterQuery`.
 
-**Compare-previous toggle** — shadcn `Switch` labeled "Compare prev.", sits next to the `DateRangePicker`.
+**Compare-previous toggle** — shadcn `Switch` labeled "Compare prev.", lives in the **control strip** next to `PlatformTabs` (it's a view control, so it sits with the tabs rather than in the top bar).
 - **Global** period-over-period switch driven by URL state `?compare=true` (via `useQueryState("compare")`); absence = off (no `compare=false` in the URL).
 - Drives every Overview section at once: the Trends prior-period overlay plus the period-over-period **delta pills** on KPI cards, funnel stages, table cells, and ad cards/rows. Trends no longer owns its own compare switch — it reads the same URL param read-only (see §6.2).
 - Delta pills stay **silent** when a comparison can't be made (missing current/previous or a zero baseline) per P-2 — no permanently-lit neutral badge.
@@ -204,12 +204,12 @@ The dashboard layout (`(dashboard)/layout.tsx`) renders two inset floating panel
 **`SyncStatusBadge`**
 - The **single** sync indicator, rendered as a labeled pill in the `TopBar` (the old full-width `SyncStatusBar` freshness banner was removed to avoid a redundant second indicator; its per-preset job-resolution logic was folded into this badge).
 - Resolves the jobs relevant to the active `date_preset` + platform (`RANGE_JOBS` / `insights_historical_or_async` → `insights_historical` for TikTok else `insights_async`) and reports inline, color-coded:
-  - **fresh** (emerald): `Updated Xm ago` — stays visible so the navbar always reports freshness
+  - **fresh** (neutral grey — same treatment as idle): `Updated Xm ago` — stays visible so the navbar always reports freshness, but reads as calm rather than lit-green (P-2)
   - **syncing** (amber, spinner): `Syncing last 30d — ready in ~2–8 min` (or account/structure ETA)
   - **stale** (amber): `last 30d may be outdated · synced Xh ago`
   - **failed** (red): `Sync failed · last 30d`
   - **idle** (gray): `Last updated —` / `No account`
-- Manual re-sync lives on the **Sync Data** button in the action strip, not here.
+- **Contextual manual sync (P-5):** on the **stale** and **failed** variants only — where there's a real reason — the pill renders an inline `Sync now` action (`RefreshCw` icon, spinner while pending) that fires `POST /sync/trigger` for the resolved account, toasts on success/error, and invalidates `queryKeys.syncStatus`. Fresh / syncing / idle show no sync action. This replaces the old permanent "Sync Data" button.
 - Polls `GET /sync/status` every 30 seconds.
 
 **User menu** — shadcn `DropdownMenu`
@@ -233,9 +233,9 @@ DATA
 
 Sidebar (`components/layout/sidebar.tsx`) is an **indigo rail** with a single `DATA` section. `Platform Data` is a collapsible group (open by default); each platform lands on its first tab (`PLATFORM_TABS[platform][0]`, i.e. Overview) and is highlighted whenever any of its tabs is active (`pathname.startsWith('/{platform}')`). **Settings** sits in a bottom-pinned footer (top divider), below the scrollable nav, in both expanded and collapsed states. There is no standalone `Account Binding` rail link — account connection is reached via **Settings → Connections** tab (route `/settings/connections` still exists). Filter params (account_id, date range) are carried across sidebar + tab navigation by `useSharedFilterQuery()`. The rail renders as a **detached floating card** (`m-3 rounded-2xl shadow-xl`), reserving its column but sitting inset from the viewport edges rather than flush. It collapses to an icon-only strip (`w-[68px]`) and expands back to full width (`w-60`) via a round chevron handle straddling the rail's right edge (fixed near the top, same spot in both states so it never jumps on resize); the choice lives in the persisted UI store (`ui-store.ts` → `sidebarCollapsed`, key `dashmet-ui`). Collapsed, labels/section headers/chevrons hide, each row centers its icon with a native `title` tooltip, and the `Platform Data` group flattens to its three platform icons (no toggle). Desktop-first — no hamburger.
 
-### Action strip — `ControlStrip`
+### Control strip — `ControlStrip`
 
-`components/layout/control-strip.tsx` — sits directly under the top bar. Holds the primary **Sync Data** button (`POST /sync/trigger` for the selected account; manual sync is a recovery path per P-5, not a per-card fixture), the `AccountSwitcher`, the `PlatformTabs`, the **Filter** popover (`FilterPopover`), and — on single-account views only — the **Export PPTX** button.
+`components/layout/control-strip.tsx` — sits directly under the top bar. Holds the view controls left→right: the `PlatformTabs`, the **Compare prev.** toggle, then a right-aligned group with the **Filter** popover (`FilterPopover`) and — on single-account views only — the **Export PPTX** button. It carries **no Sync Data button** (removed): manual sync is a recovery path surfaced contextually in the freshness chip (`SyncStatusBadge`) per P-5, not a permanent strip fixture. The `AccountSwitcher` moved up to the `TopBar`.
 
 **Export PPTX** — an outline button (`FileDown` icon) shown only on **single-account** (platform-scoped) views, hidden on the combined `/dashboard` where `usePlatform()` is `null` (there's no single-account overview to render). Calls `insightsApi.exportOverviewPptx({ account_id, ...dateRange, ...filter })` — same params as the overview read — then downloads the returned `Blob` client-side (creates an object URL + a temporary `<a download="overview.pptx">`). Pending state pulses the icon; a failure toasts and downloads nothing. Backend endpoint: `GET /insights/overview/export.pptx` (see `docs/backend-api-spec.md`).
 
@@ -243,7 +243,7 @@ Sidebar (`components/layout/sidebar.tsx`) is an **indigo rail** with a single `D
 
 ### Platform tab bar — `PlatformTabs`
 
-`components/layout/platform-tabs.tsx` — a `<Link>`-based (route-driven, not the shadcn `Tabs` primitive) tab bar mounted in the action strip. Reads the active platform via `usePlatform()`, looks up `PLATFORM_TABS[platform]`, and renders one tab per view. Returns `null` on `/dashboard` (no platform). Active tab = exact `pathname` match.
+`components/layout/platform-tabs.tsx` — a `<Link>`-based (route-driven, not the shadcn `Tabs` primitive) tab bar mounted in the control strip. Reads the active platform via `usePlatform()`, looks up `PLATFORM_TABS[platform]`, and renders one tab per view. Returns `null` on `/dashboard` (no platform). Active tab = exact `pathname` match.
 
 ---
 
@@ -398,7 +398,7 @@ const { data, isLoading } = useQuery({
 - Options: Day · Week · Month
 - Default: Day
 
-**Compare previous period** — no longer a Trends-local control. The toggle moved to a **global** `Switch` in the `TopBar` (see §4), driven by `?compare=true`. Trends reads that URL param **read-only** (`useQueryState("compare")` without a setter) and still renders the prior-period dashed-line overlay when it's on:
+**Compare previous period** — no longer a Trends-local control. The toggle moved to a **global** `Switch` in the `ControlStrip` (see §4), driven by `?compare=true`. Trends reads that URL param **read-only** (`useQueryState("compare")` without a setter) and still renders the prior-period dashed-line overlay when it's on:
 - When on: overlays the prior period as a dashed line on the same chart (fetched via `compare_previous=true` on `timeseries`)
 - Period label shown in the chart legend (e.g. "May 2026" vs "Apr 2026")
 
@@ -766,7 +766,7 @@ Primary state for all dashboard filters — ensures shareable, bookmarkable URLs
 | `trend_level` | Trends/Periodic | `?trend_level=account` (default `account`; separate key from `level` so both can co-mount on Overview) |
 | `metrics` | Periodic | `?metrics=spend,ctr` |
 | `time_increment` | Periodic | `?time_increment=day` |
-| `compare` | Global (TopBar) | `?compare=true` — drives Trends overlay + delta pills on cards/funnel/table/ads |
+| `compare` | Global (ControlStrip) | `?compare=true` — drives Trends overlay + delta pills on cards/funnel/table/ads |
 | `breakdown` | Periodic | `?breakdown=age_gender` |
 | `status` | Table | `?status=active` |
 | `sort_by` | Table | `?sort_by=spend` |

@@ -1,9 +1,10 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
 import { formatDistanceToNow } from "date-fns";
 import { RefreshCw, AlertTriangle, Info, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
 import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { syncApi } from "@/lib/api/sync";
 import { accountsApi } from "@/lib/api/accounts";
@@ -38,7 +39,8 @@ const VARIANT_STYLE: Record<Variant, string> = {
   syncing: "border-amber-200 bg-amber-50 text-amber-700",
   stale: "border-amber-200 bg-amber-50 text-amber-700",
   error: "border-red-200 bg-red-50 text-red-700",
-  fresh: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  // Fresh is calm, not lit-green (P-2): reuse the neutral idle treatment.
+  fresh: "border-border bg-muted/40 text-muted-foreground",
   idle: "border-border bg-muted/40 text-muted-foreground",
 };
 
@@ -64,6 +66,16 @@ export function SyncStatusBadge() {
 
   const accountId = accountIdParam ?? accounts[0]?.id ?? null;
   const platformId = accounts.find((a) => a.id === accountId)?.platform ?? "meta";
+
+  const queryClient = useQueryClient();
+  const sync = useMutation({
+    mutationFn: () => syncApi.trigger(accountId!),
+    onSuccess: () => {
+      toast.success("Sync started — data will refresh shortly.");
+      queryClient.invalidateQueries({ queryKey: queryKeys.syncStatus(accountId ?? "") });
+    },
+    onError: () => toast.error("Couldn't start sync. Try again."),
+  });
 
   const { data } = useQuery({
     queryKey: queryKeys.syncStatus(accountId ?? ""),
@@ -153,6 +165,8 @@ export function SyncStatusBadge() {
           />
         }
         label={`Sync failed · ${rangeLabel}`}
+        onSync={() => sync.mutate()}
+        syncing={sync.isPending}
       />
     );
   }
@@ -194,6 +208,8 @@ export function SyncStatusBadge() {
         variant="stale"
         icon={<Info className="size-3" />}
         label={`${rangeLabel} may be outdated${ago ? ` · synced ${ago}` : ""}`}
+        onSync={() => sync.mutate()}
+        syncing={sync.isPending}
       />
     );
   }
@@ -220,10 +236,15 @@ function Pill({
   variant,
   icon,
   label,
+  onSync,
+  syncing,
 }: {
   variant: Variant;
   icon: React.ReactNode;
   label: string;
+  /** When provided, renders an inline "Sync now" recovery action (P-5). */
+  onSync?: () => void;
+  syncing?: boolean;
 }) {
   return (
     <div
@@ -232,8 +253,19 @@ function Pill({
         VARIANT_STYLE[variant]
       )}
     >
-      <span className="shrink-0">{icon}</span>
+      <span className="flex shrink-0 items-center">{icon}</span>
       <span className="max-w-[280px] truncate">{label}</span>
+      {onSync && (
+        <button
+          type="button"
+          onClick={onSync}
+          disabled={syncing}
+          className="ml-0.5 inline-flex shrink-0 items-center gap-1 rounded-full border border-current/30 px-1.5 py-0.5 font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
+        >
+          <RefreshCw className={cn("size-3", syncing && "animate-spin")} />
+          Sync now
+        </button>
+      )}
     </div>
   );
 }

@@ -7,17 +7,25 @@ All notable changes to this project are documented here. Format follows
 
 ### Added
 - **PPTX export of a single-account overview** — new `GET /insights/overview/export.pptx`
-  (`backend/app/api/v1/endpoints/insights.py`) returns a 5-slide PowerPoint deck (title+meta,
-  KPI summary, native spend-trend chart, top-campaigns table, top-6 ads with 4:5 creative
-  thumbnails) as a binary `StreamingResponse`. Deck built by the new
-  `backend/app/services/export.py` (`generate_overview_pptx`), which reuses the shared
-  `get_overview`/`get_timeseries`/`get_table` read functions — identical numbers by
-  construction, no second query path (P-6/P-7). Frontend: `insightsApi.exportOverviewPptx`
+  (`backend/app/api/v1/endpoints/insights.py`) returns a branded 6-slide PowerPoint deck as a
+  binary `StreamingResponse`: a dark gradient-blob **cover**, a **Monthly Performance** slide
+  (Current-vs-Previous hero + metric cards with coloured period-over-period deltas and prior
+  values), a **daily spend trend** with a native current-vs-previous overlay chart (thinned
+  date axis), a styled **Top Campaigns** table, a **Top Ads** grid with 4:5 creative thumbnails,
+  and a closing slide. Each content slide carries an editable purple "insight" placeholder box.
+  Visual language mirrors a monthly-report agency template with dashmet branding: the dashmet
+  logo (top-right of every slide + closing) and the platform logo beside the cover's "<PLATFORM>
+  ADS" tag, rasterized from `frontend/public/*.svg` to bundled PNGs under
+  `backend/app/services/assets/` (PowerPoint can't embed SVG; a missing asset degrades to a text
+  mark). Deck built by the new `backend/app/services/export.py`
+  (`generate_overview_pptx`), which reuses the shared `get_overview`/`get_timeseries`
+  (`compare_previous=True`)/`get_table` read functions — identical numbers by construction, no
+  second query path (P-6/P-7). Frontend: `insightsApi.exportOverviewPptx`
   (`frontend/src/lib/api/insights.ts`) plus an **Export PPTX** button shown on single-account
   views (`frontend/src/components/layout/control-strip.tsx`). New backend deps
   `python-pptx==1.0.2` + `Pillow==11.3.0` (`backend/requirements.txt`). Known gap: the
-  single-account `get_overview()` read path lacks a freshness/coverage envelope, so the title
-  slide stamps only "Data as of <date_stop>" (P-1 follow-up, tracked in `BOARD.md`).
+  single-account `get_overview()` read path lacks a freshness/coverage envelope, so the cover
+  stamps only "Data as of <date_stop>" (P-1 follow-up, tracked in `BOARD.md`).
 - **Animated lucide icons** across the dashboard via a new reusable `AnimatedIcon` primitive
   (`frontend/src/components/shared/animated-icon.tsx`) that wraps any `lucide-react` glyph in a
   framer-motion `motion.span` — so every animation honors OS reduce-motion through the global
@@ -49,6 +57,15 @@ All notable changes to this project are documented here. Format follows
   `frontend/src/components/views/{overview-view,funnel-view,table-view,ads-view}.tsx`.
 
 ### Changed
+- **Toolbar reorganized into a tidy two-row layout; permanent "Sync Data" button removed.**
+  The always-lit blue Sync Data button is gone — manual sync is now a contextual **Sync now**
+  action inside the freshness chip, shown only when data is stale or a job failed (P-5). The
+  `SyncStatusBadge` fresh state is muted from emerald to neutral grey so fresh data reads calm,
+  not lit (P-2), and its pill icon is vertically centered. `AccountSwitcher` moved up beside the
+  platform title (TopBar); the **Compare prev.** toggle moved down beside the view tabs
+  (ControlStrip). Touches `frontend/src/components/layout/top-bar.tsx`,
+  `frontend/src/components/layout/control-strip.tsx`,
+  `frontend/src/components/shared/sync-status-badge.tsx`, `docs/frontend-spec.md`.
 - **Sidebar nav slimmed: Account Binding removed, Settings pinned to bottom.** Dropped the
   standalone "Account Binding" rail link (and the now-empty USER section label); account
   connection is reached via **Settings → Connections** tab (`settings-nav.tsx` unchanged, route
