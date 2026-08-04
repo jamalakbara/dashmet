@@ -59,6 +59,11 @@ All notable changes to this project are documented here. Format follows
   `frontend/src/components/views/{overview-view,funnel-view,table-view,ads-view}.tsx`.
 
 ### Changed
+- **Sidebar collapse toggle moved into the brand block (ChatGPT-style).** Retired the round
+  chevron handle straddling the rail's right edge. Expanded: a ghost chevron button right-aligned
+  in the brand row next to the logo. Collapsed: the logo alone shows and hovering it swaps the
+  logo for the expand button, so the icon-only rail stays clean. UI-only, no behavior change to
+  the persisted `sidebarCollapsed` state (`frontend/src/components/layout/sidebar.tsx`).
 - **Design-system unification pass — one accent, one segmented-control, coherent cards/tables.**
   Collapsed the frontend's competing visual languages into a single system (UI-only; no data or
   behavior change). (a) **Single accent = sidebar indigo.** `--primary`/`--ring`/`--accent`

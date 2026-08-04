@@ -68,38 +68,56 @@ export function Sidebar() {
         collapsed ? "w-[68px]" : "w-60"
       )}
     >
-      {/* Collapse toggle — a handle straddling the right edge, same spot in both
-          states so it never jumps when the rail resizes. */}
-      <button
-        type="button"
-        onClick={toggleCollapsed}
-        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        className="absolute -right-3 top-1/2 z-20 flex size-6 -translate-y-1/2 items-center justify-center rounded-full bg-background text-foreground shadow-md ring-1 ring-border transition-colors hover:bg-muted"
-      >
-        <ChevronLeft
-          className={cn(
-            "size-4 transition-transform duration-200",
-            collapsed && "rotate-180"
-          )}
-        />
-      </button>
-
-      {/* Brand */}
+      {/* Brand + collapse toggle. The toggle sits next to the logo (ChatGPT
+          style). When collapsed, the logo alone shows; hovering it swaps the
+          logo for the expand button so the icon-only rail stays clean. */}
       <div
         className={cn(
           "flex items-center py-5",
           collapsed ? "justify-center px-3" : "gap-3 px-5"
         )}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.svg" alt="Base Data" className="size-10 shrink-0 rounded-xl" />
-        {!collapsed && (
-          <span className="text-[15px] font-bold leading-tight tracking-tight">
-            Base Data
-            <br />
-            Dashboard
-          </span>
+        {collapsed ? (
+          <div className="group/brand relative flex size-10 items-center justify-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo.svg"
+              alt="Base Data"
+              className="size-10 shrink-0 rounded-xl transition-opacity group-hover/brand:opacity-0"
+            />
+            <button
+              type="button"
+              onClick={toggleCollapsed}
+              aria-label="Expand sidebar"
+              title="Expand sidebar"
+              className="absolute inset-0 flex items-center justify-center rounded-xl bg-sidebar-accent text-sidebar-accent-foreground opacity-0 transition-opacity hover:bg-sidebar-accent group-hover/brand:opacity-100"
+            >
+              <ChevronLeft className="size-4 rotate-180" />
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo.svg"
+              alt="Base Data"
+              className="size-10 shrink-0 rounded-xl"
+            />
+            <span className="text-[15px] font-bold leading-tight tracking-tight">
+              Base Data
+              <br />
+              Dashboard
+            </span>
+            <button
+              type="button"
+              onClick={toggleCollapsed}
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+              className="ml-auto flex size-7 shrink-0 items-center justify-center rounded-lg text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+          </>
         )}
       </div>
 
