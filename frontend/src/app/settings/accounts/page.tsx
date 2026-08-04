@@ -144,6 +144,10 @@ export default function AccountsSettingsPage() {
                 </div>
                 {account.platform === "meta" ? (
                   <Select
+                    items={[
+                      { value: "standard", label: "Standard" },
+                      { value: "cpas", label: "CPAS" },
+                    ]}
                     value={account.account_type}
                     onValueChange={(val) =>
                       mutation.mutate({ id: account.id, account_type: val as AccountType })

@@ -78,6 +78,11 @@ def get_account_with_config(
     db: Session, account_id: str, org_id: str
 ) -> Account:
     account = assert_account_belongs_to_org(db, account_id, org_id)
+    # Disabled accounts are gone from reads (same as list_accounts). Without this,
+    # a stale selection (e.g. a client that kept an account_id from before a
+    # disconnect) would resolve a dead account instead of falling back to a live one.
+    if account.account_status == "disabled":
+        raise NotFoundError("Account not found")
     return account
 
 

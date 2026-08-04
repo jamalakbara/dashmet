@@ -118,8 +118,20 @@ All notable changes to this project are documented here. Format follows
   Affects `workers/tasks/insights.py` (daily + breakdowns), `workers/tasks/async_jobs.py`,
   `workers/meta_client.py` (`get_insights` now requires `time_range`, no longer accepts `date_preset`).
 
-### Added
-- Period-over-period delta pills across the Overview — KPI cards (headline + sub-metrics), funnel
+### Fixed
+- Disabled accounts read as gone from single-account resolution. `get_account_with_config`
+  (`backend/app/services/accounts.py`) now raises `NotFoundError` for `account_status="disabled"`,
+  so `GET /accounts/{id}` returns `404` like `GET /accounts` already hides them — a stale client
+  selection (an `account_id` kept from before a disconnect+reconnect) resolves to gone and the UI
+  falls back to a live account. Cross-org access stays `403`, checked before the status filter so
+  status never leaks. Covered by `backend/tests/test_accounts_disabled.py`.
+- Account picker no longer keeps a dead selection alive from a stale localStorage snapshot.
+  `useSelectedAccount` (`frontend/src/hooks/use-account.ts`) now validates any selected id absent
+  from the live first page even when a snapshot exists (`retry: false` GET; a 404 drops the
+  selection), and only trusts the snapshot optimistically while that fetch is in flight.
+  `AccountCommandList` (`frontend/src/components/shared/account-command-list.tsx`) prunes
+  Pinned/Recent snapshots absent from the live list, but only when absence is conclusive (idle,
+  non-truncated page); `PICKER_PAGE_SIZE` is now exported for the truncation check. — KPI cards (headline + sub-metrics), funnel
   stages, table cells, and ad cards/rows. New shared `frontend/src/components/metrics/delta-pill.tsx`
   (`DeltaPill` + `DeltaBadge`) + `metricDelta`/`COST_METRICS` helper in `frontend/src/lib/formatters.ts`;
   cost metrics (`cpa`/`cpc`/`cpm`/`cpp`/`frequency`, `cost_per_*`) are color-inverted so a drop reads

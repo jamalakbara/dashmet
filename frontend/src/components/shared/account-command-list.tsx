@@ -17,6 +17,7 @@ import { PlatformBadge } from "@/components/shared/platform-badge";
 import {
   useAccountSearch,
   useGroupedAccountSearch,
+  PICKER_PAGE_SIZE,
   type Account,
 } from "@/hooks/use-account";
 import { useUIStore, type AccountSnapshot } from "@/stores/ui-store";
@@ -86,13 +87,23 @@ export function AccountCommandList({
   const searching = search.trim().length > 0;
   const scopeOk = (p: string) => !platform || p === platform;
 
+  // Recent/Pinned render from persisted localStorage snapshots, which survive a
+  // disconnect+reconnect and can point at accounts the API no longer returns
+  // (e.g. account_status="disabled"). Prune snapshots absent from the live list,
+  // but only when absence is conclusive: an idle, non-truncated page proves the
+  // account is gone. A capped/loading page proves presence, not absence — never
+  // drop a valid account that just sits beyond the first page.
+  const liveIds = new Set(accounts.map((a) => a.id));
+  const canPrune = !searching && !isFetching && accounts.length < PICKER_PAGE_SIZE;
+  const liveOk = (id: string) => !canPrune || liveIds.has(id);
+
   const pinned = pinnedIds
     .map((id) => snapshots[id])
-    .filter((s): s is AccountSnapshot => !!s && scopeOk(s.platform));
+    .filter((s): s is AccountSnapshot => !!s && scopeOk(s.platform) && liveOk(s.id));
   const recent = recentIds
     .filter((id) => !pinnedIds.includes(id))
     .map((id) => snapshots[id])
-    .filter((s): s is AccountSnapshot => !!s && scopeOk(s.platform))
+    .filter((s): s is AccountSnapshot => !!s && scopeOk(s.platform) && liveOk(s.id))
     .slice(0, 5);
 
   // When idle, don't repeat pinned/recent inside the results list.

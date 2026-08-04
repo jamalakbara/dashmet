@@ -21,7 +21,7 @@ export interface Account {
   business_name?: string | null;
 }
 
-const PICKER_PAGE_SIZE = 50;
+export const PICKER_PAGE_SIZE = 50;
 
 /** Debounce a fast-changing value (e.g. a search input). */
 export function useDebounced<T>(value: T, ms = 250): T {
@@ -135,34 +135,43 @@ export function useSelectedAccount(): {
   // as a resolution source for a freshly-picked account_id.
   const { accounts: firstPage } = useAccountSearch(routePlatform, "");
 
-  // Resolve the selected id by a single fetch only when it's neither in the
-  // snapshot store nor on the first page (e.g. a deep-linked account_id).
-  const knownLocally = !!accountId && (!!snapshots[accountId] || firstPage.some((a) => a.id === accountId));
-  const { data: fetched } = useQuery({
+  // Validate any selected id that isn't already on the live first page — even
+  // when a snapshot exists. A snapshot alone can be stale (account disabled or
+  // removed after a disconnect+reconnect); trusting it would keep a dead
+  // selection alive. The GET 404s on disabled accounts → treat as gone.
+  const onFirstPage = !!accountId && firstPage.some((a) => a.id === accountId);
+  const {
+    data: fetched,
+    isError: fetchFailed,
+    isLoading: fetching,
+  } = useQuery({
     queryKey: queryKeys.account(accountId ?? ""),
     queryFn: async () => (await accountsApi.get(accountId!)).data.data as Account,
-    enabled: typeof window !== "undefined" && !!accountId && !knownLocally,
+    enabled: typeof window !== "undefined" && !!accountId && !onFirstPage,
+    retry: false,
   });
 
   const scopeOk = (a: { platform: string } | null | undefined) =>
     !routePlatform || a?.platform === routePlatform;
+  const liveIds = new Set(firstPage.map((a) => a.id));
 
-  // 1) Explicit account_id → first page → snapshot → single fetch.
+  // 1) Explicit account_id → first page → confirmed fetch → snapshot (optimistic,
+  //    only while the validating fetch is in flight — never after it has failed).
   let account: Account | null = null;
-  if (accountId) {
+  if (accountId && !fetchFailed) {
     const snap = snapshots[accountId];
     account =
       firstPage.find((a) => a.id === accountId) ??
-      (snap ? snapshotToAccount(snap) : null) ??
-      (fetched && fetched.id === accountId ? fetched : null);
+      (fetched && fetched.id === accountId ? fetched : null) ??
+      (fetching && snap ? snapshotToAccount(snap) : null);
   }
 
-  // 2) Missing / wrong-platform selection → first remembered account for the
-  //    platform, else the first row of the page.
+  // 2) Missing / dead / wrong-platform selection → first remembered account that
+  //    is still live, else the first row of the page.
   if (!account || !scopeOk(account)) {
     const remembered = [...pinned, ...recent]
       .map((id) => snapshots[id])
-      .find((s) => s && scopeOk(s));
+      .find((s) => s && scopeOk(s) && liveIds.has(s.id));
     account = (remembered ? snapshotToAccount(remembered) : null) ?? firstPage[0] ?? null;
   }
 

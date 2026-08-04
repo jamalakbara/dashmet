@@ -10,6 +10,7 @@ import { UserPlus, Trash2 } from "lucide-react";
 import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -145,13 +146,12 @@ export default function MembersSettingsPage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                        m.role === "owner"
-                          ? "bg-primary/10 text-primary"
-                          : "bg-muted text-muted-foreground"
-                      }`}>
+                      <Badge
+                        variant="secondary"
+                        className={m.role === "owner" ? "bg-primary/10 text-primary" : undefined}
+                      >
                         {m.role.charAt(0).toUpperCase() + m.role.slice(1)}
-                      </span>
+                      </Badge>
                     </TableCell>
                     <TableCell>
                       <span className="text-sm">

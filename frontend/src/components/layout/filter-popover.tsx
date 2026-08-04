@@ -94,7 +94,7 @@ export function FilterPopover() {
 
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">Status</Label>
-          <Select value={status} onValueChange={(v) => setStatus(v)}>
+          <Select items={STATUS_OPTIONS} value={status} onValueChange={(v) => setStatus(v)}>
             <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
