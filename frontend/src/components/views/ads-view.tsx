@@ -378,9 +378,9 @@ function AdDetailSheet({
     <Sheet open={!!ad} onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent
         side="right"
-        className="w-full sm:max-w-2xl overflow-y-auto p-0"
+        className="flex w-full flex-col overflow-hidden p-0 shadow-xl ring-1 ring-black/5 sm:max-w-2xl !inset-y-3 !right-3 !h-auto !rounded-2xl !border-0"
       >
-        <SheetHeader className="border-b px-6 py-4">
+        <SheetHeader className="shrink-0 border-b px-6 py-4">
           <SheetTitle className="truncate pr-8">
             {creative?.title ?? ad?.name ?? "Ad Detail"}
           </SheetTitle>
@@ -400,17 +400,17 @@ function AdDetailSheet({
           )}
         </SheetHeader>
 
-        <div className="flex flex-col gap-6 p-6 lg:flex-row">
-          {/* Left: creative */}
-          <div className="min-w-0 flex-1 space-y-4">
+        <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6">
+          {/* Creative */}
+          <div className="space-y-4">
             {/* Thumbnail */}
             {creativeLoading || isFetching ? (
-              <div className="aspect-[4/5] w-full animate-pulse rounded-lg bg-muted" />
+              <div className="aspect-[4/5] w-full max-w-[220px] animate-pulse rounded-lg bg-muted" />
             ) : (
               <CreativeThumbnail
                 creative={creative}
                 fit="contain"
-                className="aspect-[4/5] w-full rounded-lg"
+                className="aspect-[4/5] w-full max-w-[220px] rounded-lg"
               />
             )}
 
@@ -453,23 +453,41 @@ function AdDetailSheet({
                   <span className="truncate">{creative.destination_url}</span>
                 </a>
               )}
-              <div className="flex gap-3 pt-1 text-xs text-muted-foreground">
-                {creative?.format && <span>Format: {creative.format}</span>}
-                {ad?.platform && <span>Platform: {ad.platform}</span>}
-              </div>
+              {(creative?.format || ad?.platform) && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {creative?.format && (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                      {creative.format}
+                    </span>
+                  )}
+                  {ad?.platform && (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                      {ad.platform}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Right: metrics */}
-          <div className="w-full shrink-0 space-y-3 lg:w-52">
+          {/* Performance metrics */}
+          <div className="w-full space-y-2">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               Performance
             </p>
-            <div className="space-y-2">
-              {metricRows.map(({ key, label, value }) => (
-                <div key={key} className="flex justify-between text-sm">
+            <div className="overflow-hidden rounded-xl border bg-card/50">
+              {metricRows.map(({ key, label, value }, i) => (
+                <div
+                  key={key}
+                  className={cn(
+                    "flex items-start justify-between gap-3 px-3 py-2 text-sm",
+                    i > 0 && "border-t"
+                  )}
+                >
                   <span className="text-muted-foreground">{label}</span>
-                  <span className="tabular-nums font-medium">{value}</span>
+                  <span className="shrink-0 whitespace-nowrap text-right tabular-nums font-medium">
+                    {value}
+                  </span>
                 </div>
               ))}
             </div>
