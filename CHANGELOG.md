@@ -21,17 +21,29 @@ All notable changes to this project are documented here. Format follows
   (`get_timeseries(compare_previous=True)`), alongside the account rollup. The senior-analyst prompt
   (`generate_overview_diagnosis`) judges each metric against the campaign objective and SELECTS (does
   not compute/rank) the driver campaign from pre-computed deltas — no LLM arithmetic (P-7). Errors
-  `403` cross-org, `400` missing dates, `502 { detail }` on any AI failure. `GET
+  `403` cross-org, `400` missing dates, `502 { detail }` on any AI failure. The diagnosis is
+  Redis-cached (`app.api.deps.redis_client`), keyed on
+  `aisum:v1:{account}:{period}:{sha1(status,search)[:12]}:{cached_at|"nodata"}` with a 24h backstop
+  TTL: without the new `force` query param a cache hit is replayed verbatim (`cached=true`, zero
+  tokens); `force=true` regenerates and overwrites. The final key segment is `get_overview`'s new
+  `cached_at` freshness token (`MAX(fetched_at)`, `backend/app/services/insights.py`), so a re-sync
+  moves the key → miss → regenerate and a stale narrative is never served (P-1); AI failures are
+  never cached (P-4). `OverviewSummaryResponse` gained `data_as_of` (the freshness token) and
+  `cached`. New cache-only `GET /insights/overview/summary/peek` returns the cached diagnosis
+  (`200`, `cached=true`) or `204` on a miss and **never** spends tokens. `GET
   /insights/overview/export.pptx` gained an opt-in `include_ai_summary` flag that auto-fills the
   deck's insight boxes via `generate_narrative` + `generate_overview_pptx(insights=…)`
   (`backend/app/services/export.py`), now fed the same campaign/trajectory bundle so the "trend"
   slide is grounded in real daily data; default off = the original placeholder, token-free deck. New
   config `OPENAI_API_KEY` + `OPENAI_MODEL` (default `gpt-4o-mini`) in `backend/app/config.py` /
   `backend/.env.example`; `openai` added to `backend/requirements.txt`. Frontend: typed
-  `insightsApi.generateSummary` (`OverviewSummary` with the four fields) + `include_ai_summary` on
+  `insightsApi.generateSummary` (now taking `force`; `OverviewSummary` gained `data_as_of` + `cached`)
+  and cache-only `insightsApi.peekSummary` (maps `204` → `null`), plus `include_ai_summary` on
   `exportOverviewPptx` (`frontend/src/lib/api/insights.ts`), an **AI Summary** card rendering the
-  four labeled sections with idle/loading/success/error states — keyed on account + period + filter
-  so a context change remounts it to the idle state and a summary is never shown stale against
+  four labeled sections with idle/loading/success/error states — it peeks the cache on mount
+  (token-free) so an existing diagnosis shows instantly, Regenerate sends `force=true`, and the
+  footnote shows `Data as of <relative time>` from `data_as_of` (P-1) — keyed on account + period +
+  filter so a context change remounts it and a summary is never shown stale against
   numbers it wasn't generated for (P-1) (`frontend/src/components/views/overview-view.tsx`), and an
   **Include AI summary** toggle next to
   Export PPTX (`frontend/src/components/layout/control-strip.tsx`). Tests:

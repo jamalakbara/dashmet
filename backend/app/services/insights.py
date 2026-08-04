@@ -295,7 +295,8 @@ SELECT
         THEN SUM(oc.value) / SUM(md.impressions) * 100
         ELSE NULL END           AS outbound_clicks_ctr,
     SUM(md.inline_post_engagement)  AS inline_post_engagement,
-    SUM(md.estimated_ad_recallers)  AS estimated_ad_recallers
+    SUM(md.estimated_ad_recallers)  AS estimated_ad_recallers,
+    MAX(md.fetched_at)          AS cached_at
 FROM metrics_daily md
 LEFT JOIN account_configs ac ON ac.account_id = md.account_id
 LEFT JOIN metric_action_stats conv
@@ -421,10 +422,16 @@ def get_overview(
 
     top = db.execute(text(TOP_CAMPAIGNS_SQL), params).mappings().all()
 
+    # Freshness token for the current period: MAX(fetched_at) across the same
+    # rows the current-window query aggregates. A re-sync bumps fetched_at, which
+    # invalidates the on-demand AI-summary cache keyed on it (P-1). Not a metric,
+    # so it's pulled out before the _safe_float coercion below.
+    cached_at = row["cached_at"] if row else None
+
     def row_to_dict(r):
         if not r:
             return {}
-        return {k: _safe_float(v) for k, v in r.items()}
+        return {k: _safe_float(v) for k, v in r.items() if k != "cached_at"}
 
     curr = row_to_dict(row)
     prev = row_to_dict(prior_row)
@@ -473,6 +480,7 @@ def get_overview(
             "date_stop": date_end,
             "preset": date_preset,
         },
+        "cached_at": cached_at,
         "summary": summary,
         "previous": previous,
         "vs_previous": {

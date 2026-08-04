@@ -1,14 +1,16 @@
+import hashlib
 import io
+import json
 import re
 from datetime import date, datetime, timezone
 from typing import Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, redis_client
 from app.config import settings
 from app.exceptions import ForbiddenError, NotFoundError
 from app.schemas.common import DataResponse, Meta, PaginatedResponse, build_pagination
@@ -173,6 +175,43 @@ def overview(
     return DataResponse(data=data)
 
 
+# On-demand AI-summary cache. The narrative costs OpenAI tokens to produce, so
+# identical (account + period + filter + data-version) requests replay a stored
+# diagnosis instead of re-spending. The freshness token (get_overview's
+# cached_at = MAX fetched_at) is IN the key: a re-sync moves it → new key → miss
+# → regenerate, so a stale narrative is never served (P-1). The 24h TTL is only a
+# backstop for keys that never get re-synced; correctness comes from the token.
+_AISUM_KEY_PREFIX = "aisum:v1"
+_AISUM_TTL_SECONDS = 86_400  # 24h backstop; real invalidation is the freshness token.
+
+
+def _aisum_cache_key(
+    account_id: str,
+    preset: Optional[str],
+    date_start: date,
+    date_end: date,
+    status: Optional[str],
+    search: Optional[str],
+    cached_at: Optional[datetime],
+) -> str:
+    """Deterministic cache key for a single AI-overview diagnosis.
+
+    aisum:v1:{account_id}:{period}:{filter_hash}:{cached_at_iso|nodata}
+      * period    = preset if given, else {date_start}_{date_end}.
+      * filter_hash = short sha1 of canonical json of {status, search} (sorted
+        keys) so filters vary the key deterministically without leaking free
+        text into it.
+      * cached_at = the get_overview freshness token ISO string, or the literal
+        'nodata' when the period has no rows. Omitting it would let a stale
+        narrative survive a re-sync — do not drop it.
+    """
+    period = preset if preset else f"{date_start.isoformat()}_{date_end.isoformat()}"
+    filter_canonical = json.dumps({"status": status, "search": search}, sort_keys=True)
+    filter_hash = hashlib.sha1(filter_canonical.encode()).hexdigest()[:12]
+    token = cached_at.isoformat() if cached_at is not None else "nodata"
+    return f"{_AISUM_KEY_PREFIX}:{account_id}:{period}:{filter_hash}:{token}"
+
+
 @router.post("/overview/summary", response_model=OverviewSummaryResponse)
 def overview_summary(
     account_id: str = Query(...),
@@ -183,6 +222,7 @@ def overview_summary(
     date_end: Optional[date] = Query(None),
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    force: bool = Query(False, description="Bypass the cache and regenerate"),
 ):
     # POST, not GET: generating the narrative spends OpenAI tokens, so the
     # intent must be explicit and off the cacheable read path. The numbers are
@@ -191,15 +231,30 @@ def overview_summary(
     ds, de, account, preset = _resolve_dates(
         account_id, current_user["org_id"], db, date_preset, date_start, date_end
     )
-    # Gather a richer, already-computed bundle via the shared read functions
-    # (P-6 parity) — account rollup, per-campaign period-over-period rows, and the
-    # daily trajectory — so the diagnosis can name a driver and speak to WHEN a
-    # change happened rather than paraphrasing the delta pills. The AI service
-    # only transforms these dicts; it never queries metrics itself (P-7).
+    # get_overview does the tenant check and returns the freshness token
+    # (cached_at) that keys the cache. We fetch it up front so a cache HIT can
+    # short-circuit before any get_table/get_timeseries/OpenAI work.
     overview = insights_svc.get_overview(
         db, account_id, current_user["org_id"], ds, de, date_preset=preset,
         status=status, search=search,
     )
+    cached_at = overview.get("cached_at")
+    key = _aisum_cache_key(account_id, preset, ds, de, status, search, cached_at)
+
+    if not force:
+        stored = redis_client.get(key)
+        if stored:
+            # Cache hit: replay the stored diagnosis verbatim — zero tokens, and
+            # no get_table/get_timeseries/OpenAI work. The stored token in the key
+            # guarantees it matches the current data version (P-1).
+            resp = OverviewSummaryResponse.model_validate_json(stored)
+            resp.cached = True
+            return resp
+
+    # Miss (or forced): gather the richer, already-computed bundle via the shared
+    # read functions (P-6 parity) — per-campaign period-over-period rows and the
+    # daily trajectory — so the diagnosis can name a driver and speak to WHEN a
+    # change happened. The AI service only transforms these dicts (P-7).
     campaigns, _total = insights_svc.get_table(
         db, account_id, current_user["org_id"], ds, de,
         level="campaign", compare_previous=True, date_preset=preset,
@@ -217,10 +272,11 @@ def overview_summary(
             overview, account, campaigns=campaigns, timeseries=ts,
         )
     except ai_summary_svc.AISummaryError as e:
-        # Distinguishable error, never a 200 with empty/fake text (P-4).
+        # Distinguishable error, never a 200 with empty/fake text (P-4) — and
+        # never cached, so a transient failure doesn't poison future hits.
         raise HTTPException(status_code=502, detail=str(e))
 
-    return OverviewSummaryResponse(
+    resp = OverviewSummaryResponse(
         headline=card["headline"],
         driver=card["driver"],
         watch=card["watch"],
@@ -228,7 +284,49 @@ def overview_summary(
         period=overview["period"],
         model=settings.OPENAI_MODEL,
         generated_at=datetime.now(timezone.utc),
+        data_as_of=cached_at,
+        cached=False,
     )
+    # Store the freshly-generated diagnosis with cached=False; the model round-
+    # trips datetimes as ISO strings so reads are exact. cached=True is set only
+    # on the read side. We also cache the 'nodata' key so an empty-period request
+    # doesn't re-spend on every call (consistent with the key ending in 'nodata').
+    redis_client.setex(key, _AISUM_TTL_SECONDS, resp.model_dump_json())
+    return resp
+
+
+@router.get("/overview/summary/peek", response_model=OverviewSummaryResponse)
+def overview_summary_peek(
+    account_id: str = Query(...),
+    current_user: CurrentUser = ...,
+    db: DbSession = ...,
+    date_preset: Optional[str] = Query(None),
+    date_start: Optional[date] = Query(None),
+    date_end: Optional[date] = Query(None),
+    status: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+):
+    # GET, and strictly cache-only: peeking must NEVER spend tokens or touch
+    # get_table/get_timeseries/OpenAI. It resolves the same numbers + freshness
+    # token (via get_overview, which also does the tenant check), rebuilds the
+    # same key, and either replays a cached diagnosis or reports "no cached
+    # summary" via 204 so the client can render an idle state token-free (P-5).
+    ds, de, account, preset = _resolve_dates(
+        account_id, current_user["org_id"], db, date_preset, date_start, date_end
+    )
+    overview = insights_svc.get_overview(
+        db, account_id, current_user["org_id"], ds, de, date_preset=preset,
+        status=status, search=search,
+    )
+    cached_at = overview.get("cached_at")
+    key = _aisum_cache_key(account_id, preset, ds, de, status, search, cached_at)
+
+    stored = redis_client.get(key)
+    if not stored:
+        return Response(status_code=204)
+    resp = OverviewSummaryResponse.model_validate_json(stored)
+    resp.cached = True
+    return resp
 
 
 @router.get("/overview/export.pptx")
@@ -266,6 +364,9 @@ def overview_export_pptx(
 
     # Only spend tokens when the user explicitly opts in; default deck is
     # token-free and renders the original placeholders (no regression).
+    # NOTE: the PPTX AI path is intentionally left UNCACHED — it produces a
+    # different artifact (multi-section deck prose) than the on-screen card, so
+    # it doesn't share the aisum:v1 cache. Caching it is a possible follow-up.
     insights_text: Optional[dict[str, str]] = None
     if include_ai_summary:
         # Ground the narrative in the same enriched bundle the on-screen card

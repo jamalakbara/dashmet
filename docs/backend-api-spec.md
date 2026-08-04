@@ -823,6 +823,8 @@ When either is set, the summary, `vs_previous`, and `top_campaigns` aggregate on
 }
 ```
 
+**Freshness marker:** `get_overview` now returns a `cached_at` = `MAX(md.fetched_at)` over the same rows the current-window rollup aggregates (or `null` when the period has no rows). It is a freshness token, not a metric — it is pulled out before the `_safe_float` coercion and surfaces on the read path as a real `data_as_of`. A re-sync bumps `fetched_at`, so `cached_at` moves; the on-demand AI summary keys its cache on this token (see below) so a re-sync self-invalidates a stale narrative (P-1).
+
 **`previous`:** the full prior-period summary — the exact same key set as `summary`, aggregated over the prior period (see *Prior-period resolution* below). Always present (not gated behind a query param); the frontend uses it to render period-over-period delta pills. Same one-writer/aggregate-then-ratio path as `summary` (ratios computed after aggregation, never average-of-averages).
 
 **`vs_previous` values:** percentage change vs the **prior period** (see *Prior-period resolution* below). Positive = improved, negative = declined. `null` if no prior data.
@@ -840,7 +842,18 @@ When either is set, the summary, `vs_previous`, and `top_campaigns` aggregate on
 
 On-demand **AI diagnosis** of a single-account overview. `POST` (not `GET`) because generating the summary spends OpenAI tokens: the intent must be explicit and the call must stay off the cacheable read path. Same query params and date/tenant resolution as `GET /insights/overview`.
 
-**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `status`, `search` (body is empty).
+**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `status`, `search`, `force` (body is empty).
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `force` | bool | `false` | Bypass the cache and regenerate. Without it, a cache hit is replayed verbatim (`cached=true`) with **zero token spend** and no `get_table`/`get_timeseries`/OpenAI work. With `force=true` the diagnosis is regenerated and overwrites the cached entry. |
+
+**Redis cache (P-1 freshness token):** the narrative is cached in Redis (`app.api.deps.redis_client`), keyed on `aisum:v1:{account_id}:{period}:{filter_hash}:{cached_at|"nodata"}`, TTL **24h**:
+- `period` = `date_preset` if given, else `{date_start}_{date_end}`.
+- `filter_hash` = first 12 chars of `sha1` of canonical JSON `{status, search}` (sorted keys) — filters vary the key without leaking free text into it.
+- the final segment is `get_overview`'s freshness token (`cached_at` = `MAX(fetched_at)`) as an ISO string, or the literal `nodata` for an empty period. Because the token is **in the key**, a re-sync moves it → key miss → regenerate, so a stale narrative is never served (P-1). The 24h TTL is only a backstop for keys that never get re-synced.
+
+`get_overview` runs up front (it also does the tenant check), so a cache hit short-circuits before any `get_table`/`get_timeseries`/OpenAI work. A freshly generated diagnosis is stored with `cached=false`; `cached=true` is set only on the replayed read side. AI failures are **never cached** (a `502` never poisons future hits — P-4). The `nodata` key is cached too, so an empty-period request doesn't re-spend on every call.
 
 **Parity (P-6/P-7):** the endpoint gathers a richer already-computed bundle via the same shared read functions behind `GET /overview` / `GET /table` / `GET /timeseries` — no second query path against the metrics tables:
 - `get_overview` — account-level rollup (tenant check + identical numbers by construction).
@@ -862,11 +875,13 @@ Those three dicts are handed to `app/services/ai_summary.py:generate_overview_di
     "preset": "last_7d"
   },
   "model": "gpt-4o-mini",
-  "generated_at": "2026-05-30T11:45:00Z"
+  "generated_at": "2026-05-30T11:45:00Z",
+  "data_as_of": "2026-05-30T11:45:00Z",
+  "cached": false
 }
 ```
 
-`headline` / `driver` / `watch` / `next_step` are each a required non-blank diagnostic string. `period` carries the same window as the numbers being narrated (P-1 envelope). `model` echoes `settings.OPENAI_MODEL`; `generated_at` is the UTC generation timestamp.
+`headline` / `driver` / `watch` / `next_step` are each a required non-blank diagnostic string. `period` carries the same window as the numbers being narrated (P-1 envelope). `model` echoes `settings.OPENAI_MODEL`; `generated_at` is the UTC generation timestamp. `data_as_of` is the freshness token the diagnosis was generated against (`get_overview`'s `cached_at` = `MAX(fetched_at)`, or `null` for an empty period) — a re-sync moves it, invalidating the cache (P-1). `cached` is `true` when this response was replayed from the Redis cache (no token spend) and `false` when freshly generated.
 
 **Errors**
 
@@ -877,6 +892,25 @@ Those three dicts are handed to `app/services/ai_summary.py:generate_overview_di
 | `502` | Any AI failure — missing/empty `OPENAI_API_KEY`, network/timeout, OpenAI API error, or an empty/unparseable completion or one missing/blanking any of the four required fields. Body is `{ "detail": "<reason>" }`. Never a `200` with empty or fabricated text (P-4). |
 
 **Config:** requires `OPENAI_API_KEY` and `OPENAI_MODEL` (default `gpt-4o-mini`) in the backend environment — see `backend/.env.example` / `app/config.py`. With no key configured the endpoint returns the `502` above (the app still boots).
+
+---
+
+#### `GET /api/v1/insights/overview/summary/peek`
+
+**Cache-only** lookup of a previously generated overview diagnosis — it **NEVER** generates or spends OpenAI tokens and never touches `get_table`/`get_timeseries`/OpenAI. Safe to auto-run on mount so a client can hydrate an existing summary or render an idle state token-free (P-5). It resolves the same numbers + freshness token via `get_overview` (which also does the tenant check), rebuilds the same `aisum:v1:…` key as `POST /overview/summary`, and either replays the cached diagnosis or reports a miss.
+
+**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `status`, `search` (no `force`).
+
+**Responses**
+
+| Status | When | Body |
+|---|---|---|
+| `200` | Cache hit — a diagnosis exists for this account/period/filter/data-version. | `OverviewSummaryResponse` (top level, same shape as `POST`), with `cached=true`. |
+| `204` | Cache miss — no cached diagnosis. | Empty (No Content). Client renders the idle/Generate state. |
+| `400` | Neither `date_preset` nor `date_start`+`date_end` supplied. | `{ "detail": … }` |
+| `403` | `account_id` belongs to another org (tenant isolation via `get_overview`). | `{ "detail": … }` |
+
+See `app/api/v1/endpoints/insights.py:overview_summary_peek`.
 
 ---
 
@@ -901,7 +935,7 @@ The download name is `"<Account name> - Monthly Report - <period-start Month Yea
 
 **Parity (P-6/P-7):** the endpoint reuses the shared read functions `get_overview` / `get_timeseries` (called with `compare_previous=True` for the trend overlay) / `get_table` (the same functions behind `GET /overview`, `GET /timeseries`, `GET /table`) — no second query path against the metrics tables. Deck = **6 slides**, a branded monthly-report template (neutral dashmet branding, no third-party logos): (1) dark gradient-blob **cover** with account/period; (2) **Monthly Performance** — a Current-vs-Previous spend hero plus metric cards (impressions, clicks, CTR, CPM, conversions, ROAS) showing coloured period-over-period deltas and prior values; (3) **daily spend trend** — a native pptx line chart overlaying current vs previous period with a thinned date axis; (4) **Top Campaigns** — styled table; (5) **Top Ads** — top-6 (`level="ad"`, spend-desc) with 4:5 letterboxed creative thumbnails; (6) **closing** slide. Content slides carry an editable purple "insight" box that shows a "Click to add your insight…" placeholder by default, or the AI narrative when `include_ai_summary=true` (`generate_overview_pptx(insights={section: text})`; `None` → the placeholder, no layout change). A missing/failed thumbnail degrades to a neutral placeholder, never a fake image.
 
-> **Known gap (P-1):** the single-account `get_overview()` read path does **not** return a `data_as_of` / `coverage` / `cached_at` freshness envelope (the combined path does, via `meta.cached_at`). The export's cover therefore stamps only "Data as of `<date_stop>`" derived from the period, not a true freshness/coverage marker. Tracked as a follow-up in `BOARD.md`.
+> **Note (P-1):** `get_overview()` now returns a `cached_at` freshness token (`MAX(fetched_at)` over the period). The export's cover still stamps "Data as of `<date_stop>`" derived from the period rather than this token — wiring the real marker into the cover (and adding a `coverage` marker) remains a follow-up; the AI-summary card is the first consumer of `cached_at`.
 
 ---
 
@@ -1395,6 +1429,30 @@ Manually trigger a sync for an account. Useful for "Refresh" button in the UI.
 }
 ```
 
+`job_types` is **optional**. When omitted (or `null`), the server picks a
+platform-appropriate default set for the account:
+
+| Platform (`platform_id`) | Default `job_types` |
+|---|---|
+| `meta` | `structure`, `insights_daily` |
+| `tiktok` | `structure`, `insights_daily`, `creatives`, `breakdown` |
+| `google_ads` | `structure`, `insights_daily`, `creatives`, `breakdown` |
+
+Dispatch is **platform-aware**: each requested `job_type` is routed to that
+platform's own worker task. A `job_type` that has no producer for the account's
+platform (e.g. `insights_async` on TikTok/Google) is **silently skipped** — no
+`SyncJob` row is created for it, so no job sits stuck as `pending` with nothing
+to run it (PRD P-8). The producer matrix:
+
+| `job_type` | meta | tiktok | google_ads |
+|---|---|---|---|
+| `structure` | ✓ | ✓ | ✓ |
+| `insights_daily` | ✓ | ✓ | ✓ |
+| `insights_historical` | — | ✓ | ✓ |
+| `insights_async` | ✓ | — | — |
+| `creatives` | — | ✓ | ✓ |
+| `breakdown` | — | ✓ | ✓ |
+
 **Response `202`**
 ```json
 {
@@ -1404,6 +1462,9 @@ Manually trigger a sync for an account. Useful for "Refresh" button in the UI.
   }
 }
 ```
+
+`job_ids` contains one id per job_type that was actually dispatched — skipped
+(no-producer) job_types do not appear.
 
 > This endpoint enqueues Celery tasks and returns immediately — it does not wait for completion. The frontend should poll `GET /sync/status` to track progress.
 

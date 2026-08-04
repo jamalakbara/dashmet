@@ -14,8 +14,6 @@ Sync-freshness UX (fresh-connect "data gone?" confusion) — ordered:
 
 - §2.3 date resolver off-by-one — `last_Nd` spans N+1 days (`today-N..today`); make it exactly N (`today-(N-1)..today`). Shared resolver → shifts read + write together.
 
-- P-1 (follow-up from PPTX export) — single-account `get_overview()` returns no `data_as_of`/`coverage`/`cached_at` freshness envelope (combined path has `meta.cached_at`); PPTX title slide can only stamp "Data as of <date_stop>". Add a real freshness marker to the read path.
-
 ## In Progress
 
 - [A] P-1/P-2 — section empty states read own `jobs_status[jt]`: no completed job → "Syncing…"; completed+0 rows → "No data". Ads-empty keys on `insights_daily` (ad rows), not creatives. Code-complete (tsc+build green); NOT Done — no frontend test harness, needs browser verify or vitest for `jobState`.
@@ -26,6 +24,8 @@ Sync-freshness UX (fresh-connect "data gone?" confusion) — ordered:
 
 - 2026-08-04 (net-new) P-6/P-1/P-4/P-7 — AI narrative summary: on-demand grounded narrative over `get_overview()` (LLM narrates, computes nothing). Landed `app/services/ai_summary.py` + `POST /insights/overview/summary` + Overview "AI Summary" card + opt-in PPTX insight-box auto-fill (`include_ai_summary`). Tests: `test_ai_summary.py`, `test_overview_summary_endpoint.py`, `test_export_overview.py` (25 passing).
   - 2026-08-04 follow-up: deepened to a structured objective-aware DIAGNOSIS — response now `{headline, driver, watch, next_step}` (was single `narrative`), fed per-campaign compare-previous rows + daily timeseries (all shared read fns, P-6/P-7); driver SELECTED not computed. Frontend 4-section card. Tests: `test_ai_summary.py`, `test_overview_summary_endpoint.py`.
+  - 2026-08-04 follow-up: Redis-cached (P-1 freshness-token key `aisum:v1:…:{cached_at}`, 24h TTL) — `force` regenerates, AI failures never cached (P-4); new cache-only `GET /overview/summary/peek` (200 hit / 204 miss, never spends tokens); response gained `data_as_of`+`cached`; card peeks on mount + "Data as of …" footnote. Test: `test_overview_summary_endpoint.py`.
+- 2026-08-04 P-1 (follow-up from PPTX export) — `get_overview()` now returns a `cached_at` freshness token via `MAX(fetched_at)` over the period (`app/services/insights.py`); consumed by the AI-summary Redis cache key + card "Data as of …" footnote. Test: `test_overview_summary_endpoint.py`.
 - 2026-08-04 (net-new, not a PRD item) P-6 "deliverable, not just a dashboard" — PPTX export of single-account overview (`GET /insights/overview/export.pptx` + `app/services/export.py`; reuses shared read fns, one query path). Export PPTX button in control-strip. Deps python-pptx + Pillow.
 - 2026-08-03 P-2 (auto-refresh) — all dashboard sections poll while sync active (`useSyncActive` from real sync_jobs state) so Trends/Breakdown/Table/Ads fill in as data lands, not just Overview KPIs. Replaces blind 5-min timer. Verified in browser (badge green + sections filled).
 - 2026-08-03 §9.2/§11 (breakdown) — breakdown sync writes a `sync_jobs` row (`job_type="breakdown"`, finalized on every exit path); fixes badge stuck "partially synced" + section stuck "Syncing…". Normalized TikTok/Google `"breakdowns"`→`"breakdown"`. Test: `test_sync_jobs_completeness.py`.

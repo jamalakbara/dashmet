@@ -1,7 +1,8 @@
 "use client";
 
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
+import { formatDistanceToNow } from "date-fns";
 import { motion } from "framer-motion";
 import { Wallet, PieChart, Sparkles, AlertTriangle, RotateCw } from "lucide-react";
 import { MetricGroupCard, type SubMetric } from "@/components/metrics/metric-group-card";
@@ -82,11 +83,13 @@ function buildSubMetrics(
 }
 
 /**
- * On-demand AI narrative summary of the overview. Generation is opt-in (a click)
- * so token spend is always intentional (P-5). The narrative is anchored to the
- * same period/model returned by the endpoint so it reads against the numbers
- * shown on screen (P-1). On failure we surface the backend's `detail` verbatim
- * with a retry — never a silent/empty card or a fabricated summary (P-4).
+ * On-demand AI narrative summary of the overview. On mount we PEEK the cache
+ * (a safe, token-free GET) so an existing diagnosis shows instantly; generation
+ * stays opt-in (a click) so token spend is always intentional (P-5). The
+ * narrative is anchored to the same period/model returned by the endpoint so it
+ * reads against the numbers shown on screen (P-1). On failure we surface the
+ * backend's `detail` verbatim with a retry — never a silent/empty card or a
+ * fabricated summary (P-4).
  */
 function AiSummaryCard({
   accountId,
@@ -97,14 +100,43 @@ function AiSummaryCard({
   dateRange: ReturnType<typeof useDateRange>;
   filter: ReturnType<typeof useOverviewFilter>;
 }) {
-  const summary = useMutation({
-    mutationFn: () =>
-      insightsApi.generateSummary({ account_id: accountId, ...dateRange, ...filter }),
+  const queryClient = useQueryClient();
+
+  // Cache-only peek — never spends tokens, so it's safe to auto-run on mount.
+  const peekKey = ["overview-summary-peek", accountId, dateRange, filter] as const;
+  const peek = useQuery({
+    queryKey: peekKey,
+    queryFn: () =>
+      insightsApi.peekSummary({ account_id: accountId, ...dateRange, ...filter }),
+    staleTime: 15 * 60 * 1000,
   });
+
+  const summary = useMutation({
+    mutationFn: (force: boolean) =>
+      insightsApi.generateSummary({
+        account_id: accountId,
+        ...dateRange,
+        ...filter,
+        force,
+      }),
+    // Keep the peek cache in lockstep with what we just generated so the shown
+    // summary and any remount stay consistent (a remount re-runs peek → hit).
+    onSuccess: (data) => queryClient.setQueryData(peekKey, data),
+  });
+
+  // Display precedence: freshest first. A just-generated mutation result wins
+  // over the cached peek; both fall back to idle when neither has a summary.
+  const data = summary.data ?? peek.data ?? null;
 
   const errorDetail =
     (summary.error as { response?: { data?: { detail?: string } } })?.response?.data
       ?.detail ?? "Couldn't generate the AI summary. Try again.";
+
+  const asOf = data?.data_as_of
+    ? formatDistanceToNow(new Date(data.data_as_of), { addSuffix: true })
+    : null;
+
+  const showSkeleton = summary.isPending || (peek.isLoading && !summary.data);
 
   return (
     <section className="space-y-3">
@@ -114,7 +146,7 @@ function AiSummaryCard({
       />
       <Card>
         <CardContent className="space-y-4">
-          {summary.isPending ? (
+          {showSkeleton ? (
             <div className="space-y-4" aria-busy>
               <div className="h-5 w-3/4 animate-pulse rounded bg-muted" />
               {[0, 1, 2].map((i) => (
@@ -133,7 +165,7 @@ function AiSummaryCard({
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => summary.mutate()}
+                  onClick={() => summary.mutate(true)}
                   className="mt-2 gap-2"
                 >
                   <RotateCw className="size-4" />
@@ -141,18 +173,18 @@ function AiSummaryCard({
                 </Button>
               </AlertDescription>
             </Alert>
-          ) : summary.data ? (
+          ) : data ? (
             <div className="space-y-4">
               {/* Headline reads as the lead — larger and heavier than the rest. */}
               <p className="text-base font-semibold leading-snug text-foreground">
-                {summary.data.headline}
+                {data.headline}
               </p>
               <div className="space-y-3">
                 {(
                   [
-                    { label: "Likely driver", text: summary.data.driver },
-                    { label: "Watch", text: summary.data.watch },
-                    { label: "Next", text: summary.data.next_step },
+                    { label: "Likely driver", text: data.driver },
+                    { label: "Watch", text: data.watch },
+                    { label: "Next", text: data.next_step },
                   ] as const
                 ).map((section) => (
                   <div key={section.label} className="space-y-1">
@@ -167,14 +199,20 @@ function AiSummaryCard({
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
                 <p className="text-xs text-muted-foreground">
-                  {summary.data.period.date_start} – {summary.data.period.date_stop}
+                  {data.period.date_start} – {data.period.date_stop}
                   {" · "}
-                  {summary.data.model}
+                  {data.model}
+                  {asOf && (
+                    <>
+                      {" · "}
+                      Data as of {asOf}
+                    </>
+                  )}
                 </p>
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => summary.mutate()}
+                  onClick={() => summary.mutate(true)}
                   className="gap-2"
                 >
                   <RotateCw className="size-4" />
@@ -184,7 +222,7 @@ function AiSummaryCard({
             </div>
           ) : (
             <div className="flex flex-col items-start gap-2">
-              <Button onClick={() => summary.mutate()} className="gap-2">
+              <Button onClick={() => summary.mutate(false)} className="gap-2">
                 <Sparkles className="size-4" />
                 Generate AI summary
               </Button>

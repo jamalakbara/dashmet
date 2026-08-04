@@ -558,6 +558,26 @@ def test_ai_summary_runs_no_sql():
     assert not hits, f"ai_summary.py contains SQL/DB-access seams: {hits}"
 
 
+def test_ai_summary_imports_no_redis():
+    """P-7 (extended): the AI service must not import or reference a redis
+    client either — caching is the endpoint's concern, not the narrator's. The
+    narrator only transforms the dicts it's handed. Static source scan, mirroring
+    the no-SQL scan above so a stray `import redis` / `redis_client` reference
+    fails here rather than coupling caching into the token-spending layer."""
+    stripped = _strip_comments_and_docstrings(_AI_SUMMARY_SRC.read_text())
+    # Sanity: non-vacuous — the real code seams still tokenize.
+    assert "generate_overview_diagnosis" in stripped
+    forbidden = [
+        r"\bimport\s+redis\b",
+        r"\bfrom\s+redis\b",
+        r"\bredis_client\b",
+        r"\.setex\(",
+        r"\.getex\(",
+    ]
+    hits = [pat for pat in forbidden if re.search(pat, stripped)]
+    assert not hits, f"ai_summary.py references redis/caching seams: {hits}"
+
+
 def test_generate_overview_diagnosis_takes_no_db_session():
     """P-7 (signature): generate_overview_diagnosis accepts
     (overview, account, *, campaigns, timeseries) — no db/session parameter. If

@@ -41,6 +41,10 @@ export interface OverviewSummary {
   };
   model: string;
   generated_at: string;
+  /** ISO datetime the diagnosis was generated against (freshness anchor, P-1). */
+  data_as_of: string | null;
+  /** True when this diagnosis was served from the cache (no token spend). */
+  cached: boolean;
 }
 
 export type TimeseriesParams = InsightParams & {
@@ -131,13 +135,35 @@ export const insightsApi = {
    * read path. Response is returned at the top level — NOT `{ data }`-wrapped —
    * so we hand back `res.data` directly. Any AI failure surfaces as a 502 whose
    * `detail` the caller shows verbatim (P-4: no fake/empty summary).
+   *
+   * Without `force` the backend returns a cached diagnosis when one exists (no
+   * token spend); `force: true` regenerates and overwrites the cache.
    */
-  generateSummary: async (params: OverviewParams): Promise<OverviewSummary> => {
+  generateSummary: async (
+    params: OverviewParams & { force?: boolean },
+  ): Promise<OverviewSummary> => {
     const res = await apiClient.post<OverviewSummary>(
       "/insights/overview/summary",
       null,
       { params },
     );
+    return res.data;
+  },
+  /**
+   * Cache-only peek at the overview summary — NEVER generates or spends tokens.
+   * Safe to auto-run on mount to hydrate an existing summary instantly. Returns
+   * the cached `OverviewSummary` (`cached: true`) on a hit, or `null` on a miss
+   * (the backend replies HTTP 204 No Content, which axios surfaces with an empty
+   * body — we map that to `null` rather than an error).
+   */
+  peekSummary: async (
+    params: OverviewParams,
+  ): Promise<OverviewSummary | null> => {
+    const res = await apiClient.get<OverviewSummary | "">(
+      "/insights/overview/summary/peek",
+      { params },
+    );
+    if (res.status === 204 || !res.data) return null;
     return res.data;
   },
   timeseries: (params: TimeseriesParams) =>

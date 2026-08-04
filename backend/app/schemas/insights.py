@@ -111,7 +111,12 @@ class OverviewSummaryResponse(BaseModel):
 
     Structured into four diagnostic fields rather than one prose blob so the card
     can present a headline finding, its likely driver, a secondary watch signal,
-    and a recommended next step distinctly."""
+    and a recommended next step distinctly.
+
+    `data_as_of` is the freshness token the diagnosis was generated against
+    (MAX fetched_at over the period, from get_overview) — a re-sync moves it, so
+    a stale narrative is never served (P-1). `cached` tells the client whether
+    this response was replayed from the Redis cache vs freshly generated."""
     headline: str
     driver: str
     watch: str
@@ -119,6 +124,8 @@ class OverviewSummaryResponse(BaseModel):
     period: PeriodInfo
     model: str
     generated_at: datetime
+    data_as_of: Optional[datetime] = None
+    cached: bool = False
 
 
 class TimeSeriesPoint(BaseModel):
