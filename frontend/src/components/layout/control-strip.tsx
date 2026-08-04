@@ -43,11 +43,11 @@ export function ControlStrip() {
         ...dateRange,
         ...filter,
       }),
-    onSuccess: (blob) => {
+    onSuccess: ({ blob, filename }) => {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = "overview.pptx";
+      anchor.download = filename;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();

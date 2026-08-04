@@ -58,9 +58,43 @@ export type CombinedParams = {
   date_end?: string;
 };
 
+/** Extract the download filename from a Content-Disposition header, preferring
+ * the RFC 5987 `filename*` (UTF-8) form and falling back to plain `filename`. */
+function parseContentDispositionFilename(cd?: string): string | null {
+  if (!cd) return null;
+  const star = /filename\*=\s*(?:UTF-8'')?([^;]+)/i.exec(cd);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1].trim().replace(/^"|"$/g, ""));
+    } catch {
+      /* fall through to plain filename */
+    }
+  }
+  const plain = /filename=\s*"?([^";]+)"?/i.exec(cd);
+  return plain?.[1]?.trim() ?? null;
+}
+
 export const insightsApi = {
   overview: (params: OverviewParams) =>
     apiClient.get("/insights/overview", { params }),
+  /**
+   * Server-rendered PPTX export of the single-account overview. Takes the same
+   * params as `overview` and returns the raw .pptx bytes as a Blob (the endpoint
+   * also sets a Content-Disposition attachment filename).
+   */
+  exportOverviewPptx: async (
+    params: OverviewParams,
+  ): Promise<{ blob: Blob; filename: string }> => {
+    const res = await apiClient.get<Blob>("/insights/overview/export.pptx", {
+      params,
+      responseType: "blob",
+    });
+    const cd = res.headers["content-disposition"] as string | undefined;
+    return {
+      blob: res.data,
+      filename: parseContentDispositionFilename(cd) ?? "Monthly Report.pptx",
+    };
+  },
   timeseries: (params: TimeseriesParams) =>
     apiClient.get("/insights/timeseries", { params }),
   table: (params: TableParams) =>

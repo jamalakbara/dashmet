@@ -14,6 +14,8 @@ Sync-freshness UX (fresh-connect "data gone?" confusion) — ordered:
 
 - §2.3 date resolver off-by-one — `last_Nd` spans N+1 days (`today-N..today`); make it exactly N (`today-(N-1)..today`). Shared resolver → shifts read + write together.
 
+- P-1 (follow-up from PPTX export) — single-account `get_overview()` returns no `data_as_of`/`coverage`/`cached_at` freshness envelope (combined path has `meta.cached_at`); PPTX title slide can only stamp "Data as of <date_stop>". Add a real freshness marker to the read path.
+
 ## In Progress
 
 - [A] P-1/P-2 — section empty states read own `jobs_status[jt]`: no completed job → "Syncing…"; completed+0 rows → "No data". Ads-empty keys on `insights_daily` (ad rows), not creatives. Code-complete (tsc+build green); NOT Done — no frontend test harness, needs browser verify or vitest for `jobState`.
@@ -22,6 +24,7 @@ Sync-freshness UX (fresh-connect "data gone?" confusion) — ordered:
 
 ## Done
 
+- 2026-08-04 (net-new, not a PRD item) P-6 "deliverable, not just a dashboard" — PPTX export of single-account overview (`GET /insights/overview/export.pptx` + `app/services/export.py`; reuses shared read fns, one query path). Export PPTX button in control-strip. Deps python-pptx + Pillow.
 - 2026-08-03 P-2 (auto-refresh) — all dashboard sections poll while sync active (`useSyncActive` from real sync_jobs state) so Trends/Breakdown/Table/Ads fill in as data lands, not just Overview KPIs. Replaces blind 5-min timer. Verified in browser (badge green + sections filled).
 - 2026-08-03 §9.2/§11 (breakdown) — breakdown sync writes a `sync_jobs` row (`job_type="breakdown"`, finalized on every exit path); fixes badge stuck "partially synced" + section stuck "Syncing…". Normalized TikTok/Google `"breakdowns"`→`"breakdown"`. Test: `test_sync_jobs_completeness.py`.
 - 2026-08-03 §2.3 / P-7 — Meta workers resolve `date_preset`→`time_range` in account tz (one resolver, read==write). Test: `backend/tests/test_date_range_parity.py`.

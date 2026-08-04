@@ -1,7 +1,11 @@
+import io
+import re
 from datetime import date
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, DbSession
@@ -13,7 +17,34 @@ from app.schemas.insights import (
     TimeSeriesResponse,
 )
 from app.services import accounts as acc_svc
+from app.services import export as export_svc
 from app.services import insights as insights_svc
+
+_PPTX_MEDIA_TYPE = (
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+)
+
+
+def _report_filename(account_name: str, period_start: date) -> str:
+    """Human-friendly download name, e.g. "Polki Indonesia - Monthly Report - July 2026.pptx".
+
+    Keeps spaces/dashes readable; strips only characters illegal in filenames or
+    that could break the Content-Disposition header.
+    """
+    month_year = period_start.strftime("%B %Y")
+    clean = re.sub(r'[\\/:*?"<>|\r\n\t]+', " ", account_name)
+    clean = re.sub(r"\s+", " ", clean).strip() or "Report"
+    return f"{clean} - Monthly Report - {month_year}.pptx"
+
+
+def _content_disposition(filename: str) -> str:
+    """attachment header with an ASCII fallback + RFC 5987 UTF-8 name (handles
+    spaces and non-ASCII account names without breaking the header)."""
+    ascii_fallback = filename.encode("ascii", "ignore").decode("ascii").strip() or "report.pptx"
+    return (
+        f'attachment; filename="{ascii_fallback}"; '
+        f"filename*=UTF-8''{quote(filename)}"
+    )
 
 router = APIRouter()
 
@@ -137,6 +168,51 @@ def overview(
         status=status, search=search,
     )
     return DataResponse(data=data)
+
+
+@router.get("/overview/export.pptx")
+def overview_export_pptx(
+    account_id: str = Query(...),
+    current_user: CurrentUser = ...,
+    db: DbSession = ...,
+    date_preset: Optional[str] = Query(None),
+    date_start: Optional[date] = Query(None),
+    date_end: Optional[date] = Query(None),
+    status: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+):
+    # Same date/tenant resolution as GET /overview → identical numbers by
+    # construction (P-6). All three reads go through the shared insights
+    # functions; no second query path to the metrics tables (P-7).
+    ds, de, account, preset = _resolve_dates(
+        account_id, current_user["org_id"], db, date_preset, date_start, date_end
+    )
+    overview = insights_svc.get_overview(
+        db, account_id, current_user["org_id"], ds, de, date_preset=preset,
+        status=status, search=search,
+    )
+    ts = insights_svc.get_timeseries(
+        db, account_id, current_user["org_id"], ds, de,
+        metrics=["spend"], time_increment="day", date_preset=preset,
+        status=status, search=search, compare_previous=True,
+    )
+    rows, _total = insights_svc.get_table(
+        db, account_id, current_user["org_id"], ds, de,
+        level="ad", sort_by="spend", sort_order="desc", page=1, per_page=6,
+        date_preset=preset, status=status, search=search,
+    )
+
+    pptx_bytes = export_svc.generate_overview_pptx(
+        account=account, overview=overview, series=ts["series"],
+        previous_series=ts.get("previous_series"), ads=rows,
+    )
+
+    filename = _report_filename(account.name, ds)
+    return StreamingResponse(
+        io.BytesIO(pptx_bytes),
+        media_type=_PPTX_MEDIA_TYPE,
+        headers={"Content-Disposition": _content_disposition(filename)},
+    )
 
 
 @router.get("/timeseries")

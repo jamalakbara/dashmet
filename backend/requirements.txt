@@ -39,6 +39,7 @@ MarkupSafe==3.0.3
 multidict==6.7.1
 packaging==26.2
 passlib==1.7.4
+Pillow==11.3.0
 prompt_toolkit==3.0.52
 propcache==0.5.2
 psycopg2-binary==2.9.10
@@ -52,6 +53,7 @@ python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
 python-jose==3.3.0
 python-multipart==0.0.12
+python-pptx==1.0.2
 PyYAML==6.0.3
 redis==5.1.1
 requests==2.34.2

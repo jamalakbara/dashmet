@@ -836,6 +836,27 @@ When either is set, the summary, `vs_previous`, and `top_campaigns` aggregate on
 
 ---
 
+#### `GET /api/v1/insights/overview/export.pptx`
+
+Server-rendered PowerPoint (.pptx) export of a single-account overview. Same query params and date/tenant resolution as `GET /insights/overview`.
+
+**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `status`, `search`
+
+**Response `200`** — binary PPTX (not JSON):
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `application/vnd.openxmlformats-officedocument.presentationml.presentation` |
+| `Content-Disposition` | `attachment; filename="<Account> - Monthly Report - <Month Year>.pptx"; filename*=UTF-8''…` (e.g. `Polki Indonesia - Monthly Report - July 2026.pptx`) |
+
+The download name is `"<Account name> - Monthly Report - <period-start Month Year>.pptx"` (`_report_filename` in `app/api/v1/endpoints/insights.py`). The header carries both an ASCII-stripped `filename` fallback and an RFC 5987 `filename*=UTF-8''…` for spaces/non-ASCII account names (`_content_disposition`). CORS exposes `Content-Disposition` (`app/main.py`) so the browser can read the name cross-origin; the frontend parses it (`parseContentDispositionFilename` in `lib/api/insights.ts`) for the download. Body is a `StreamingResponse` over the raw `.pptx` bytes built by `app/services/export.py:generate_overview_pptx`.
+
+**Parity (P-6/P-7):** the endpoint reuses the shared read functions `get_overview` / `get_timeseries` (called with `compare_previous=True` for the trend overlay) / `get_table` (the same functions behind `GET /overview`, `GET /timeseries`, `GET /table`) — no second query path against the metrics tables. Deck = **6 slides**, a branded monthly-report template (neutral dashmet branding, no third-party logos): (1) dark gradient-blob **cover** with account/period; (2) **Monthly Performance** — a Current-vs-Previous spend hero plus metric cards (impressions, clicks, CTR, CPM, conversions, ROAS) showing coloured period-over-period deltas and prior values; (3) **daily spend trend** — a native pptx line chart overlaying current vs previous period with a thinned date axis; (4) **Top Campaigns** — styled table; (5) **Top Ads** — top-6 (`level="ad"`, spend-desc) with 4:5 letterboxed creative thumbnails; (6) **closing** slide. Content slides carry an editable purple "insight" placeholder box. A missing/failed thumbnail degrades to a neutral placeholder, never a fake image.
+
+> **Known gap (P-1):** the single-account `get_overview()` read path does **not** return a `data_as_of` / `coverage` / `cached_at` freshness envelope (the combined path does, via `meta.cached_at`). The export's cover therefore stamps only "Data as of `<date_stop>`" derived from the period, not a true freshness/coverage marker. Tracked as a follow-up in `BOARD.md`.
+
+---
+
 ### 6.9 Time Series (Periodic)
 
 Daily metric trend data — powers line/bar charts in the Periodic view.

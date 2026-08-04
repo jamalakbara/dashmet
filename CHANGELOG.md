@@ -22,7 +22,9 @@ All notable changes to this project are documented here. Format follows
   (`compare_previous=True`)/`get_table` read functions — identical numbers by construction, no
   second query path (P-6/P-7). Frontend: `insightsApi.exportOverviewPptx`
   (`frontend/src/lib/api/insights.ts`) plus an **Export PPTX** button shown on single-account
-  views (`frontend/src/components/layout/control-strip.tsx`). New backend deps
+  views (`frontend/src/components/layout/control-strip.tsx`). Downloads with a human-readable
+  name `"<Account> - Monthly Report - <Month Year>.pptx"` (RFC 5987 `Content-Disposition`,
+  exposed via CORS in `app/main.py`; the frontend parses it for the download). New backend deps
   `python-pptx==1.0.2` + `Pillow==11.3.0` (`backend/requirements.txt`). Known gap: the
   single-account `get_overview()` read path lacks a freshness/coverage envelope, so the cover
   stamps only "Data as of <date_stop>" (P-1 follow-up, tracked in `BOARD.md`).
