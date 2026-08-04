@@ -32,6 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { SegmentControl } from "@/components/ui/segment-control";
 import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -290,6 +291,7 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
   const platform   = usePlatform() ?? "meta";
   const syncActive = useSyncActive();
   const withQuery  = useSharedFilterQuery();
+  const router     = useRouter();
   const { tableMetricDefs, currency } = usePlatformMetrics();
   const { visibleColumns, setVisibleColumns } = useUIStore();
 
@@ -499,7 +501,13 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
                   <TableRow key={row.id}>
                     {previewCols.map((col) => (
                       <TableCell key={col.key} className={cn(col.align === "right" && "text-right")}>
-                        {renderCell(row, col, () => {}, currency, compare)}
+                        {renderCell(
+                          row,
+                          col,
+                          () => router.push(withQuery(`/${platform}/table?level=adgroup&campaign_id=${row.id}`)),
+                          currency,
+                          compare,
+                        )}
                       </TableCell>
                     ))}
                   </TableRow>

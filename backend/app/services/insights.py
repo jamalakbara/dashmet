@@ -860,6 +860,10 @@ TABLE_SQL_ADGROUP = TABLE_SQL.replace(
 ).replace(
     ":platform_id        AS entity_platform,",
     ":platform_id        AS entity_platform,\n    camp.name           AS entity_campaign_name,\n    camp.id::text       AS entity_campaign_id,",
+).replace(
+    "  AND (:status IS NULL OR c.status = :status)",
+    "  AND (:status IS NULL OR c.status = :status)\n"
+    "  AND (:campaign_id IS NULL OR c.campaign_id = CAST(:campaign_id AS uuid))",
 )
 
 TABLE_SQL_AD = TABLE_SQL.replace(
@@ -889,6 +893,11 @@ TABLE_SQL_AD = TABLE_SQL.replace(
     "    cr.title            AS cr_title,\n"
     "    cr.cta_type         AS cr_cta_type,\n"
     "    COUNT(*) OVER()     AS total_count",
+).replace(
+    "  AND (:status IS NULL OR c.status = :status)",
+    "  AND (:status IS NULL OR c.status = :status)\n"
+    "  AND (:campaign_id IS NULL OR c.campaign_id = CAST(:campaign_id AS uuid))\n"
+    "  AND (:adgroup_id IS NULL OR c.ad_group_id = CAST(:adgroup_id AS uuid))",
 )
 
 
@@ -943,6 +952,8 @@ def get_table(
             "per_page": per_page,
             "offset": calculate_offset(page, per_page),
             "platform_id": platform_id,
+            "campaign_id": campaign_id if entity_type in ("adgroup", "ad") else None,
+            "adgroup_id": adgroup_id if entity_type == "ad" else None,
         },
     ).mappings().all()
 

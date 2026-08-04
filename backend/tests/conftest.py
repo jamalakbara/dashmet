@@ -137,6 +137,39 @@ def make_campaign(db, account_id: str, name="Camp", status="active") -> str:
     return str(camp_id)
 
 
+def make_adgroup(db, account_id: str, campaign_id: str, name="AdGroup", status="active") -> str:
+    ag_id = uuid.uuid4()
+    db.execute(
+        text(
+            "INSERT INTO ad_groups "
+            "(id, campaign_id, account_id, platform_id, platform_adgroup_id, name, status, effective_status) "
+            "VALUES (:id, :camp, :acct, 'meta', :pgid, :name, :status, :status)"
+        ),
+        {
+            "id": ag_id, "camp": uuid.UUID(campaign_id), "acct": uuid.UUID(account_id),
+            "pgid": f"ag_{ag_id.hex[:8]}", "name": name, "status": status,
+        },
+    )
+    return str(ag_id)
+
+
+def make_ad(db, account_id: str, campaign_id: str, adgroup_id: str, name="Ad", status="active") -> str:
+    ad_id = uuid.uuid4()
+    db.execute(
+        text(
+            "INSERT INTO ads "
+            "(id, ad_group_id, campaign_id, account_id, platform_id, platform_ad_id, name, status, effective_status) "
+            "VALUES (:id, :ag, :camp, :acct, 'meta', :paid, :name, :status, :status)"
+        ),
+        {
+            "id": ad_id, "ag": uuid.UUID(adgroup_id), "camp": uuid.UUID(campaign_id),
+            "acct": uuid.UUID(account_id), "paid": f"ad_{ad_id.hex[:8]}",
+            "name": name, "status": status,
+        },
+    )
+    return str(ad_id)
+
+
 def insert_metrics_daily(
     db, account_id: str, entity_id: str, d: date,
     *, entity_type="campaign", impressions=0, clicks=0, spend=0,

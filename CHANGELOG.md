@@ -37,6 +37,16 @@ All notable changes to this project are documented here. Format follows
   `docs/internal-schema-spec.md`.
 
 ### Fixed
+- **Table drill-down ignored `campaign_id`/`adgroup_id` — showed the whole account.**
+  `get_table` accepted both params but never bound them, and `TABLE_SQL_ADGROUP`/`TABLE_SQL_AD` had
+  no campaign/ad-group predicate, so clicking a campaign in Overview drilled into the Ad Groups level
+  but returned *every* ad group in the account (other campaigns' rows included). Added the scoping
+  clauses (`c.campaign_id = CAST(:campaign_id AS uuid)`, `c.ad_group_id = CAST(:adgroup_id AS uuid)`,
+  NULL = no-op) and bound the params at the matching levels. Also wired the Overview preview
+  campaign-name click (previously a no-op `() => {}` callback) to navigate to
+  `/{platform}/table?level=adgroup&campaign_id=…`. Refs: `backend/app/services/insights.py`,
+  `frontend/src/components/views/table-view.tsx`,
+  `backend/tests/test_insights_drilldown_filter.py`.
 - **Navbar user name/email silently blanked to "—".** Six components read the `queryKeys.me()` cache
   entry with two different `queryFn` shapes — some cached the full axios response, some the parsed
   `.data.data` body. TanStack keys one cache entry per key, so the value that won depended on mount
