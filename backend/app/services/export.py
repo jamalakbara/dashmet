@@ -428,7 +428,8 @@ def _metric_card(slide, left, top, w, h, label, value, delta_label, delta_color,
           [(delta_label, 11, True, delta_color), (tail, 11, False, _MUTED)])
 
 
-def _slide_performance(prs, account, overview: dict, cds: str, cde: str) -> None:
+def _slide_performance(prs, account, overview: dict, cds: str, cde: str,
+                       insight_text: Optional[str] = None) -> None:
     slide = _blank(prs)
     period = overview.get("period") or {}
     ds, de = _date_str(period.get("date_start")), _date_str(period.get("date_stop"))
@@ -462,7 +463,7 @@ def _slide_performance(prs, account, overview: dict, cds: str, cde: str) -> None
         prev_str = fmt(prev.get(key)) if prev.get(key) is not None else ""
         _metric_card(slide, left, top, cw, ch, label, fmt(summary.get(key)), dlabel, dcolor, prev_str)
 
-    _insight_box(slide, top=5560000, height=880000)
+    _insight_box(slide, insight_text or _INSIGHT_PLACEHOLDER, top=5560000, height=880000)
     _page_number(slide, 2)
 
 
@@ -470,7 +471,8 @@ def _series_points(series):
     return [p for p in (series or []) if p.get("spend") is not None]
 
 
-def _slide_trend(prs, account, series: list[dict], previous_series, ds, de, cds, cde) -> None:
+def _slide_trend(prs, account, series: list[dict], previous_series, ds, de, cds, cde,
+                 insight_text: Optional[str] = None) -> None:
     slide = _blank(prs)
     _content_header(slide, f"DAILY CHART · Spend ({account.currency})", ds, de, cds, cde)
 
@@ -514,11 +516,12 @@ def _slide_trend(prs, account, series: list[dict], previous_series, ds, de, cds,
     val_ax.tick_labels.font.size = Pt(8)
     val_ax.has_major_gridlines = True
 
-    _insight_box(slide, top=5480000, height=980000)
+    _insight_box(slide, insight_text or _INSIGHT_PLACEHOLDER, top=5480000, height=980000)
     _page_number(slide, 3)
 
 
-def _slide_campaigns(prs, account, overview: dict, ds, de, cds, cde) -> None:
+def _slide_campaigns(prs, account, overview: dict, ds, de, cds, cde,
+                     insight_text: Optional[str] = None) -> None:
     slide = _blank(prs)
     _content_header(slide, "TOP CAMPAIGNS", ds, de, cds, cde)
 
@@ -581,7 +584,7 @@ def _slide_campaigns(prs, account, overview: dict, ds, de, cds, cde) -> None:
         for ci, (val, align) in enumerate(vals):
             cell(ri, ci, val, align=align, fill=zebra, bold=(ci == 0))
 
-    _insight_box(slide, top=5560000, height=880000)
+    _insight_box(slide, insight_text or _INSIGHT_PLACEHOLDER, top=5560000, height=880000)
     _page_number(slide, 4)
 
 
@@ -678,6 +681,7 @@ def generate_overview_pptx(
     ads: list[dict],
     previous_series: Optional[list[dict]] = None,
     exported_at: Optional[datetime] = None,
+    insights: Optional[dict[str, str]] = None,
 ) -> bytes:
     """Build the branded overview deck and return the .pptx as bytes.
 
@@ -689,6 +693,9 @@ def generate_overview_pptx(
         previous_series: prior-period timeseries points (get_timeseries(compare_previous=True)
             ["previous_series"]) for the trend overlay; None → single series.
         exported_at: optional stamp; defaults to now (UTC). Param keeps it testable.
+        insights: optional {section: text} AI narrative (keys "performance",
+            "trend", "campaigns") filling the deck's insight boxes. None → the
+            original "Click to add your insight…" placeholder (no layout change).
     """
     if exported_at is None:
         exported_at = datetime.now(timezone.utc)
@@ -705,10 +712,11 @@ def generate_overview_pptx(
     prs.slide_width = _SLIDE_W
     prs.slide_height = _SLIDE_H
 
+    ai = insights or {}
     _slide_cover(prs, account, overview, exported_at)
-    _slide_performance(prs, account, overview, cds, cde)
-    _slide_trend(prs, account, series, previous_series, ds, de, cds, cde)
-    _slide_campaigns(prs, account, overview, ds, de, cds, cde)
+    _slide_performance(prs, account, overview, cds, cde, ai.get("performance"))
+    _slide_trend(prs, account, series, previous_series, ds, de, cds, cde, ai.get("trend"))
+    _slide_campaigns(prs, account, overview, ds, de, cds, cde, ai.get("campaigns"))
     _slide_ads(prs, account, ads, ds, de, cds, cde)
     _slide_closing(prs, account)
 

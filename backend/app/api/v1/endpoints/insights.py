@@ -1,6 +1,6 @@
 import io
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Optional
 from urllib.parse import quote
 
@@ -9,14 +9,17 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, DbSession
+from app.config import settings
 from app.exceptions import ForbiddenError, NotFoundError
 from app.schemas.common import DataResponse, Meta, PaginatedResponse, build_pagination
 from app.schemas.insights import (
     BreakdownResponse,
     OverviewResponse,
+    OverviewSummaryResponse,
     TimeSeriesResponse,
 )
 from app.services import accounts as acc_svc
+from app.services import ai_summary as ai_summary_svc
 from app.services import export as export_svc
 from app.services import insights as insights_svc
 
@@ -170,6 +173,64 @@ def overview(
     return DataResponse(data=data)
 
 
+@router.post("/overview/summary", response_model=OverviewSummaryResponse)
+def overview_summary(
+    account_id: str = Query(...),
+    current_user: CurrentUser = ...,
+    db: DbSession = ...,
+    date_preset: Optional[str] = Query(None),
+    date_start: Optional[date] = Query(None),
+    date_end: Optional[date] = Query(None),
+    status: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+):
+    # POST, not GET: generating the narrative spends OpenAI tokens, so the
+    # intent must be explicit and off the cacheable read path. The numbers are
+    # read via the shared get_overview (tenant check + P-6 parity inside); the
+    # AI service only narrates over that dict, it never queries metrics (P-7).
+    ds, de, account, preset = _resolve_dates(
+        account_id, current_user["org_id"], db, date_preset, date_start, date_end
+    )
+    # Gather a richer, already-computed bundle via the shared read functions
+    # (P-6 parity) — account rollup, per-campaign period-over-period rows, and the
+    # daily trajectory — so the diagnosis can name a driver and speak to WHEN a
+    # change happened rather than paraphrasing the delta pills. The AI service
+    # only transforms these dicts; it never queries metrics itself (P-7).
+    overview = insights_svc.get_overview(
+        db, account_id, current_user["org_id"], ds, de, date_preset=preset,
+        status=status, search=search,
+    )
+    campaigns, _total = insights_svc.get_table(
+        db, account_id, current_user["org_id"], ds, de,
+        level="campaign", compare_previous=True, date_preset=preset,
+        status=status, search=search, per_page=10,
+        sort_by="spend", sort_order="desc",
+    )
+    ts = insights_svc.get_timeseries(
+        db, account_id, current_user["org_id"], ds, de,
+        metrics=["spend", "clicks", "conversions", "ctr", "roas"],
+        level="account", time_increment="day", compare_previous=True,
+        date_preset=preset, status=status, search=search,
+    )
+    try:
+        card = ai_summary_svc.generate_overview_diagnosis(
+            overview, account, campaigns=campaigns, timeseries=ts,
+        )
+    except ai_summary_svc.AISummaryError as e:
+        # Distinguishable error, never a 200 with empty/fake text (P-4).
+        raise HTTPException(status_code=502, detail=str(e))
+
+    return OverviewSummaryResponse(
+        headline=card["headline"],
+        driver=card["driver"],
+        watch=card["watch"],
+        next_step=card["next_step"],
+        period=overview["period"],
+        model=settings.OPENAI_MODEL,
+        generated_at=datetime.now(timezone.utc),
+    )
+
+
 @router.get("/overview/export.pptx")
 def overview_export_pptx(
     account_id: str = Query(...),
@@ -180,6 +241,7 @@ def overview_export_pptx(
     date_end: Optional[date] = Query(None),
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    include_ai_summary: bool = Query(False),
 ):
     # Same date/tenant resolution as GET /overview → identical numbers by
     # construction (P-6). All three reads go through the shared insights
@@ -202,9 +264,40 @@ def overview_export_pptx(
         date_preset=preset, status=status, search=search,
     )
 
+    # Only spend tokens when the user explicitly opts in; default deck is
+    # token-free and renders the original placeholders (no regression).
+    insights_text: Optional[dict[str, str]] = None
+    if include_ai_summary:
+        # Ground the narrative in the same enriched bundle the on-screen card
+        # uses: per-campaign period-over-period rows (with objectives) and a
+        # daily trajectory with conversions — so the deck's "trend" slide speaks
+        # to real day-by-day data instead of a trajectory it never saw. Same
+        # shared read functions (P-6/P-7).
+        ai_campaigns, _ = insights_svc.get_table(
+            db, account_id, current_user["org_id"], ds, de,
+            level="campaign", compare_previous=True, date_preset=preset,
+            status=status, search=search, per_page=10,
+            sort_by="spend", sort_order="desc",
+        )
+        ai_ts = insights_svc.get_timeseries(
+            db, account_id, current_user["org_id"], ds, de,
+            metrics=["spend", "clicks", "conversions", "ctr", "roas"],
+            level="account", time_increment="day", compare_previous=True,
+            date_preset=preset, status=status, search=search,
+        )
+        try:
+            insights_text = ai_summary_svc.generate_narrative(
+                overview, account, sections=["performance", "trend", "campaigns"],
+                campaigns=ai_campaigns, timeseries=ai_ts,
+            )
+        except ai_summary_svc.AISummaryError as e:
+            # The user asked for the summary; don't silently export without it.
+            raise HTTPException(status_code=502, detail=str(e))
+
     pptx_bytes = export_svc.generate_overview_pptx(
         account=account, overview=overview, series=ts["series"],
         previous_series=ts.get("previous_series"), ads=rows,
+        insights=insights_text,
     )
 
     filename = _report_filename(account.name, ds)

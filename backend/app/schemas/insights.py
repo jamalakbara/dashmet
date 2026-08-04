@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Optional
 from pydantic import BaseModel
 
@@ -102,6 +102,23 @@ class OverviewResponse(BaseModel):
     previous: MetricsSummary
     vs_previous: VsPrevious
     top_campaigns: list[TopCampaignRow]
+
+
+class OverviewSummaryResponse(BaseModel):
+    """On-demand AI diagnosis over the overview numbers (P-1 envelope: carries
+    the same period as the numbers it narrates, plus model/generation stamp so
+    the client can show provenance).
+
+    Structured into four diagnostic fields rather than one prose blob so the card
+    can present a headline finding, its likely driver, a secondary watch signal,
+    and a recommended next step distinctly."""
+    headline: str
+    driver: str
+    watch: str
+    next_step: str
+    period: PeriodInfo
+    model: str
+    generated_at: datetime
 
 
 class TimeSeriesPoint(BaseModel):

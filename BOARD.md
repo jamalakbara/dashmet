@@ -24,6 +24,8 @@ Sync-freshness UX (fresh-connect "data gone?" confusion) — ordered:
 
 ## Done
 
+- 2026-08-04 (net-new) P-6/P-1/P-4/P-7 — AI narrative summary: on-demand grounded narrative over `get_overview()` (LLM narrates, computes nothing). Landed `app/services/ai_summary.py` + `POST /insights/overview/summary` + Overview "AI Summary" card + opt-in PPTX insight-box auto-fill (`include_ai_summary`). Tests: `test_ai_summary.py`, `test_overview_summary_endpoint.py`, `test_export_overview.py` (25 passing).
+  - 2026-08-04 follow-up: deepened to a structured objective-aware DIAGNOSIS — response now `{headline, driver, watch, next_step}` (was single `narrative`), fed per-campaign compare-previous rows + daily timeseries (all shared read fns, P-6/P-7); driver SELECTED not computed. Frontend 4-section card. Tests: `test_ai_summary.py`, `test_overview_summary_endpoint.py`.
 - 2026-08-04 (net-new, not a PRD item) P-6 "deliverable, not just a dashboard" — PPTX export of single-account overview (`GET /insights/overview/export.pptx` + `app/services/export.py`; reuses shared read fns, one query path). Export PPTX button in control-strip. Deps python-pptx + Pillow.
 - 2026-08-03 P-2 (auto-refresh) — all dashboard sections poll while sync active (`useSyncActive` from real sync_jobs state) so Trends/Breakdown/Table/Ads fill in as data lands, not just Overview KPIs. Replaces blind 5-min timer. Verified in browser (badge green + sections filled).
 - 2026-08-03 §9.2/§11 (breakdown) — breakdown sync writes a `sync_jobs` row (`job_type="breakdown"`, finalized on every exit path); fixes badge stuck "partially synced" + section stuck "Syncing…". Normalized TikTok/Google `"breakdowns"`→`"breakdown"`. Test: `test_sync_jobs_completeness.py`.

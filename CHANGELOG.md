@@ -6,6 +6,35 @@ All notable changes to this project are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **On-demand AI overview diagnosis** — a grounded LLM diagnosis over the single-account overview
+  numbers. New service `backend/app/services/ai_summary.py` diagnoses over dicts from the shared
+  read path (`insights.get_overview` + `get_table` + `get_timeseries`) — it computes nothing, states
+  no figure not in its input, imports no repository and runs no SQL (P-6/P-7); any failure raises
+  `AISummaryError` rather than fabricating text (P-4). New `POST /insights/overview/summary`
+  (`backend/app/api/v1/endpoints/insights.py`) returns `OverviewSummaryResponse`
+  (`{ headline, driver, watch, next_step, period, model, generated_at }`,
+  `backend/app/schemas/insights.py`) at the top level (not `{ data }`-wrapped): a structured
+  diagnosis — a headline finding, its likely driver, a watch signal, a next step — rather than one
+  prose blob. The endpoint feeds the service a richer bundle via the shared read fns (P-6/P-7):
+  per-campaign period-over-period rows with objectives (`get_table(level="campaign",
+  compare_previous=True)`, top 10 by spend) and the current+previous daily trajectory
+  (`get_timeseries(compare_previous=True)`), alongside the account rollup. The senior-analyst prompt
+  (`generate_overview_diagnosis`) judges each metric against the campaign objective and SELECTS (does
+  not compute/rank) the driver campaign from pre-computed deltas — no LLM arithmetic (P-7). Errors
+  `403` cross-org, `400` missing dates, `502 { detail }` on any AI failure. `GET
+  /insights/overview/export.pptx` gained an opt-in `include_ai_summary` flag that auto-fills the
+  deck's insight boxes via `generate_narrative` + `generate_overview_pptx(insights=…)`
+  (`backend/app/services/export.py`), now fed the same campaign/trajectory bundle so the "trend"
+  slide is grounded in real daily data; default off = the original placeholder, token-free deck. New
+  config `OPENAI_API_KEY` + `OPENAI_MODEL` (default `gpt-4o-mini`) in `backend/app/config.py` /
+  `backend/.env.example`; `openai` added to `backend/requirements.txt`. Frontend: typed
+  `insightsApi.generateSummary` (`OverviewSummary` with the four fields) + `include_ai_summary` on
+  `exportOverviewPptx` (`frontend/src/lib/api/insights.ts`), an **AI Summary** card rendering the
+  four labeled sections with idle/loading/success/error states
+  (`frontend/src/components/views/overview-view.tsx`), and an **Include AI summary** toggle next to
+  Export PPTX (`frontend/src/components/layout/control-strip.tsx`). Tests:
+  `backend/tests/test_ai_summary.py`, `backend/tests/test_overview_summary_endpoint.py`,
+  `backend/tests/test_export_overview.py`.
 - **PPTX export of a single-account overview** — new `GET /insights/overview/export.pptx`
   (`backend/app/api/v1/endpoints/insights.py`) returns a branded 6-slide PowerPoint deck as a
   binary `StreamingResponse`: a dark gradient-blob **cover**, a **Monthly Performance** slide

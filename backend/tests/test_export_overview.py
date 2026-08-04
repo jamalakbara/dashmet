@@ -124,6 +124,18 @@ def _open_deck(raw: bytes) -> Presentation:
     return Presentation(io.BytesIO(raw))
 
 
+def _deck_text(prs: Presentation) -> str:
+    """All rendered text across every slide/shape, concatenated. Enough to assert
+    a given string landed somewhere in a text box (the insight boxes render their
+    text as a run in a rounded-rectangle shape)."""
+    chunks = []
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                chunks.append(shape.text_frame.text)
+    return "\n".join(chunks)
+
+
 # ─── 1. Service: valid deck (no DB, no network) ──────────────────────────────
 
 
@@ -198,6 +210,77 @@ def test_generate_overview_pptx_survives_raising_thumbnail(monkeypatch):
 
     prs = _open_deck(raw)
     assert len(prs.slides) == 6
+
+
+# ─── 2b. Service: AI insight-box injection (no DB, no network) ───────────────
+
+
+def test_generate_overview_pptx_fills_insight_boxes(monkeypatch):
+    """insights={...} threads each section's AI narrative into its insight box.
+
+    The performance/trend/campaigns strings must appear in the rendered deck and
+    the original placeholder must be GONE for those boxes (they were filled).
+    This is the PPTX half of the AI-summary feature (P-6 deliverable-first)."""
+    monkeypatch.setattr(export, "_fetch_thumbnail", lambda url: None)
+
+    insights = {
+        "performance": "PERF_NARRATIVE_MARKER performance moved up.",
+        "trend": "TREND_NARRATIVE_MARKER momentum is improving.",
+        "campaigns": "CAMPAIGNS_NARRATIVE_MARKER Alpha leads spend.",
+    }
+    raw = export.generate_overview_pptx(
+        account=_fake_account(),
+        overview=_sample_overview(),
+        series=_sample_series(),
+        ads=_sample_ads(),
+        insights=insights,
+    )
+
+    text = _deck_text(_open_deck(raw))
+    assert "PERF_NARRATIVE_MARKER performance moved up." in text
+    assert "TREND_NARRATIVE_MARKER momentum is improving." in text
+    assert "CAMPAIGNS_NARRATIVE_MARKER Alpha leads spend." in text
+    # The three boxes that got AI text no longer show the placeholder. (The ads
+    # slide has no insight box, so the placeholder should be entirely absent.)
+    assert export._INSIGHT_PLACEHOLDER not in text
+
+
+def test_generate_overview_pptx_partial_insights_keep_placeholder(monkeypatch):
+    """A section missing from the insights dict falls back to the placeholder —
+    filled boxes show AI text, unfilled boxes keep the original prompt (no
+    layout change, graceful partial fill)."""
+    monkeypatch.setattr(export, "_fetch_thumbnail", lambda url: None)
+
+    raw = export.generate_overview_pptx(
+        account=_fake_account(),
+        overview=_sample_overview(),
+        series=_sample_series(),
+        ads=_sample_ads(),
+        insights={"performance": "ONLY_PERF_MARKER"},
+    )
+
+    text = _deck_text(_open_deck(raw))
+    assert "ONLY_PERF_MARKER" in text
+    # trend + campaigns had no AI text → placeholder remains for those two boxes.
+    assert export._INSIGHT_PLACEHOLDER in text
+
+
+def test_generate_overview_pptx_none_insights_renders_placeholder(monkeypatch):
+    """Regression guard: insights=None (default, token-free export) renders the
+    original 'Click to add your insight…' placeholder exactly as before the AI
+    feature — and none of the AI markers appear."""
+    monkeypatch.setattr(export, "_fetch_thumbnail", lambda url: None)
+
+    raw = export.generate_overview_pptx(
+        account=_fake_account(),
+        overview=_sample_overview(),
+        series=_sample_series(),
+        ads=_sample_ads(),
+        insights=None,
+    )
+
+    text = _deck_text(_open_deck(raw))
+    assert export._INSIGHT_PLACEHOLDER in text
 
 
 # ─── DB availability guard (skip cleanly instead of erroring in fixtures) ─────

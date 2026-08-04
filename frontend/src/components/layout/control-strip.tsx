@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
 import { FileDown } from "lucide-react";
@@ -32,6 +33,10 @@ export function ControlStrip() {
   // the view tabs because it's a view control, not top-level chrome.
   const [compareStr, setCompareStr] = useQueryState("compare");
 
+  // Opt-in AI insight boxes in the exported deck. Default OFF so the standard
+  // export never spends tokens (P-5: manual/gated, not automatic).
+  const [includeAiSummary, setIncludeAiSummary] = useState(false);
+
   // Export lives on single-account (platform) views only; the combined
   // dashboard (platform === null) has no single-account overview to render.
   const isSingleAccount = platform !== null;
@@ -42,6 +47,7 @@ export function ControlStrip() {
         account_id: accountId!,
         ...dateRange,
         ...filter,
+        include_ai_summary: includeAiSummary,
       }),
     onSuccess: ({ blob, filename }) => {
       const url = URL.createObjectURL(blob);
@@ -74,16 +80,26 @@ export function ControlStrip() {
         <FilterPopover />
 
         {isSingleAccount && (
-          <Button
-            size="lg"
-            variant="outline"
-            onClick={() => exportPptx.mutate()}
-            disabled={!accountId || exportPptx.isPending}
-            className="gap-2"
-          >
-            <FileDown className={cn("size-4", exportPptx.isPending && "animate-pulse")} />
-            Export PPTX
-          </Button>
+          <>
+            <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap text-sm text-muted-foreground">
+              <Switch
+                checked={includeAiSummary}
+                onCheckedChange={setIncludeAiSummary}
+              />
+              Include AI summary
+            </label>
+
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={() => exportPptx.mutate()}
+              disabled={!accountId || exportPptx.isPending}
+              className="gap-2"
+            >
+              <FileDown className={cn("size-4", exportPptx.isPending && "animate-pulse")} />
+              Export PPTX
+            </Button>
+          </>
         )}
       </div>
     </div>

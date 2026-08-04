@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     GOOGLE_ADS_LOGIN_CUSTOMER_ID: str = ""  # MCC/manager customer id, digits only
     GOOGLE_ADS_REDIRECT_URI: str = "http://localhost:8000/api/v1/connections/google/oauth/callback"
 
+    # OpenAI (on-demand AI narrative summary — see services/ai_summary.py)
+    # Safe defaults so the app boots without a key; the summary endpoint returns
+    # a distinguishable 502 (never a fake summary) when the key is empty.
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4o-mini"
+
     # CORS
     CORS_ORIGINS: str = "http://localhost:3000"
 

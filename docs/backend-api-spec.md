@@ -836,11 +836,59 @@ When either is set, the summary, `vs_previous`, and `top_campaigns` aggregate on
 
 ---
 
+#### `POST /api/v1/insights/overview/summary`
+
+On-demand **AI diagnosis** of a single-account overview. `POST` (not `GET`) because generating the summary spends OpenAI tokens: the intent must be explicit and the call must stay off the cacheable read path. Same query params and date/tenant resolution as `GET /insights/overview`.
+
+**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `status`, `search` (body is empty).
+
+**Parity (P-6/P-7):** the endpoint gathers a richer already-computed bundle via the same shared read functions behind `GET /overview` / `GET /table` / `GET /timeseries` — no second query path against the metrics tables:
+- `get_overview` — account-level rollup (tenant check + identical numbers by construction).
+- `get_table` (`level="campaign"`, `compare_previous=True`, top 10 by spend, each row carrying its campaign `objective`) — per-campaign period-over-period rows.
+- `get_timeseries` (`level="account"`, `time_increment="day"`, `compare_previous=True`) — current + previous daily trajectory.
+
+Those three dicts are handed to `app/services/ai_summary.py:generate_overview_diagnosis(overview, account, *, campaigns, timeseries)`. The AI service **diagnoses only** — it computes nothing (every % change is service-pre-formatted for it to quote, never recomputed), states no figure not present in the input, judges each metric against the campaign objective, and **selects** (does not rank/compute) the driver campaign from the pre-computed deltas. It imports no repository and runs no SQL (P-7). See `app/api/v1/endpoints/insights.py:overview_summary`.
+
+**Response `200`** — returned at the **top level**, *not* wrapped in the standard `{ data }` / `{ meta }` envelope. The summary is structured into four required diagnostic strings — a headline finding, its likely driver, a secondary watch signal, and a recommended next step — rather than a single prose blob:
+```json
+{
+  "headline": "Conversions down 86% on flat spend — an efficiency problem, not a budget one.",
+  "driver": "The likely driver is 'Retargeting — Q2 Sale' (SALES objective), whose ROAS fell 71% while the awareness campaigns held steady.",
+  "watch": "CTR slipped from mid-month onward in the daily trajectory — worth watching for creative fatigue.",
+  "next_step": "Audit the 'Retargeting — Q2 Sale' creative and audience overlap before restoring budget.",
+  "period": {
+    "date_start": "2026-05-23",
+    "date_stop": "2026-05-30",
+    "preset": "last_7d"
+  },
+  "model": "gpt-4o-mini",
+  "generated_at": "2026-05-30T11:45:00Z"
+}
+```
+
+`headline` / `driver` / `watch` / `next_step` are each a required non-blank diagnostic string. `period` carries the same window as the numbers being narrated (P-1 envelope). `model` echoes `settings.OPENAI_MODEL`; `generated_at` is the UTC generation timestamp.
+
+**Errors**
+
+| Status | When |
+|---|---|
+| `400` | Neither `date_preset` nor `date_start`+`date_end` supplied (shared `_resolve_dates`). |
+| `403` | `account_id` belongs to another org (tenant isolation via `get_overview`). |
+| `502` | Any AI failure — missing/empty `OPENAI_API_KEY`, network/timeout, OpenAI API error, or an empty/unparseable completion or one missing/blanking any of the four required fields. Body is `{ "detail": "<reason>" }`. Never a `200` with empty or fabricated text (P-4). |
+
+**Config:** requires `OPENAI_API_KEY` and `OPENAI_MODEL` (default `gpt-4o-mini`) in the backend environment — see `backend/.env.example` / `app/config.py`. With no key configured the endpoint returns the `502` above (the app still boots).
+
+---
+
 #### `GET /api/v1/insights/overview/export.pptx`
 
 Server-rendered PowerPoint (.pptx) export of a single-account overview. Same query params and date/tenant resolution as `GET /insights/overview`.
 
-**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `status`, `search`
+**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `status`, `search`, `include_ai_summary`
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `include_ai_summary` | bool | `false` | When `true`, fills the deck's insight boxes with AI narrative (sections `performance` / `trend` / `campaigns`) via `ai_summary.generate_narrative`, fed the same enriched bundle as the on-screen diagnosis — per-campaign period-over-period rows (`get_table`, with objectives) and the current+previous daily trajectory (`get_timeseries`) — so the `trend` slide is grounded in real day-by-day data rather than inferred from current-vs-previous aggregates. Gated so the default export spends no tokens and renders the original placeholders unchanged. An AI failure raises `502 { "detail": … }` (the user asked for the summary; the deck is not silently exported without it — P-4). |
 
 **Response `200`** — binary PPTX (not JSON):
 
@@ -851,7 +899,7 @@ Server-rendered PowerPoint (.pptx) export of a single-account overview. Same que
 
 The download name is `"<Account name> - Monthly Report - <period-start Month Year>.pptx"` (`_report_filename` in `app/api/v1/endpoints/insights.py`). The header carries both an ASCII-stripped `filename` fallback and an RFC 5987 `filename*=UTF-8''…` for spaces/non-ASCII account names (`_content_disposition`). CORS exposes `Content-Disposition` (`app/main.py`) so the browser can read the name cross-origin; the frontend parses it (`parseContentDispositionFilename` in `lib/api/insights.ts`) for the download. Body is a `StreamingResponse` over the raw `.pptx` bytes built by `app/services/export.py:generate_overview_pptx`.
 
-**Parity (P-6/P-7):** the endpoint reuses the shared read functions `get_overview` / `get_timeseries` (called with `compare_previous=True` for the trend overlay) / `get_table` (the same functions behind `GET /overview`, `GET /timeseries`, `GET /table`) — no second query path against the metrics tables. Deck = **6 slides**, a branded monthly-report template (neutral dashmet branding, no third-party logos): (1) dark gradient-blob **cover** with account/period; (2) **Monthly Performance** — a Current-vs-Previous spend hero plus metric cards (impressions, clicks, CTR, CPM, conversions, ROAS) showing coloured period-over-period deltas and prior values; (3) **daily spend trend** — a native pptx line chart overlaying current vs previous period with a thinned date axis; (4) **Top Campaigns** — styled table; (5) **Top Ads** — top-6 (`level="ad"`, spend-desc) with 4:5 letterboxed creative thumbnails; (6) **closing** slide. Content slides carry an editable purple "insight" placeholder box. A missing/failed thumbnail degrades to a neutral placeholder, never a fake image.
+**Parity (P-6/P-7):** the endpoint reuses the shared read functions `get_overview` / `get_timeseries` (called with `compare_previous=True` for the trend overlay) / `get_table` (the same functions behind `GET /overview`, `GET /timeseries`, `GET /table`) — no second query path against the metrics tables. Deck = **6 slides**, a branded monthly-report template (neutral dashmet branding, no third-party logos): (1) dark gradient-blob **cover** with account/period; (2) **Monthly Performance** — a Current-vs-Previous spend hero plus metric cards (impressions, clicks, CTR, CPM, conversions, ROAS) showing coloured period-over-period deltas and prior values; (3) **daily spend trend** — a native pptx line chart overlaying current vs previous period with a thinned date axis; (4) **Top Campaigns** — styled table; (5) **Top Ads** — top-6 (`level="ad"`, spend-desc) with 4:5 letterboxed creative thumbnails; (6) **closing** slide. Content slides carry an editable purple "insight" box that shows a "Click to add your insight…" placeholder by default, or the AI narrative when `include_ai_summary=true` (`generate_overview_pptx(insights={section: text})`; `None` → the placeholder, no layout change). A missing/failed thumbnail degrades to a neutral placeholder, never a fake image.
 
 > **Known gap (P-1):** the single-account `get_overview()` read path does **not** return a `data_as_of` / `coverage` / `cached_at` freshness envelope (the combined path does, via `meta.cached_at`). The export's cover therefore stamps only "Data as of `<date_stop>`" derived from the period, not a true freshness/coverage marker. Tracked as a follow-up in `BOARD.md`.
 

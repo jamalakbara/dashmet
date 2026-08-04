@@ -1,10 +1,13 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
 import { motion } from "framer-motion";
-import { Wallet, PieChart } from "lucide-react";
+import { Wallet, PieChart, Sparkles, AlertTriangle, RotateCw } from "lucide-react";
 import { MetricGroupCard, type SubMetric } from "@/components/metrics/metric-group-card";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { PeriodicView } from "@/components/views/periodic-view";
 import { FunnelView } from "@/components/views/funnel-view";
 import { TableView } from "@/components/views/table-view";
@@ -21,7 +24,7 @@ import { staggerGrid } from "@/lib/motion";
 import { metricLabel, metricType } from "@/lib/metrics";
 import { formatMetric, formatCurrency, formatRoas } from "@/lib/formatters";
 
-interface OverviewSummary {
+interface OverviewMetrics {
   [key: string]: number;
 }
 
@@ -63,7 +66,7 @@ function SectionHeading({ title, subtitle }: { title: string; subtitle?: string 
 /** Build the sub-metric rows for a card from the keys present in the summary. */
 function buildSubMetrics(
   keys: string[],
-  summary: OverviewSummary | undefined,
+  summary: OverviewMetrics | undefined,
   currency: string,
   skip?: string,
 ): SubMetric[] {
@@ -76,6 +79,124 @@ function buildSubMetrics(
       value: formatMetric(summary[k], metricType(k), currency),
       raw: summary[k],
     }));
+}
+
+/**
+ * On-demand AI narrative summary of the overview. Generation is opt-in (a click)
+ * so token spend is always intentional (P-5). The narrative is anchored to the
+ * same period/model returned by the endpoint so it reads against the numbers
+ * shown on screen (P-1). On failure we surface the backend's `detail` verbatim
+ * with a retry — never a silent/empty card or a fabricated summary (P-4).
+ */
+function AiSummaryCard({
+  accountId,
+  dateRange,
+  filter,
+}: {
+  accountId: string;
+  dateRange: ReturnType<typeof useDateRange>;
+  filter: ReturnType<typeof useOverviewFilter>;
+}) {
+  const summary = useMutation({
+    mutationFn: () =>
+      insightsApi.generateSummary({ account_id: accountId, ...dateRange, ...filter }),
+  });
+
+  const errorDetail =
+    (summary.error as { response?: { data?: { detail?: string } } })?.response?.data
+      ?.detail ?? "Couldn't generate the AI summary. Try again.";
+
+  return (
+    <section className="space-y-3">
+      <SectionHeading
+        title="AI Summary"
+        subtitle="A grounded narrative of what changed this period."
+      />
+      <Card>
+        <CardContent className="space-y-4">
+          {summary.isPending ? (
+            <div className="space-y-4" aria-busy>
+              <div className="h-5 w-3/4 animate-pulse rounded bg-muted" />
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="space-y-2">
+                  <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+                  <div className="h-4 w-11/12 animate-pulse rounded bg-muted" />
+                </div>
+              ))}
+            </div>
+          ) : summary.isError ? (
+            <Alert variant="destructive">
+              <AlertTriangle />
+              <AlertTitle>AI summary failed</AlertTitle>
+              <AlertDescription>
+                <p>{errorDetail}</p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => summary.mutate()}
+                  className="mt-2 gap-2"
+                >
+                  <RotateCw className="size-4" />
+                  Retry
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : summary.data ? (
+            <div className="space-y-4">
+              {/* Headline reads as the lead — larger and heavier than the rest. */}
+              <p className="text-base font-semibold leading-snug text-foreground">
+                {summary.data.headline}
+              </p>
+              <div className="space-y-3">
+                {(
+                  [
+                    { label: "Likely driver", text: summary.data.driver },
+                    { label: "Watch", text: summary.data.watch },
+                    { label: "Next", text: summary.data.next_step },
+                  ] as const
+                ).map((section) => (
+                  <div key={section.label} className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {section.label}
+                    </p>
+                    <p className="text-sm leading-relaxed whitespace-pre-line text-foreground">
+                      {section.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+                <p className="text-xs text-muted-foreground">
+                  {summary.data.period.date_start} – {summary.data.period.date_stop}
+                  {" · "}
+                  {summary.data.model}
+                </p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => summary.mutate()}
+                  className="gap-2"
+                >
+                  <RotateCw className="size-4" />
+                  Regenerate
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-start gap-2">
+              <Button onClick={() => summary.mutate()} className="gap-2">
+                <Sparkles className="size-4" />
+                Generate AI summary
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Uses AI · counts toward token usage
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </section>
+  );
 }
 
 export function OverviewView() {
@@ -100,7 +221,7 @@ export function OverviewView() {
     refetchInterval: syncActive ? 5000 : false,
   });
 
-  const summary: OverviewSummary | undefined = overviewRes?.data?.data?.summary;
+  const summary: OverviewMetrics | undefined = overviewRes?.data?.data?.summary;
   const previous: Record<string, number | null> | undefined =
     overviewRes?.data?.data?.previous;
 
@@ -159,6 +280,9 @@ export function OverviewView() {
           currency={currency}
         />
       </div>
+
+      {/* AI narrative summary (on-demand, grounded in the same overview numbers) */}
+      <AiSummaryCard accountId={accountId} dateRange={dateRange} filter={filter} />
 
       {/* Trends (periodic charts with metric tabs) */}
       <section className="space-y-3">

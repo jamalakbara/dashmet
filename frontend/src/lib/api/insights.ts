@@ -13,6 +13,36 @@ export type OverviewParams = InsightParams & {
   search?: string;
 };
 
+// PPTX export takes the overview params plus an optional flag to have the deck's
+// insight boxes auto-filled by the AI narrative service (gated: token spend).
+export type ExportOverviewParams = OverviewParams & {
+  include_ai_summary?: boolean;
+};
+
+/**
+ * On-demand AI structured summary of the single-account overview. Unlike the
+ * other insights GETs, this endpoint returns the object at the TOP LEVEL (not
+ * wrapped in a `{ data }` envelope). Carries the period/freshness envelope so
+ * the summary stays anchored to the numbers shown on screen (P-1).
+ *
+ * The narrative is broken into four labeled fields (all required): `headline`
+ * (the lead), `driver` (likely cause), `watch` (a risk to monitor), and
+ * `next_step` (the recommended action).
+ */
+export interface OverviewSummary {
+  headline: string;
+  driver: string;
+  watch: string;
+  next_step: string;
+  period: {
+    date_start: string;
+    date_stop: string;
+    preset: string | null;
+  };
+  model: string;
+  generated_at: string;
+}
+
 export type TimeseriesParams = InsightParams & {
   level?: string;
   metrics?: string;
@@ -83,7 +113,7 @@ export const insightsApi = {
    * also sets a Content-Disposition attachment filename).
    */
   exportOverviewPptx: async (
-    params: OverviewParams,
+    params: ExportOverviewParams,
   ): Promise<{ blob: Blob; filename: string }> => {
     const res = await apiClient.get<Blob>("/insights/overview/export.pptx", {
       params,
@@ -94,6 +124,21 @@ export const insightsApi = {
       blob: res.data,
       filename: parseContentDispositionFilename(cd) ?? "Monthly Report.pptx",
     };
+  },
+  /**
+   * On-demand AI narrative summary of the single-account overview. POST (not
+   * GET) so the token-spending intent is explicit and it stays off the cacheable
+   * read path. Response is returned at the top level — NOT `{ data }`-wrapped —
+   * so we hand back `res.data` directly. Any AI failure surfaces as a 502 whose
+   * `detail` the caller shows verbatim (P-4: no fake/empty summary).
+   */
+  generateSummary: async (params: OverviewParams): Promise<OverviewSummary> => {
+    const res = await apiClient.post<OverviewSummary>(
+      "/insights/overview/summary",
+      null,
+      { params },
+    );
+    return res.data;
   },
   timeseries: (params: TimeseriesParams) =>
     apiClient.get("/insights/timeseries", { params }),
