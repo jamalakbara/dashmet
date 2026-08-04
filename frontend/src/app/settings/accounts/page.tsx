@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Search } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SegmentControl } from "@/components/ui/segment-control";
 import {
   Select,
   SelectContent,
@@ -107,15 +107,12 @@ export default function AccountsSettingsPage() {
             className="h-8 pl-8"
           />
         </div>
-        <Tabs value={platform} onValueChange={setPlatform}>
-          <TabsList>
-            {PLATFORM_TABS.map((t) => (
-              <TabsTrigger key={t.value} value={t.value}>
-                {t.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        <SegmentControl
+          items={PLATFORM_TABS}
+          value={platform}
+          onValueChange={setPlatform}
+          ariaLabel="Filter accounts by platform"
+        />
       </div>
 
       <div className="space-y-2">

@@ -22,6 +22,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { SegmentControl } from "@/components/ui/segment-control";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { SyncAwareEmpty } from "@/components/shared/sync-aware-empty";
 import { DeltaPill } from "@/components/metrics/delta-pill";
@@ -174,7 +175,7 @@ function AdCard({
 
   return (
     <Card
-      className="cursor-pointer overflow-hidden transition-shadow hover:shadow-md"
+      className="cursor-pointer overflow-hidden shadow-[var(--shadow-soft)] transition-shadow hover:shadow-[var(--shadow-lift)]"
       onClick={onClick}
     >
       {/* Creative thumbnail — 4:5 portrait, zero crop (letterbox on bg) */}
@@ -651,22 +652,16 @@ export function AdsView({ preview = false }: { preview?: boolean } = {}) {
         </div>
 
         {/* View toggle */}
-        <div className="ml-auto flex rounded-lg border bg-background p-0.5 gap-0.5">
-          {(["grid", "list"] as const).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => setViewMode(mode)}
-              className={cn(
-                "rounded-md px-2.5 py-1 text-sm capitalize transition-colors",
-                viewMode === mode
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              {mode}
-            </button>
-          ))}
-        </div>
+        <SegmentControl
+          className="ml-auto"
+          items={[
+            { value: "grid", label: "Grid" },
+            { value: "list", label: "List" },
+          ]}
+          value={viewMode}
+          onValueChange={setViewMode}
+          ariaLabel="Ad layout"
+        />
       </div>
 
       {/* Count */}

@@ -19,9 +19,10 @@ interface BentoTileProps {
 }
 
 /**
- * Base bento cell: hairline-bordered near-black tile with a monospace micro-label
- * header, top hover-glow line, and entrance/hover motion. The building block for
- * the whole bento canvas.
+ * Base bento cell: standard card surface (bg-card, hairline ring, soft shadow) —
+ * the same visual language as the platform overview cards — with a sans
+ * muted-foreground micro-label header and entrance/hover motion. The building
+ * block for the whole bento canvas.
  */
 export function BentoTile({
   label,
@@ -37,17 +38,17 @@ export function BentoTile({
       variants={fadeInUp}
       {...(interactive ? hoverLift : {})}
       className={cn(
-        "group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card",
-        "shadow-[var(--shadow-soft)] transition-colors hover:border-primary/30",
+        "group relative flex flex-col overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10",
+        "shadow-[var(--shadow-soft)] transition-shadow hover:shadow-[var(--shadow-lift)]",
         className
       )}
     >
 
       {(label || action) && (
-        <div className="flex items-center justify-between gap-2 px-4 pt-3">
+        <div className="flex items-center justify-between gap-2 px-4 pt-4">
           {label ? (
-            <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              {Icon && <Icon className="size-3" />}
+            <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              {Icon && <Icon className="size-3.5" />}
               {label}
             </span>
           ) : (

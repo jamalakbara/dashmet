@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
+import { SegmentControl } from "@/components/ui/segment-control";
 import { BreakdownSection } from "@/components/metrics/breakdown-section";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
@@ -36,7 +37,6 @@ import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
 import { metricLabel, metricType } from "@/lib/metrics";
 import { CHART_COLORS, gridProps, axisProps, tooltipProps } from "@/lib/chart-theme";
 import { formatMetric } from "@/lib/formatters";
-import { cn } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -82,37 +82,6 @@ function Empty({ height = 280 }: { height?: number }) {
       style={{ height }}
     >
       No data for selected period
-    </div>
-  );
-}
-
-// ─── Segmented control ────────────────────────────────────────────────────────
-
-function SegmentControl<T extends string>({
-  options,
-  value,
-  onChange,
-}: {
-  options: { value: T; label: string }[];
-  value: T;
-  onChange: (v: T) => void;
-}) {
-  return (
-    <div className="flex rounded-lg border bg-background p-0.5 gap-0.5">
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          onClick={() => onChange(opt.value)}
-          className={cn(
-            "rounded-md px-2.5 py-1 text-sm transition-colors",
-            value === opt.value
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          {opt.label}
-        </button>
-      ))}
     </div>
   );
 }
@@ -258,9 +227,10 @@ export function PeriodicView() {
         </Popover>
 
         <SegmentControl
-          options={TIME_INCREMENTS}
+          items={TIME_INCREMENTS}
           value={timeIncrement}
-          onChange={(v) => setTimeIncrement(v)}
+          onValueChange={(v) => setTimeIncrement(v)}
+          ariaLabel="Time increment"
         />
       </div>
 
@@ -274,9 +244,10 @@ export function PeriodicView() {
                 : `${metricLabel(metrics[0])} by ${LEVELS.find((l) => l.value === level)?.label ?? level}`}
             </CardTitle>
             <SegmentControl
-              options={[{ value: "line", label: "Line" }, { value: "bar", label: "Bar" }]}
+              items={[{ value: "line", label: "Line" }, { value: "bar", label: "Bar" }]}
               value={chartType}
-              onChange={setChartType}
+              onValueChange={setChartType}
+              ariaLabel="Chart type"
             />
           </div>
         </CardHeader>

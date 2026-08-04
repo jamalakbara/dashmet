@@ -58,7 +58,7 @@ export function ControlStrip() {
 
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-5 py-3">
-      <div className="hidden items-center rounded-lg border border-border p-0.5 sm:flex">
+      <div className="hidden items-center sm:flex">
         <PlatformTabs />
       </div>
 

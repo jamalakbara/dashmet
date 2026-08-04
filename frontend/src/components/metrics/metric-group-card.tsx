@@ -69,7 +69,7 @@ export function MetricGroupCard({
   return (
     <motion.div
       variants={fadeInUp}
-      className="flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-[var(--shadow-soft)]"
+      className="flex flex-col overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 shadow-[var(--shadow-soft)]"
     >
       {/* Header */}
       <div className="flex items-start justify-between gap-3 px-5 pt-5">

@@ -32,7 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import Link from "next/link";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SegmentControl } from "@/components/ui/segment-control";
 import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PaginationBar } from "@/components/shared/pagination-bar";
@@ -515,13 +515,12 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
   return (
     <div className="space-y-4">
       {/* Level tabs */}
-      <Tabs value={level} onValueChange={switchLevel}>
-        <TabsList>
-          {LEVEL_TABS.map((t) => (
-            <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      <SegmentControl
+        items={LEVEL_TABS}
+        value={level}
+        onValueChange={switchLevel}
+        ariaLabel="Entity level"
+      />
 
       {/* Drill-down breadcrumb */}
       {(campaignId || adgroupId) && (

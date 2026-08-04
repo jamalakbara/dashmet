@@ -16,7 +16,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SegmentControl } from "@/components/ui/segment-control";
 import { insightsApi } from "@/lib/api/insights";
 import { SyncAwareEmpty } from "@/components/shared/sync-aware-empty";
 import { useSyncActive } from "@/hooks/use-sync-jobs";
@@ -32,6 +32,13 @@ interface BreakdownRow {
   dimensions: Record<string, string>;
   metrics: Record<string, number>;
 }
+
+const BREAKDOWN_TABS = [
+  { value: "age_gender",        label: "Age & Gender" },
+  { value: "country",           label: "Country" },
+  { value: "platform_position", label: "Platform" },
+  { value: "device",            label: "Device" },
+];
 
 const GENDER_COLORS: Record<string, string> = {
   female: CHART_COLORS[3],
@@ -209,6 +216,7 @@ export function BreakdownSection() {
   });
 
   const bdRows: BreakdownRow[] = bdRes?.data?.data?.rows ?? [];
+  const active = activeBreakdown ?? "age_gender";
 
   return (
     <Card className="shadow-[var(--shadow-soft)]">
@@ -216,27 +224,24 @@ export function BreakdownSection() {
         <CardTitle className="font-display text-sm font-semibold">Breakdown</CardTitle>
       </CardHeader>
       <CardContent>
-        <Tabs value={activeBreakdown ?? "age_gender"} onValueChange={(v) => setActiveBreakdown(v)}>
-          <TabsList>
-            <TabsTrigger value="age_gender">Age & Gender</TabsTrigger>
-            <TabsTrigger value="country">Country</TabsTrigger>
-            <TabsTrigger value="platform_position">Platform</TabsTrigger>
-            <TabsTrigger value="device">Device</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="age_gender" className="mt-4">
+        <SegmentControl
+          items={BREAKDOWN_TABS}
+          value={active}
+          onValueChange={(v) => setActiveBreakdown(v)}
+          ariaLabel="Breakdown dimension"
+        />
+        <div className="mt-4">
+          {active === "age_gender" && (
             <AgeGenderChart rows={bdRows} loading={bdLoading} currency={currency} />
-          </TabsContent>
-          <TabsContent value="country" className="mt-4">
+          )}
+          {active === "country" && (
             <CountryChart rows={bdRows} loading={bdLoading} currency={currency} />
-          </TabsContent>
-          <TabsContent value="platform_position" className="mt-4">
+          )}
+          {active === "platform_position" && (
             <PlatformChart rows={bdRows} loading={bdLoading} currency={currency} />
-          </TabsContent>
-          <TabsContent value="device" className="mt-4">
-            <DeviceChart rows={bdRows} loading={bdLoading} />
-          </TabsContent>
-        </Tabs>
+          )}
+          {active === "device" && <DeviceChart rows={bdRows} loading={bdLoading} />}
+        </div>
       </CardContent>
     </Card>
   );

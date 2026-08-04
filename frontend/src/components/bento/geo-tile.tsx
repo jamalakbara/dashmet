@@ -145,7 +145,7 @@ export function GeoTile({ className, accountId, dateRange, caption }: GeoTilePro
           {points.slice(0, 3).map((p) => (
             <span
               key={p.code}
-              className="absolute -translate-x-1/2 -translate-y-full rounded-full border border-border bg-card/80 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground backdrop-blur"
+              className="absolute -translate-x-1/2 -translate-y-full rounded-full bg-card/80 px-1.5 py-0.5 text-[9px] text-muted-foreground ring-1 ring-foreground/10 backdrop-blur"
               style={{
                 left: `${(p.x / W) * 100}%`,
                 top: `${(p.y / H) * 100}%`,

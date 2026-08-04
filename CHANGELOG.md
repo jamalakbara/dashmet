@@ -59,6 +59,30 @@ All notable changes to this project are documented here. Format follows
   `frontend/src/components/views/{overview-view,funnel-view,table-view,ads-view}.tsx`.
 
 ### Changed
+- **Design-system unification pass — one accent, one segmented-control, coherent cards/tables.**
+  Collapsed the frontend's competing visual languages into a single system (UI-only; no data or
+  behavior change). (a) **Single accent = sidebar indigo.** `--primary`/`--ring`/`--accent`
+  retuned from blue (~262°) to the sidebar indigo (~273°) in `frontend/src/app/globals.css`, and
+  dark-mode `--primary`/`--ring` moved off the disconnected orange (45°) into the same indigo
+  family — so buttons, active toggles, links and focus rings all match the rail. (b) **One
+  filled-pill segmented control** — new shared `SegmentControl`
+  (`frontend/src/components/ui/segment-control.tsx`): muted-bg pill container, active segment gets
+  a solid `bg-primary`/`text-primary-foreground` fill; supports both state-based (`onValueChange`)
+  and route-based (`href` → Next `<Link>`) segments. Every bespoke segmented/tab control now uses
+  it: `layout/platform-tabs.tsx`, `shared/settings-nav.tsx` (was a border-b underline),
+  `views/periodic-view.tsx` (Day/Week/Month + Line/Bar, hand-rolled control deleted),
+  `views/ads-view.tsx` (Grid/List), `views/table-view.tsx` (Campaigns/Ad Groups/Ads),
+  `metrics/breakdown-section.tsx` (Age/Country/Platform/Device), and
+  `app/settings/accounts/page.tsx` (platform filter) — the last four dropped shadcn `Tabs` for
+  the shared pill. (c) **Cards** — `metrics/metric-group-card.tsx` and the `ads-view` grid cards
+  switched to the standard card surface (`ring-1 ring-foreground/10` + `--shadow-soft`/`--shadow-lift`)
+  matching shadcn `Card`. (d) **Dashboard (bento) tiles re-skinned to match platform cards** —
+  `components/bento/bento-tile.tsx` dropped its near-black hairline/mono-uppercase-label look for
+  the standard card surface + sans `text-muted-foreground` labels; `bento/greeting-tile.tsx`
+  dropped the terminal/typewriter/mono status line for a plain greeting; the `(dashboard)/dashboard`
+  "By account" rows de-mono'd. (e) **Table spacing** refined in `components/ui/table.tsx`
+  (header `h-11`, cells `px-3 py-2.5`). Platform brand colors (Meta/TikTok/Google badges), semantic
+  status colors, and chart-series/data-encoding colors were deliberately left unchanged.
 - **Toolbar reorganized into a tidy two-row layout; permanent "Sync Data" button removed.**
   The always-lit blue Sync Data button is gone — manual sync is now a contextual **Sync now**
   action inside the freshness chip, shown only when data is stale or a job failed (P-5). The

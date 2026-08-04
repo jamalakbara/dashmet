@@ -15,15 +15,6 @@ import { chartAnimation } from "@/lib/chart-theme";
 export const TINTS = ["mint", "lilac", "peach", "sky", "butter", "blush"] as const;
 export type Tint = (typeof TINTS)[number];
 
-const TINT_BG: Record<Tint, string> = {
-  mint: "bg-tint-mint",
-  lilac: "bg-tint-lilac",
-  peach: "bg-tint-peach",
-  sky: "bg-tint-sky",
-  butter: "bg-tint-butter",
-  blush: "bg-tint-blush",
-};
-
 /** CSS var for each tint's deep hue — used for the dot + sparkline (Gestalt: a
  *  single hue codes each metric across its dot and its trend line). */
 const TINT_VAR: Record<Tint, string> = {
@@ -84,12 +75,7 @@ export function MetricCard({
 
   return (
     <motion.div variants={fadeInUp} {...hoverLift}>
-      <Card
-        className={cn(
-          "gap-0 overflow-hidden py-0 shadow-[var(--shadow-soft)] transition-shadow hover:shadow-[var(--shadow-lift)]",
-          tint && TINT_BG[tint]
-        )}
-      >
+      <Card className="gap-0 overflow-hidden py-0 shadow-[var(--shadow-soft)] transition-shadow hover:shadow-[var(--shadow-lift)]">
         {/* Header: label + colored dot (left) · delta pill (right) */}
         <div className="px-4 pt-4">
           <div className="flex items-center justify-between gap-2">

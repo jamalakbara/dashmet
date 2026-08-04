@@ -273,11 +273,11 @@ export default function CombinedDashboardPage() {
           ov.per_account.map((acc) => (
             <div
               key={acc.account_id}
-              className="flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm"
+              className="flex items-center gap-3 rounded-lg bg-muted/40 px-3 py-2 text-sm"
             >
               {acc.platform && <PlatformBadge platform={acc.platform} size="sm" />}
               <span className="truncate font-medium">{acc.name}</span>
-              <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
+              <span className="ml-auto text-xs tabular-nums font-medium text-muted-foreground">
                 {formatCurrency(acc.summary?.spend ?? 0, currency)}
               </span>
             </div>

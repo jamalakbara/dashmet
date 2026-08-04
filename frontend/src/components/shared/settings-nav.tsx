@@ -1,34 +1,17 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { SegmentControl, type SegmentItem } from "@/components/ui/segment-control";
 
-const TABS = [
-  { href: "/settings/org",         label: "Organization" },
-  { href: "/settings/members",     label: "Members" },
-  { href: "/settings/connections", label: "Connections" },
-  { href: "/settings/accounts",    label: "Accounts" },
+const TABS: SegmentItem[] = [
+  { value: "/settings/org",         label: "Organization", href: "/settings/org" },
+  { value: "/settings/members",     label: "Members",      href: "/settings/members" },
+  { value: "/settings/connections", label: "Connections",  href: "/settings/connections" },
+  { value: "/settings/accounts",    label: "Accounts",     href: "/settings/accounts" },
 ];
 
 export function SettingsNav() {
   const pathname = usePathname();
-  return (
-    <nav className="flex gap-0 border-b">
-      {TABS.map(({ href, label }) => (
-        <Link
-          key={href}
-          href={href}
-          className={cn(
-            "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors",
-            pathname === href
-              ? "border-primary text-foreground"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          )}
-        >
-          {label}
-        </Link>
-      ))}
-    </nav>
-  );
+  const value = TABS.find((t) => t.value === pathname)?.value ?? "";
+  return <SegmentControl items={TABS} value={value} ariaLabel="Settings sections" />;
 }

@@ -243,7 +243,7 @@ Sidebar (`components/layout/sidebar.tsx`) is an **indigo rail** with a single `D
 
 ### Platform tab bar — `PlatformTabs`
 
-`components/layout/platform-tabs.tsx` — a `<Link>`-based (route-driven, not the shadcn `Tabs` primitive) tab bar mounted in the control strip. Reads the active platform via `usePlatform()`, looks up `PLATFORM_TABS[platform]`, and renders one tab per view. Returns `null` on `/dashboard` (no platform). Active tab = exact `pathname` match.
+`components/layout/platform-tabs.tsx` — a route-driven (not shadcn `Tabs`) tab bar mounted in the control strip, rendered via the shared `SegmentControl` in route-based mode (each item carries an `href`, so tabs are real `<Link>`s). Reads the active platform via `usePlatform()`, looks up `PLATFORM_TABS[platform]`, and renders one filled-pill segment per view. Returns `null` on `/dashboard` (no platform). Active tab = exact `pathname` match.
 
 ---
 
@@ -394,7 +394,7 @@ const { data, isLoading } = useQuery({
 - Default selection: Spend + Clicks
 - Selected metrics shown as chips next to the button
 
-**Time increment** — segmented control (shadcn `ToggleGroup`)
+**Time increment** — filled-pill `SegmentControl` (state-based), alongside a matching Line/Bar chart-type toggle
 - Options: Day · Week · Month
 - Default: Day
 
@@ -696,6 +696,13 @@ Showing 1–20 of 123        ←  1  2  3  …  7  →
 ---
 
 ## 8. Shared Components
+
+### Design language (single-accent rule)
+
+The UI runs on **one accent family**: the sidebar indigo (`--primary`/`--ring`/`--accent`, hue ~273° in `globals.css`, matching the rail in both light and dark mode). Every interactive-accent surface — primary buttons, active toggles/segments, links, focus rings — resolves to this token; there is no second (blue/orange) accent. Deliberately **exempt** and left brand/semantic-correct: platform **brand** colors (Meta blue, TikTok black, Google multicolor — `platform-badge.tsx`, `settings/connections`), **status** colors (green active / yellow paused / red error — `status-badge.tsx`), and **chart-series / data-encoding** colors (`--chart-*`, `--tint-*`, iris palette). Cards share one surface (`rounded-xl bg-card ring-1 ring-foreground/10` + `--shadow-soft`, lifting to `--shadow-lift` on hover) — the same for platform overview cards **and** dashboard (bento) tiles, which no longer use a bespoke near-black/mono-terminal look.
+
+### `SegmentControl`
+`components/ui/segment-control.tsx` — the single **filled-pill** segmented control used app-wide. Presentational only (owns no state): a muted-bg pill container (`bg-muted rounded-lg p-0.5`); the active segment gets a solid `bg-primary`/`text-primary-foreground` fill with `shadow-sm`, inactive segments are `text-muted-foreground` → `hover:text-foreground`. Props: `items: {value,label,icon?,href?}[]`, `value`, `onValueChange?(value)`, `ariaLabel?`, `className?`, `segmentClassName?`. Interaction is per-item: an item with `href` renders a Next `<Link>` (route-based tabs), otherwise a `<button>` calling `onValueChange` (state-based toggles). Typed generically over the value union (no `any`). Used by the platform tab bar (`PlatformTabs`), settings nav (`SettingsNav`), Periodic (Day/Week/Month + Line/Bar), Ads (Grid/List), Table (Campaigns/Ad Groups/Ads), Breakdown (Age/Country/Platform/Device), and the `/settings/accounts` platform filter — replacing all previously bespoke segment/tab implementations and most in-view shadcn `Tabs` usages.
 
 ### `MetricCard`
 KPI display card with value, label, % change badge, and optional sparkline. Used in Overview.
