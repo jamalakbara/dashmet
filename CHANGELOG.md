@@ -188,6 +188,19 @@ All notable changes to this project are documented here. Format follows
   `workers/meta_client.py` (`get_insights` now requires `time_range`, no longer accepts `date_preset`).
 
 ### Fixed
+- **"Sync now" button broken for TikTok and Google accounts** — two bugs. (A) The frontend posted
+  `{ account_id }` only, but `TriggerSyncRequest.job_types` was required with no default, so the
+  request failed validation → HTTP 400 "VALIDATION_ERROR". Made `job_types` optional
+  (`job_types: list[str] | None = None`, `backend/app/schemas/sync.py`); when omitted the service
+  picks a platform-appropriate default set. (B) `trigger_sync` dispatch was Meta-only — it created a
+  `SyncJob` row per requested job_type but only branched to Meta tasks, so a TikTok/Google account
+  either ran the wrong task or left `pending` rows with no producer (violates P-8: sync_jobs
+  completeness). Replaced with a platform-aware `DISPATCH_TABLE`
+  (`meta`/`tiktok`/`google_ads` → per-platform per-account tasks) plus `DEFAULT_JOB_TYPES`; a
+  (platform, job_type) pair with no producer is skipped entirely rather than creating a stuck
+  `pending` row (`backend/app/services/sync.py`). Tenant isolation
+  (`assert_account_belongs_to_org`) unchanged. Frontend `sync.ts` typed to reflect the now-optional
+  field (`frontend/src/lib/api/sync.ts`). Covered by `backend/tests/test_trigger_sync_dispatch.py`.
 - TikTok sync jobs failing with "App … reaches the QPS limit 10, current QPS is 11" during
   connect-time backfill fan-out. `TikTokClient._rate_limit_check()` only enforced a per-*minute*
   counter and never the real app-wide 10 QPS limit, so concurrent tasks burst past it (TikTok

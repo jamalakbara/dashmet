@@ -127,18 +127,138 @@ def get_sync_status(
     }
 
 
+# Per-platform dispatch table.
+#
+# Maps (platform_id, job_type) -> a callable that imports the correct per-account
+# Celery task and dispatches it via .delay(account_id).  A (platform, job_type)
+# pair that is ABSENT here has no producer for that platform: trigger_sync skips
+# it entirely rather than creating a `pending` SyncJob row that would never be
+# picked up (PRD P-8 — sync_jobs completeness: no pending row without a producer).
+#
+# Each value is a thin lambda so the worker import is lazy (avoids importing
+# Celery / platform SDKs at module load time and in the request path when the
+# job_type isn't requested).
+
+
+def _dispatch_meta_structure(account_id: str) -> None:
+    from workers.tasks.structure import sync_structure_for_account
+    sync_structure_for_account.delay(account_id)
+
+
+def _dispatch_meta_insights_daily(account_id: str) -> None:
+    from workers.tasks.insights import sync_insights_for_account
+    sync_insights_for_account.delay(account_id)
+
+
+def _dispatch_meta_insights_async(account_id: str) -> None:
+    from workers.tasks.async_jobs import submit_async_job_for_account
+    submit_async_job_for_account.delay(account_id)
+
+
+def _dispatch_tiktok_structure(account_id: str) -> None:
+    from workers.tasks.tiktok_structure import sync_tiktok_structure_for_account
+    sync_tiktok_structure_for_account.delay(account_id)
+
+
+def _dispatch_tiktok_insights_daily(account_id: str) -> None:
+    from workers.tasks.tiktok_insights import sync_tiktok_insights_for_account
+    sync_tiktok_insights_for_account.delay(account_id, "last_7d", "insights_daily")
+
+
+def _dispatch_tiktok_insights_historical(account_id: str) -> None:
+    from workers.tasks.tiktok_insights import sync_tiktok_insights_for_account
+    sync_tiktok_insights_for_account.delay(account_id, "last_30d", "insights_historical")
+
+
+def _dispatch_tiktok_creatives(account_id: str) -> None:
+    from workers.tasks.tiktok_creatives import sync_tiktok_creatives_for_account
+    sync_tiktok_creatives_for_account.delay(account_id)
+
+
+def _dispatch_tiktok_breakdown(account_id: str) -> None:
+    from workers.tasks.tiktok_breakdowns import sync_tiktok_breakdowns_for_account
+    sync_tiktok_breakdowns_for_account.delay(account_id)
+
+
+def _dispatch_google_structure(account_id: str) -> None:
+    from workers.tasks.google_structure import sync_google_structure_for_account
+    sync_google_structure_for_account.delay(account_id)
+
+
+def _dispatch_google_insights_daily(account_id: str) -> None:
+    from workers.tasks.google_insights import sync_google_insights_for_account
+    sync_google_insights_for_account.delay(account_id, "last_7d", "insights_daily")
+
+
+def _dispatch_google_insights_historical(account_id: str) -> None:
+    from workers.tasks.google_insights import sync_google_insights_for_account
+    sync_google_insights_for_account.delay(account_id, "last_30d", "insights_historical")
+
+
+def _dispatch_google_creatives(account_id: str) -> None:
+    from workers.tasks.google_creatives import sync_google_creatives_for_account
+    sync_google_creatives_for_account.delay(account_id)
+
+
+def _dispatch_google_breakdown(account_id: str) -> None:
+    from workers.tasks.google_breakdowns import sync_google_breakdowns_for_account
+    sync_google_breakdowns_for_account.delay(account_id)
+
+
+DISPATCH_TABLE: dict[str, dict[str, "callable"]] = {
+    "meta": {
+        "structure": _dispatch_meta_structure,
+        "insights_daily": _dispatch_meta_insights_daily,
+        "insights_async": _dispatch_meta_insights_async,
+    },
+    "tiktok": {
+        "structure": _dispatch_tiktok_structure,
+        "insights_daily": _dispatch_tiktok_insights_daily,
+        "insights_historical": _dispatch_tiktok_insights_historical,
+        "creatives": _dispatch_tiktok_creatives,
+        "breakdown": _dispatch_tiktok_breakdown,
+    },
+    "google_ads": {
+        "structure": _dispatch_google_structure,
+        "insights_daily": _dispatch_google_insights_daily,
+        "insights_historical": _dispatch_google_insights_historical,
+        "creatives": _dispatch_google_creatives,
+        "breakdown": _dispatch_google_breakdown,
+    },
+}
+
+# Default job_type set per platform when the caller omits `job_types`.  Every
+# entry MUST have a producer in DISPATCH_TABLE for that platform (P-8).
+DEFAULT_JOB_TYPES: dict[str, list[str]] = {
+    "meta": ["structure", "insights_daily"],
+    "tiktok": ["structure", "insights_daily", "creatives", "breakdown"],
+    "google_ads": ["structure", "insights_daily", "creatives", "breakdown"],
+}
+
+
 def trigger_sync(
     db: Session,
     account_id: str,
     org_id: str,
-    job_types: list[str],
+    job_types: Optional[list[str]] = None,
 ) -> list[str]:
     account = assert_account_belongs_to_org(db, account_id, org_id)
-    valid_types = set(JOB_TTLS.keys())
-    job_ids = []
+    platform_dispatch = DISPATCH_TABLE.get(account.platform_id, {})
+
+    if job_types is None:
+        job_types = DEFAULT_JOB_TYPES.get(
+            account.platform_id, ["structure", "insights_daily"]
+        )
+
+    job_ids: list[str] = []
 
     for jt in job_types:
-        if jt not in valid_types:
+        if jt not in JOB_TTLS:
+            continue
+        dispatch = platform_dispatch.get(jt)
+        # No producer for this (platform, job_type): never create a pending
+        # SyncJob row that would sit stuck forever (P-8). Skip it.
+        if dispatch is None:
             continue
 
         job = SyncJob(
@@ -151,14 +271,6 @@ def trigger_sync(
         db.flush()
         job_ids.append(str(job.id))
 
-        if jt == "structure":
-            from workers.tasks.structure import sync_structure_for_account
-            sync_structure_for_account.delay(str(account.id))
-        elif jt == "insights_daily":
-            from workers.tasks.insights import sync_insights_for_account
-            sync_insights_for_account.delay(str(account.id))
-        elif jt == "insights_async":
-            from workers.tasks.async_jobs import submit_async_job_for_account
-            submit_async_job_for_account.delay(str(account.id))
+        dispatch(str(account.id))
 
     return job_ids

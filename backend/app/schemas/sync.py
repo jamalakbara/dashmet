@@ -27,7 +27,10 @@ class SyncStatusResponse(BaseModel):
 
 class TriggerSyncRequest(BaseModel):
     account_id: str
-    job_types: list[str]
+    # Optional: when omitted, the service picks a platform-appropriate default
+    # set (see services.sync.DEFAULT_JOB_TYPES). Only job_types that have a
+    # producer for the account's platform are dispatched.
+    job_types: Optional[list[str]] = None
 
 
 class TriggerSyncResponse(BaseModel):
