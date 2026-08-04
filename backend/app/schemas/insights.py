@@ -46,6 +46,10 @@ class MetricsSummary(BaseModel):
     video_6s_views: Optional[int] = None
     video_avg_time: Optional[float] = None
     avg_watch_time: Optional[float] = None
+    post_reactions: Optional[int] = None
+    post_saves: Optional[int] = None
+    add_to_cart_value: Optional[float] = None
+    avg_basket_price: Optional[float] = None
     conversion_rate: Optional[float] = None
     engagement_rate: Optional[float] = None
     cost_per_result: Optional[float] = None
@@ -68,6 +72,16 @@ class MetricsSummary(BaseModel):
     cost_per_lead: Optional[float] = None
     cost_per_web_purchase: Optional[float] = None
     cost_per_web_add_to_cart: Optional[float] = None
+    # ── CPAS "Shared Item" (catalog-segment) events + cost-per-step + ROAS ──
+    purchase_shared: Optional[int] = None
+    add_to_cart_shared: Optional[int] = None
+    content_view_shared: Optional[int] = None
+    purchase_value_shared: Optional[float] = None
+    add_to_cart_value_shared: Optional[float] = None
+    cost_per_purchase_shared: Optional[float] = None
+    cost_per_add_to_cart_shared: Optional[float] = None
+    cost_per_content_view_shared: Optional[float] = None
+    roas_shared: Optional[float] = None
 
 
 class VsPrevious(BaseModel):
@@ -167,6 +181,10 @@ class TimeSeriesPoint(BaseModel):
     video_6s_views: Optional[int] = None
     video_avg_time: Optional[float] = None
     avg_watch_time: Optional[float] = None
+    post_reactions: Optional[int] = None
+    post_saves: Optional[int] = None
+    add_to_cart_value: Optional[float] = None
+    avg_basket_price: Optional[float] = None
     conversion_rate: Optional[float] = None
     engagement_rate: Optional[float] = None
     cost_per_result: Optional[float] = None
@@ -189,6 +207,16 @@ class TimeSeriesPoint(BaseModel):
     cost_per_lead: Optional[float] = None
     cost_per_web_purchase: Optional[float] = None
     cost_per_web_add_to_cart: Optional[float] = None
+    # ── CPAS "Shared Item" (catalog-segment) events + cost-per-step + ROAS ──
+    purchase_shared: Optional[int] = None
+    add_to_cart_shared: Optional[int] = None
+    content_view_shared: Optional[int] = None
+    purchase_value_shared: Optional[float] = None
+    add_to_cart_value_shared: Optional[float] = None
+    cost_per_purchase_shared: Optional[float] = None
+    cost_per_add_to_cart_shared: Optional[float] = None
+    cost_per_content_view_shared: Optional[float] = None
+    roas_shared: Optional[float] = None
 
 
 class TimeSeriesEntity(BaseModel):
@@ -248,6 +276,10 @@ class TableMetrics(BaseModel):
     video_6s_views: Optional[int] = None
     video_avg_time: Optional[float] = None
     avg_watch_time: Optional[float] = None
+    post_reactions: Optional[int] = None
+    post_saves: Optional[int] = None
+    add_to_cart_value: Optional[float] = None
+    avg_basket_price: Optional[float] = None
     conversion_rate: Optional[float] = None
     engagement_rate: Optional[float] = None
     cost_per_result: Optional[float] = None
@@ -270,6 +302,16 @@ class TableMetrics(BaseModel):
     cost_per_lead: Optional[float] = None
     cost_per_web_purchase: Optional[float] = None
     cost_per_web_add_to_cart: Optional[float] = None
+    # ── CPAS "Shared Item" (catalog-segment) events + cost-per-step + ROAS ──
+    purchase_shared: Optional[int] = None
+    add_to_cart_shared: Optional[int] = None
+    content_view_shared: Optional[int] = None
+    purchase_value_shared: Optional[float] = None
+    add_to_cart_value_shared: Optional[float] = None
+    cost_per_purchase_shared: Optional[float] = None
+    cost_per_add_to_cart_shared: Optional[float] = None
+    cost_per_content_view_shared: Optional[float] = None
+    roas_shared: Optional[float] = None
 
 
 class TableRow(BaseModel):

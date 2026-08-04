@@ -1,4 +1,4 @@
-import type { DatePreset } from "@/types/enums";
+import type { DatePreset, AccountType } from "@/types/enums";
 
 /** Every platform the combined picker fans out over (grouped by these, in order).
  *  Unconnected platforms return no accounts and their group is dropped. */
@@ -114,20 +114,21 @@ export const PLATFORM_TABS: Record<string, PlatformTab[]> = {
   ],
 };
 
+export interface FunnelStep {
+  key: string;
+  label: string;
+}
+
 /**
  * Ordered funnel steps per platform for the Funnel view. Each key must exist in
  * the overview summary (METRIC_REGISTRY). Steps with null/0 values are hidden at
  * render time, so accounts without a Pixel collapse to the steps they do have.
+ *
+ * Meta is account-type-aware and is resolved via `getFunnelSteps` (standard vs
+ * cpas use different, strictly-separated conversion keys) — never read
+ * `FUNNEL_STEPS.meta` directly. tiktok / google_ads are platform-only.
  */
-export const FUNNEL_STEPS: Record<string, { key: string; label: string }[]> = {
-  meta: [
-    { key: "impressions",       label: "Impressions" },
-    { key: "clicks",            label: "Clicks" },
-    { key: "view_content",      label: "Content Views" },
-    { key: "add_to_cart",       label: "Add to Cart" },
-    { key: "initiate_checkout", label: "Checkout" },
-    { key: "purchase",          label: "Purchases" },
-  ],
+export const FUNNEL_STEPS: Record<string, FunnelStep[]> = {
   tiktok: [
     { key: "impressions",      label: "Impressions" },
     { key: "clicks",           label: "Clicks" },
@@ -144,3 +145,35 @@ export const FUNNEL_STEPS: Record<string, { key: string; label: string }[]> = {
     { key: "conversions", label: "Conversions" },
   ],
 };
+
+/** Meta funnel steps keyed by account type — strictly separated so a standard
+ *  account never renders `*_shared` steps and a cpas account never renders the
+ *  standard pixel steps. */
+export const META_FUNNEL_STEPS: Record<AccountType, FunnelStep[]> = {
+  standard: [
+    { key: "landing_page_views", label: "Landing Page View" },
+    { key: "add_to_cart",        label: "Add to Cart" },
+    { key: "initiate_checkout",  label: "Initiate Checkout" },
+    { key: "purchase",           label: "Purchase" },
+  ],
+  cpas: [
+    { key: "content_view_shared", label: "Content View Shared Item" },
+    { key: "add_to_cart_shared",  label: "Add to Cart Shared Item" },
+    { key: "purchase_shared",     label: "Purchase Shared Item" },
+  ],
+};
+
+/**
+ * Resolve the ordered funnel steps for a platform + account type. Meta branches
+ * on account type (standard vs cpas shared-item); tiktok / google_ads ignore it.
+ * Falls back to Meta standard when platform is unknown.
+ */
+export function getFunnelSteps(
+  platform: string | null | undefined,
+  accountType: AccountType | null,
+): FunnelStep[] {
+  if (!platform || platform === "meta") {
+    return META_FUNNEL_STEPS[accountType ?? "standard"];
+  }
+  return FUNNEL_STEPS[platform] ?? META_FUNNEL_STEPS.standard;
+}

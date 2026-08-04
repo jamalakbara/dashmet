@@ -4,7 +4,15 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
 import { formatDistanceToNow } from "date-fns";
 import { motion } from "framer-motion";
-import { Wallet, PieChart, Sparkles, AlertTriangle, RotateCw } from "lucide-react";
+import {
+  Wallet,
+  PieChart,
+  Clapperboard,
+  Sparkles,
+  AlertTriangle,
+  RotateCw,
+  type LucideIcon,
+} from "lucide-react";
 import { MetricGroupCard, type SubMetric } from "@/components/metrics/metric-group-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,30 +30,101 @@ import { usePlatform } from "@/hooks/use-platform";
 import { useOverviewFilter } from "@/hooks/use-overview-filter";
 import { useSharedFilterQuery } from "@/hooks/use-shared-query";
 import { staggerGrid } from "@/lib/motion";
+import { cn } from "@/lib/utils";
 import { metricLabel, metricType } from "@/lib/metrics";
-import { formatMetric, formatCurrency, formatRoas } from "@/lib/formatters";
+import { formatMetric, formatRoas } from "@/lib/formatters";
+import type { AccountType } from "@/types/enums";
 
 interface OverviewMetrics {
   [key: string]: number;
 }
 
-// Delivery/reach metrics that live under the "Spend" family card.
-const DELIVERY_KEYS = [
-  "reach", "impressions", "frequency", "ctr", "cpm", "cpc",
-  "clicks", "inline_link_clicks", "video_thruplays",
-];
-// Result/conversion metrics under the second family card.
-const RESULT_KEYS = [
-  "conversions", "conversion_value", "cpa", "conversion_rate",
-  "purchase", "cost_per_purchase", "add_to_cart", "cost_per_add_to_cart",
-  "landing_page_views", "leads", "outbound_clicks", "outbound_clicks_ctr",
-  "web_purchases", "web_purchase_value", "web_add_to_cart", "result",
-  "cost_per_result", "likes", "comments", "shares", "engagement_rate",
-];
-// First present of these becomes the second card's headline.
-const RESULT_HEADLINE = [
-  "roas", "conversions", "web_purchases", "result", "engagement_rate", "outbound_clicks",
-];
+/**
+ * One grouped overview card. `headlineKey` omitted → a title-only card (the grid
+ * with no big number, e.g. Post & Media). `keys` are the sub-metrics, filtered
+ * at render to those actually present in the summary (P-1/P-2). `headlineKey`,
+ * when present, is excluded from `keys` so it isn't duplicated in the grid.
+ */
+interface CardSpec {
+  title: string;
+  icon: LucideIcon;
+  accent: string;
+  headlineKey?: string;
+  keys: string[];
+  /** Outer grid column span on `lg` (default 1). `2` makes the card full-width. */
+  span?: 1 | 2;
+  /** Inner sub-metric grid column count (default 2). `4` lays 8 metrics as 2×4. */
+  cols?: 2 | 4;
+}
+
+/**
+ * Account-type-scoped card definitions. STRICTLY separated: a standard account
+ * renders zero `*_shared` metrics, a cpas account renders none of the standard
+ * ROAS / Post & Media metrics. Driven off `accountType` from the selected
+ * account — never mixed. Keys absent from the summary are dropped silently.
+ */
+const OVERVIEW_CARDS: Record<AccountType, CardSpec[]> = {
+  standard: [
+    {
+      title: "Spend",
+      icon: Wallet,
+      accent: "bg-orange-500",
+      headlineKey: "spend",
+      keys: [
+        "reach", "impressions", "frequency", "ctr", "cpm",
+        "inline_link_clicks", "clicks", "cpc",
+        "landing_page_views", "cost_per_landing_page_view",
+      ],
+    },
+    {
+      title: "ROAS",
+      icon: PieChart,
+      accent: "bg-emerald-500",
+      headlineKey: "roas",
+      keys: [
+        "purchase", "conversion_value", "cost_per_purchase",
+        "add_to_cart", "add_to_cart_value", "cost_per_add_to_cart",
+        "conversion_rate", "avg_basket_price",
+      ],
+    },
+    {
+      title: "Post & Media",
+      icon: Clapperboard,
+      accent: "bg-violet-500",
+      // Full-width bottom row: 8 metrics laid out as two rows of 4 so the card
+      // fills the space left by an odd (3-card) count in a 2-col grid.
+      span: 2,
+      cols: 4,
+      keys: [
+        "inline_post_engagement", "post_saves", "post_reactions", "comments",
+        "video_thruplays", "video_views", "video_p100", "video_avg_time",
+      ],
+    },
+  ],
+  cpas: [
+    {
+      title: "Spend",
+      icon: Wallet,
+      accent: "bg-orange-500",
+      headlineKey: "spend",
+      keys: [
+        "reach", "impressions", "ctr", "cpm",
+        "inline_link_clicks", "clicks", "cpc",
+      ],
+    },
+    {
+      title: "ROAS Shared Item",
+      icon: PieChart,
+      accent: "bg-emerald-500",
+      headlineKey: "roas_shared",
+      keys: [
+        "purchase_shared", "purchase_value_shared", "cost_per_purchase_shared",
+        "add_to_cart_shared", "add_to_cart_value_shared", "cost_per_add_to_cart_shared",
+        "content_view_shared", "cost_per_content_view_shared",
+      ],
+    },
+  ],
+};
 
 function EmptyState({ message }: { message: string }) {
   return (
@@ -237,8 +316,21 @@ function AiSummaryCard({
   );
 }
 
+/** Format a card's headline value by its metric type (roas has its own formatter). */
+function formatHeadline(
+  key: string,
+  summary: OverviewMetrics | undefined,
+  currency: string,
+): string {
+  const type = metricType(key);
+  const value = summary?.[key] ?? null;
+  return type === "roas"
+    ? formatRoas(Number(value ?? 0))
+    : formatMetric(value, type, currency);
+}
+
 export function OverviewView() {
-  const { accountId, currency } = useSelectedAccount();
+  const { accountId, currency, accountType } = useSelectedAccount();
   const platform = usePlatform() ?? "meta";
   const withQuery = useSharedFilterQuery();
   const dateRange = useDateRange();
@@ -269,54 +361,57 @@ export function OverviewView() {
     );
   }
 
-  // ── Card 1: Spend family ──
-  const spendSub = buildSubMetrics(DELIVERY_KEYS, summary, currency);
-
-  // ── Card 2: Results family (headline is the first present result metric) ──
-  const resultHeadlineKey =
-    RESULT_HEADLINE.find((k) => summary?.[k] != null) ?? "conversions";
-  const resultTitle = metricLabel(resultHeadlineKey);
-  const resultHeadline =
-    resultHeadlineKey === "roas"
-      ? formatRoas(summary?.roas ?? 0)
-      : formatMetric(summary?.[resultHeadlineKey], metricType(resultHeadlineKey), currency);
-  const resultSub = buildSubMetrics(RESULT_KEYS, summary, currency, resultHeadlineKey);
+  // Account-type-scoped card set. Standard → 3 cards (Spend / ROAS / Post &
+  // Media); cpas → 2 cards (Spend / ROAS Shared Item). Falls back to standard
+  // when the account type isn't yet resolved. Strict separation is guaranteed
+  // by keying the config on accountType — no card ever mixes the two sets.
+  const cards = OVERVIEW_CARDS[accountType ?? "standard"];
 
   return (
     <motion.div {...staggerGrid} className="space-y-6">
       {/* Section heading */}
       <SectionHeading title="Overview" subtitle="Delivery and results for the selected period." />
 
-      {/* Grouped metric cards — items-start so expanding one doesn't stretch the other */}
+      {/* Grouped metric cards — items-start so expanding one doesn't stretch the
+          others. Rendered from the account-type-scoped config so standard and
+          cpas never share a card set. */}
       <div className="grid items-start gap-4 lg:grid-cols-2">
-        <MetricGroupCard
-          title="Spend"
-          icon={Wallet}
-          accent="bg-orange-500"
-          headline={formatCurrency(summary?.spend ?? 0, currency)}
-          headlineKey="spend"
-          headlineValue={summary?.spend ?? null}
-          subMetrics={spendSub}
-          detailHref={withQuery(`/${platform}/table`)}
-          loading={isLoading}
-          compare={compare}
-          previous={previous}
-          currency={currency}
-        />
-        <MetricGroupCard
-          title={resultTitle}
-          icon={PieChart}
-          accent="bg-emerald-500"
-          headline={resultHeadline}
-          headlineKey={resultHeadlineKey}
-          headlineValue={summary?.[resultHeadlineKey] ?? null}
-          subMetrics={resultSub}
-          detailHref={withQuery(`/${platform}/table`)}
-          loading={isLoading}
-          compare={compare}
-          previous={previous}
-          currency={currency}
-        />
+        {cards.map((card) => {
+          const hasHeadline = card.headlineKey != null;
+          const subMetrics = buildSubMetrics(
+            card.keys,
+            summary,
+            currency,
+            card.headlineKey,
+          );
+          const columns = card.cols ?? 2;
+          return (
+            <MetricGroupCard
+              key={card.title}
+              className={cn(card.span === 2 && "lg:col-span-2")}
+              title={card.title}
+              icon={card.icon}
+              accent={card.accent}
+              columns={columns}
+              // A wide 4-col card previews a full row (columns) rather than the
+              // default 4, so both of its two rows stay visible without "See More".
+              previewCount={columns === 4 ? subMetrics.length : undefined}
+              headline={
+                hasHeadline
+                  ? formatHeadline(card.headlineKey!, summary, currency)
+                  : undefined
+              }
+              headlineKey={card.headlineKey}
+              headlineValue={hasHeadline ? summary?.[card.headlineKey!] ?? null : null}
+              subMetrics={subMetrics}
+              detailHref={withQuery(`/${platform}/table`)}
+              loading={isLoading}
+              compare={compare}
+              previous={previous}
+              currency={currency}
+            />
+          );
+        })}
       </div>
 
       {/* AI narrative summary (on-demand, grounded in the same overview numbers).

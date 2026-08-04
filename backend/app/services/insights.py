@@ -134,6 +134,14 @@ _ACTION_PIVOT_COLS = """
     SUM(value) FILTER (WHERE field_name='page_event_values' AND action_type='purchase')  AS web_purchase_value,
     SUM(value) FILTER (WHERE field_name='page_events' AND action_type='add_to_cart')     AS web_add_to_cart,
     SUM(value) FILTER (WHERE field_name='page_events' AND action_type='checkout')        AS web_checkout,
+    SUM(value) FILTER (WHERE field_name='catalog_segment_actions' AND action_type='purchase')      AS purchase_shared,
+    SUM(value) FILTER (WHERE field_name='catalog_segment_actions' AND action_type='add_to_cart')   AS add_to_cart_shared,
+    SUM(value) FILTER (WHERE field_name='catalog_segment_actions' AND action_type='view_content')   AS content_view_shared,
+    SUM(value) FILTER (WHERE field_name='catalog_segment_value' AND action_type='purchase')         AS purchase_value_shared,
+    SUM(value) FILTER (WHERE field_name='catalog_segment_value' AND action_type='add_to_cart')      AS add_to_cart_value_shared,
+    SUM(value) FILTER (WHERE field_name='actions' AND action_type='post_reaction')            AS post_reactions,
+    SUM(value) FILTER (WHERE field_name='actions' AND action_type='onsite_conversion.post_save') AS post_saves,
+    SUM(value) FILTER (WHERE field_name='action_values' AND action_type='add_to_cart')        AS add_to_cart_value,
     SUM(value) FILTER (WHERE field_name='app_events' AND action_type='install')          AS app_installs,
     SUM(value) FILTER (WHERE field_name='video_play_actions')                            AS video_views,
     SUM(value) FILTER (WHERE field_name='video_p25_watched_actions')                     AS video_p25,
@@ -188,8 +196,13 @@ _ACTION_INT_KEYS = (
     "web_purchases", "web_add_to_cart", "web_checkout", "app_installs",
     "video_views", "video_p25", "video_p50", "video_p75", "video_p100",
     "video_thruplays", "video_2s", "video_2s_views", "video_6s_views",
+    "post_reactions", "post_saves",
+    "purchase_shared", "add_to_cart_shared", "content_view_shared",
 )
-_ACTION_FLOAT_KEYS = ("web_purchase_value", "video_avg_time", "avg_watch_time")
+_ACTION_FLOAT_KEYS = (
+    "web_purchase_value", "video_avg_time", "avg_watch_time", "add_to_cart_value",
+    "purchase_value_shared", "add_to_cart_value_shared",
+)
 
 
 def _action_dict(r) -> dict:
@@ -231,6 +244,24 @@ def _finalize_metrics(m: dict) -> dict:
     m["cost_per_lead"] = _cps(m.get("leads"))
     m["cost_per_web_purchase"] = _cps(m.get("web_purchases"))
     m["cost_per_web_add_to_cart"] = _cps(m.get("web_add_to_cart"))
+
+    # Avg. Basket Price = Purchase Value ÷ Purchase — computed after aggregation,
+    # never stored (same rule as ROAS/CPA). Guard for timeseries points lacking
+    # conversion_value (→ None).
+    conv_value = m.get("conversion_value")
+    purchase = m.get("purchase")
+    m["avg_basket_price"] = round(conv_value / purchase, 4) if conv_value and purchase else None
+
+    # CPAS "Shared Item" (catalog-segment) cost-per-step + ROAS — computed after
+    # aggregation, never stored (same rule as ROAS/CPA, P-7).
+    ps = m.get("purchase_shared")
+    acs = m.get("add_to_cart_shared")
+    cvs = m.get("content_view_shared")
+    pvs = m.get("purchase_value_shared")
+    m["cost_per_purchase_shared"] = round(spend / ps, 4) if spend and ps else None
+    m["cost_per_add_to_cart_shared"] = round(spend / acs, 4) if spend and acs else None
+    m["cost_per_content_view_shared"] = round(spend / cvs, 4) if spend and cvs else None
+    m["roas_shared"] = round(pvs / spend, 4) if spend and pvs else None
     return m
 
 

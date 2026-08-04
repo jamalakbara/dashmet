@@ -183,7 +183,8 @@ Call 1 — non-unique scalars:
             video_play_actions,video_p25_watched_actions,
             video_p50_watched_actions,video_p75_watched_actions,
             video_p100_watched_actions,video_thruplay_watched_actions,
-            video_avg_time_watched_actions
+            video_avg_time_watched_actions,
+            catalog_segment_actions,catalog_segment_value   ← CPAS shared-item, see below
     &level=campaign
     &time_range={"since":"2026-07-27","until":"2026-08-03"}   ← resolved, see below
     &time_increment=1     ← one row per day
@@ -204,6 +205,20 @@ Call 2 — unique metrics (separate call, slower):
 > `tests/test_date_range_parity.py`.
 
 Both calls write to the same `metrics_daily` rows via upsert — they merge, not overwrite.
+
+> **CPAS shared-item (catalog-segment) conversions.** `catalog_segment_actions`
+> and `catalog_segment_value` are requested in Call 1 for **all** Meta accounts
+> (campaign / adset / ad non-unique fetches). For Collaborative Ads accounts the
+> retailer owns the pixel, so regular `actions` / `action_values` / `purchase_roas`
+> come back empty and `catalog_segment_*` is the only conversion source (see
+> `docs/meta-ad-account-types.md` §7). These fields return empty (not an error) for
+> non-catalog accounts, so requesting them unconditionally is safe; they are **not**
+> added to the unique-metrics call or the breakdown fetch. Each array entry is
+> stored into `metric_action_stats` keeping `field_name` verbatim, with the
+> `action_type` normalized to a canonical bucket (`purchase` / `add_to_cart` /
+> `view_content`) by `_normalize_catalog_segment_action` — unknown types stored
+> as-is. See `docs/meta-ads-metrics-reference.md` §15 for the full normalization
+> table.
 
 ### Breakdown fetches (hourly beat)
 
@@ -527,6 +542,8 @@ ACTION_STAT_FIELDS = {
     "video_p25_watched_actions", "video_p50_watched_actions",
     "video_p75_watched_actions", "video_p100_watched_actions",
     "results", "cost_per_result",
+    # CPAS shared-item conversions (Collaborative Ads — retailer owns the pixel)
+    "catalog_segment_actions", "catalog_segment_value",
 }
 
 def parse_insight_row(entity_type, entity_id, date, raw_row):
@@ -537,12 +554,19 @@ def parse_insight_row(entity_type, entity_id, date, raw_row):
         if field in ACTION_STAT_FIELDS:
             # value is a list: [{"action_type": "purchase", "value": "12"}, ...]
             for item in (value or []):
+                action_type = item["action_type"]
+                # CPAS shared-item: Meta returns varying pixel-dependent action
+                # types; normalize to purchase / add_to_cart / view_content so the
+                # read layer has a stable contract. Scoped to catalog_segment_*
+                # only — regular actions/action_values kept verbatim.
+                if field in ("catalog_segment_actions", "catalog_segment_value"):
+                    action_type = _normalize_catalog_segment_action(action_type)
                 action_stats.append({
                     "entity_type":  entity_type,
                     "entity_id":    entity_id,
                     "date":         date,
                     "field_name":   field,
-                    "action_type":  item["action_type"],
+                    "action_type":  action_type,
                     "value":        float(item["value"]),
                 })
         else:

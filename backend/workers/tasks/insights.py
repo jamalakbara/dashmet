@@ -25,6 +25,12 @@ _METRIC_FIELDS = ",".join([
     "video_p25_watched_actions", "video_p50_watched_actions",
     "video_p75_watched_actions", "video_p100_watched_actions",
     "video_thruplay_watched_actions",
+    # CPAS (Collaborative Ads / "shared item"): for catalog-segment accounts the
+    # retailer owns the pixel, so regular actions/action_values/purchase_roas come
+    # back empty — catalog_segment_* is the ONLY source of CPAS conversions. These
+    # fields are universally valid and return empty (not an error) for non-catalog
+    # accounts, so requesting them unconditionally for all Meta accounts is safe.
+    "catalog_segment_actions", "catalog_segment_value",
     "date_start", "date_stop",
 ])
 
@@ -47,7 +53,31 @@ ACTION_STAT_FIELDS = {
     "video_p25_watched_actions", "video_p50_watched_actions",
     "video_p75_watched_actions", "video_p100_watched_actions",
     "results", "cost_per_result",
+    # CPAS shared-item conversions — see _METRIC_FIELDS comment. Persisted into
+    # metric_action_stats as (field_name, action_type, value) with normalized types.
+    "catalog_segment_actions", "catalog_segment_value",
 }
+
+# CPAS shared-item provenance: with Collaborative Ads the retailer owns the pixel,
+# and Meta returns catalog_segment_* action types in varying forms depending on the
+# retailer's pixel setup — offsite_conversion.fb_pixel_*, omni_*, or bare names.
+# Normalize to clean canonical action types so the read layer has a stable contract
+# to pivot on. Substring-matched (order matters: check specific buckets by keyword).
+# Scoped to catalog_segment_* fields ONLY — regular actions/action_values are stored
+# verbatim. Unknown catalog_segment types are stored as-is (not dropped) — a
+# restated/unknown type is still data.
+_CATALOG_SEGMENT_ACTION_BUCKETS = (
+    ("purchase", "purchase"),
+    ("add_to_cart", "add_to_cart"),
+    ("view_content", "view_content"),
+)
+
+
+def _normalize_catalog_segment_action(action_type: str) -> str:
+    for keyword, canonical in _CATALOG_SEGMENT_ACTION_BUCKETS:
+        if keyword in action_type:
+            return canonical
+    return action_type
 
 SKIP_FIELDS = {
     "campaign_id", "campaign_name", "adset_id", "adset_name",
@@ -485,6 +515,10 @@ def parse_insight_row(entity_type: str, entity_id: str, date: str, raw_row: dict
                 action_type = item.get("action_type")
                 if raw_val is None or action_type is None:
                     continue
+                # CPAS shared-item fields: normalize varying pixel-dependent
+                # action types to canonical purchase/add_to_cart/view_content.
+                if field in ("catalog_segment_actions", "catalog_segment_value"):
+                    action_type = _normalize_catalog_segment_action(action_type)
                 action_stats.append({
                     "entity_type": entity_type,
                     "entity_id": entity_id,

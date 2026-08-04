@@ -20,8 +20,14 @@ export interface SubMetric {
 
 interface MetricGroupCardProps {
   title: string;
-  /** Big formatted headline number under the title. */
-  headline: string;
+  /** Extra classes for the card wrapper (e.g. `lg:col-span-2` for a wide card). */
+  className?: string;
+  /** Sub-metric inner grid columns (default 2). 4 → `grid-cols-2 lg:grid-cols-4`. */
+  columns?: number;
+  /** Big formatted headline number under the title. Omit for a title-only card
+   *  (e.g. Post & Media) — no fake number is forced when a family has no
+   *  single headline metric. */
+  headline?: string;
   icon: LucideIcon;
   /** Tailwind bg color for the round icon chip (e.g. "bg-orange-500"). */
   accent: string;
@@ -48,6 +54,8 @@ interface MetricGroupCardProps {
  */
 export function MetricGroupCard({
   title,
+  className,
+  columns = 2,
   headline,
   icon: Icon,
   accent,
@@ -63,13 +71,20 @@ export function MetricGroupCard({
 }: MetricGroupCardProps) {
   const [expanded, setExpanded] = useState(false);
   const hasMore = subMetrics.length > previewCount;
+  // Inner grid columns: 2 stays 2-up everywhere; 4 stacks to 2-up on small
+  // screens and opens to 4-up on lg so the wide card reads compact, not sparse.
+  const gridCols =
+    columns === 4 ? "grid-cols-2 lg:grid-cols-4" : "grid-cols-2";
   const shown = expanded ? subMetrics : subMetrics.slice(0, previewCount);
   const showDelta = !!compare && !!previous;
 
   return (
     <motion.div
       variants={fadeInUp}
-      className="flex flex-col overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 shadow-[var(--shadow-soft)]"
+      className={cn(
+        "flex flex-col overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 shadow-[var(--shadow-soft)]",
+        className
+      )}
     >
       {/* Header */}
       <div className="flex items-start justify-between gap-3 px-5 pt-5">
@@ -99,31 +114,34 @@ export function MetricGroupCard({
         )}
       </div>
 
-      {/* Headline */}
-      <div className="px-5 pb-4 pt-2">
-        {loading ? (
-          <div className="h-8 w-40 animate-pulse rounded bg-muted" />
-        ) : (
-          <div className="flex items-center gap-2">
-            <p className="text-2xl font-bold tracking-tight tabular-nums">{headline}</p>
-            {showDelta && headlineKey && (
-              <DeltaPill
-                current={headlineValue}
-                previous={previous?.[headlineKey]}
-                metricKey={headlineKey}
-                variant="inline"
-                currency={currency}
-              />
-            )}
-          </div>
-        )}
-      </div>
+      {/* Headline — omitted entirely for title-only cards so no fake number
+          is rendered when a metric family has no single headline. */}
+      {headline != null && (
+        <div className="px-5 pb-4 pt-2">
+          {loading ? (
+            <div className="h-8 w-40 animate-pulse rounded bg-muted" />
+          ) : (
+            <div className="flex items-center gap-2">
+              <p className="text-2xl font-bold tracking-tight tabular-nums">{headline}</p>
+              {showDelta && headlineKey && (
+                <DeltaPill
+                  current={headlineValue}
+                  previous={previous?.[headlineKey]}
+                  metricKey={headlineKey}
+                  variant="inline"
+                  currency={currency}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* Sub-metric grid */}
-      <div className="border-t border-border px-5 py-5">
+      {/* Sub-metric grid — no top border when it's the first block (no headline) */}
+      <div className={cn("px-5 py-5", headline != null && "border-t border-border")}>
         {loading ? (
-          <div className="grid grid-cols-2 gap-x-6 gap-y-6">
-            {Array.from({ length: 4 }).map((_, i) => (
+          <div className={cn("grid gap-x-6 gap-y-6", gridCols)}>
+            {Array.from({ length: columns === 4 ? 8 : 4 }).map((_, i) => (
               <div key={i} className="space-y-2">
                 <div className="h-3 w-20 animate-pulse rounded bg-muted" />
                 <div className="h-4 w-24 animate-pulse rounded bg-muted" />
@@ -133,7 +151,7 @@ export function MetricGroupCard({
         ) : shown.length === 0 ? (
           <p className="text-sm text-muted-foreground">No data for this period.</p>
         ) : (
-          <div className="grid grid-cols-2 gap-x-6 gap-y-6">
+          <div className={cn("grid gap-x-6 gap-y-6", gridCols)}>
             {shown.map((m) => (
               <div key={m.key} className="min-w-0">
                 <p className="truncate text-sm text-muted-foreground">{m.label}</p>

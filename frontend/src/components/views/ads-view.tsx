@@ -33,12 +33,15 @@ import { useSelectedAccount } from "@/hooks/use-account";
 import { usePlatform } from "@/hooks/use-platform";
 import { useDateRange } from "@/hooks/use-date-range";
 import { useSharedFilterQuery } from "@/hooks/use-shared-query";
+import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
 import {
   formatCurrency,
+  formatMetric,
   formatNumber,
   formatPercent,
   formatRoas,
 } from "@/lib/formatters";
+import { metricLabel, metricType } from "@/lib/metrics";
 import { cn } from "@/lib/utils";
 import type { EntityStatus } from "@/types/enums";
 
@@ -61,18 +64,20 @@ interface Creative extends CreativePreview {
   synced_at?: string;
 }
 
+/**
+ * Ad-level metric bag. The set is dynamic (account-type-dependent — a standard
+ * account carries standard keys, a cpas account carries the `*_shared` set), so
+ * this is an index signature rather than a fixed shape. The few keys read
+ * directly in the card/row summaries are kept explicit for call-site clarity;
+ * everything else is looked up by key from the registry. Values are always
+ * numeric or null — never `any` (P-1: absence is null, not a forced zero).
+ */
 interface AdMetrics {
-  spend?: number;
-  impressions?: number;
-  reach?: number;
-  clicks?: number;
-  ctr?: number;
-  cpm?: number;
-  cpc?: number;
-  conversions?: number;
-  conversion_value?: number;
-  roas?: number;
-  cpa?: number;
+  spend?: number | null;
+  ctr?: number | null;
+  conversions?: number | null;
+  roas?: number | null;
+  [key: string]: number | null | undefined;
 }
 
 interface Ad {
@@ -352,19 +357,22 @@ function AdDetailSheet({
 
   const m = ad?.metrics;
 
-  const metricRows = [
-    { label: "Spend",       value: formatCurrency(m?.spend, currency) },
-    { label: "Impressions", value: formatNumber(m?.impressions) },
-    { label: "Reach",       value: formatNumber(m?.reach) },
-    { label: "Clicks",      value: formatNumber(m?.clicks) },
-    { label: "CTR",         value: formatPercent(m?.ctr) },
-    { label: "CPM",         value: formatCurrency(m?.cpm, currency) },
-    { label: "CPC",         value: formatCurrency(m?.cpc, currency) },
-    { label: "Conversions", value: formatNumber(m?.conversions) },
-    { label: "Conv. Value", value: formatCurrency(m?.conversion_value, currency) },
-    { label: "ROAS",        value: formatRoas(m?.roas) },
-    { label: "CPA",         value: formatCurrency(m?.cpa, currency) },
-  ];
+  // Registry-driven, account-type-aware metric rows. `tableMetricDefs` is the
+  // account-type-filtered ad-level set (standard → standard keys incl.
+  // add_to_cart_value / avg_basket_price / post_reactions / post_saves /
+  // comments; cpas → the `*_shared` set), so there's no cross-leak by
+  // construction. Only render keys actually present (non-null) in this ad's
+  // metrics — mirrors overview's presence-filter (P-1/P-2: absence is not a
+  // forced zero). Value/currency formatting flows through the shared
+  // `formatMetric` + `metricType`, so nothing is hand-formatted per row.
+  const { tableMetricDefs } = usePlatformMetrics();
+  const metricRows = tableMetricDefs
+    .filter((def) => m?.[def.key] != null)
+    .map((def) => ({
+      key:   def.key,
+      label: metricLabel(def.key),
+      value: formatMetric(m?.[def.key], metricType(def.key), currency),
+    }));
 
   return (
     <Sheet open={!!ad} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -458,8 +466,8 @@ function AdDetailSheet({
               Performance
             </p>
             <div className="space-y-2">
-              {metricRows.map(({ label, value }) => (
-                <div key={label} className="flex justify-between text-sm">
+              {metricRows.map(({ key, label, value }) => (
+                <div key={key} className="flex justify-between text-sm">
                   <span className="text-muted-foreground">{label}</span>
                   <span className="tabular-nums font-medium">{value}</span>
                 </div>

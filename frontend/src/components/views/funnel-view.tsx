@@ -10,17 +10,24 @@ import { useSelectedAccount } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
 import { usePlatform } from "@/hooks/use-platform";
 import { useOverviewFilter } from "@/hooks/use-overview-filter";
-import { FUNNEL_STEPS, CHART_COLORS } from "@/lib/constants";
+import { getFunnelSteps, CHART_COLORS } from "@/lib/constants";
 import { formatMetric, formatPercent } from "@/lib/formatters";
 
 // Step key → the cost-per-step metric key (when one exists in the overview summary).
 const COST_KEY: Record<string, string> = {
   impressions: "cpm",
   clicks: "cpc",
+  // Meta standard
   view_content: "cost_per_view_content",
+  landing_page_views: "cost_per_landing_page_view",
   add_to_cart: "cost_per_add_to_cart",
   initiate_checkout: "cost_per_initiate_checkout",
   purchase: "cost_per_purchase",
+  // Meta cpas shared-item
+  content_view_shared: "cost_per_content_view_shared",
+  add_to_cart_shared: "cost_per_add_to_cart_shared",
+  purchase_shared: "cost_per_purchase_shared",
+  // TikTok
   web_add_to_cart: "cost_per_web_add_to_cart",
   web_purchases: "cost_per_web_purchase",
   conversions: "cpa",
@@ -29,7 +36,7 @@ const COST_KEY: Record<string, string> = {
 type Summary = Record<string, number | null | undefined>;
 
 export function FunnelView() {
-  const { accountId, currency } = useSelectedAccount();
+  const { accountId, currency, accountType } = useSelectedAccount();
   const platform = usePlatform() ?? "meta";
   const dateRange = useDateRange();
   const filter = useOverviewFilter();
@@ -53,7 +60,7 @@ export function FunnelView() {
 
   const summary: Summary = res?.data?.data?.summary ?? {};
   const previous: Summary = res?.data?.data?.previous ?? {};
-  const allSteps = FUNNEL_STEPS[platform] ?? FUNNEL_STEPS.meta;
+  const allSteps = getFunnelSteps(platform, accountType);
 
   // Keep only steps that actually have data (so no-Pixel accounts collapse cleanly).
   const steps = allSteps
