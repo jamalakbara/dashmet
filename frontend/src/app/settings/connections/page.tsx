@@ -76,7 +76,19 @@ const PLATFORMS = [
   },
 ];
 
+// Brand SVGs served from /public; platforms without one fall back to a letter tile.
+const PLATFORM_LOGO: Record<string, string> = {
+  meta:       "/meta-logo.svg",
+  tiktok:     "/tiktok-logo.svg",
+  google_ads: "/gads-logo.svg",
+};
+
 function PlatformIcon({ platform }: { platform: typeof PLATFORMS[0] }) {
+  const logo = PLATFORM_LOGO[platform.key];
+  if (logo) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={logo} alt={platform.name} className="size-10 shrink-0 rounded-lg" />;
+  }
   return (
     <div className={`flex size-10 shrink-0 items-center justify-center rounded-lg ${platform.color} text-sm font-bold text-white`}>
       {platform.icon}

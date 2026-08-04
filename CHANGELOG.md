@@ -58,9 +58,11 @@ All notable changes to this project are documented here. Format follows
 - **Brand + platform logos now use real SVG assets.** Sidebar brand swapped from the `Sparkles`
   lucide glyph to `/logo.svg`; `PlatformBadge` renders `/meta-logo.svg`, `/tiktok-logo.svg`, and
   `/gads-logo.svg` for meta/tiktok/google_ads (colored letter tile kept as fallback for any other
-  platform). Assets added under `frontend/public/`. Touches
+  platform). Assets added under `frontend/public/`. The Connections settings page's own
+  `PlatformIcon` tiles render the same brand SVGs too. Touches
   `frontend/src/components/layout/sidebar.tsx`,
-  `frontend/src/components/shared/platform-badge.tsx`.
+  `frontend/src/components/shared/platform-badge.tsx`,
+  `frontend/src/app/settings/connections/page.tsx`.
 - **Icon hover animations now trigger on the whole container, not the icon itself.** `AnimatedIcon`
   with `trigger="hover"` switched from framer-motion `whileHover` (icon-only) to CSS `group-hover:`,
   so hovering the enclosing `<Link>`/`<button>`/row/card animates the icon. Added
