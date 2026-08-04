@@ -49,6 +49,12 @@ All notable changes to this project are documented here. Format follows
   `frontend/src/components/views/{overview-view,funnel-view,table-view,ads-view}.tsx`.
 
 ### Changed
+- **Sidebar nav slimmed: Account Binding removed, Settings pinned to bottom.** Dropped the
+  standalone "Account Binding" rail link (and the now-empty USER section label); account
+  connection is reached via **Settings → Connections** tab (`settings-nav.tsx` unchanged, route
+  `/settings/connections` kept). Settings moved out of the scrollable nav into a bottom-pinned
+  footer with a top divider, in both expanded and collapsed states. Touches
+  `frontend/src/components/layout/sidebar.tsx`.
 - **Brand + platform logos now use real SVG assets.** Sidebar brand swapped from the `Sparkles`
   lucide glyph to `/logo.svg`; `PlatformBadge` renders `/meta-logo.svg`, `/tiktok-logo.svg`, and
   `/gads-logo.svg` for meta/tiktok/google_ads (colored letter tile kept as fallback for any other

@@ -227,12 +227,11 @@ DATA
        Meta Ads           → /meta/overview
        TikTok Ads         → /tiktok/overview
        Google Ads         → /google_ads/overview
-USER
-  🔗  Account Binding      → /settings/connections
-  ⚙️  Settings            → /settings/org
+
+  ⚙️  Settings            → /settings/org   (pinned to rail bottom)
 ```
 
-Sidebar (`components/layout/sidebar.tsx`) is an **indigo rail** grouped into `DATA` and `USER` sections. `Platform Data` is a collapsible group (open by default); each platform lands on its first tab (`PLATFORM_TABS[platform][0]`, i.e. Overview) and is highlighted whenever any of its tabs is active (`pathname.startsWith('/{platform}')`). Filter params (account_id, date range) are carried across sidebar + tab navigation by `useSharedFilterQuery()`. The rail renders as a **detached floating card** (`m-3 rounded-2xl shadow-xl`), reserving its column but sitting inset from the viewport edges rather than flush. It collapses to an icon-only strip (`w-[68px]`) and expands back to full width (`w-60`) via a round chevron handle straddling the rail's right edge (fixed near the top, same spot in both states so it never jumps on resize); the choice lives in the persisted UI store (`ui-store.ts` → `sidebarCollapsed`, key `dashmet-ui`). Collapsed, labels/section headers/chevrons hide, each row centers its icon with a native `title` tooltip, and the `Platform Data` group flattens to its three platform icons (no toggle). Desktop-first — no hamburger.
+Sidebar (`components/layout/sidebar.tsx`) is an **indigo rail** with a single `DATA` section. `Platform Data` is a collapsible group (open by default); each platform lands on its first tab (`PLATFORM_TABS[platform][0]`, i.e. Overview) and is highlighted whenever any of its tabs is active (`pathname.startsWith('/{platform}')`). **Settings** sits in a bottom-pinned footer (top divider), below the scrollable nav, in both expanded and collapsed states. There is no standalone `Account Binding` rail link — account connection is reached via **Settings → Connections** tab (route `/settings/connections` still exists). Filter params (account_id, date range) are carried across sidebar + tab navigation by `useSharedFilterQuery()`. The rail renders as a **detached floating card** (`m-3 rounded-2xl shadow-xl`), reserving its column but sitting inset from the viewport edges rather than flush. It collapses to an icon-only strip (`w-[68px]`) and expands back to full width (`w-60`) via a round chevron handle straddling the rail's right edge (fixed near the top, same spot in both states so it never jumps on resize); the choice lives in the persisted UI store (`ui-store.ts` → `sidebarCollapsed`, key `dashmet-ui`). Collapsed, labels/section headers/chevrons hide, each row centers its icon with a native `title` tooltip, and the `Platform Data` group flattens to its three platform icons (no toggle). Desktop-first — no hamburger.
 
 ### Action strip — `ControlStrip`
 

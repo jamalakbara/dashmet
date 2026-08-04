@@ -8,7 +8,6 @@ import {
   Layers,
   ChevronDown,
   ChevronLeft,
-  Link2,
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -195,31 +194,15 @@ export function Sidebar() {
           </>
         )}
 
-        <SectionLabel collapsed={collapsed}>User</SectionLabel>
+      </nav>
 
-        <Link
-          href="/settings/connections"
-          title={collapsed ? "Account Binding" : undefined}
-          className={cn(
-            ITEM,
-            collapsed && "justify-center px-0",
-            pathname.startsWith("/settings/connections") ? ACTIVE : INACTIVE
-          )}
-        >
-          <AnimatedIcon
-            icon={Link2}
-            motionPreset="nudge"
-            className="shrink-0"
-            iconClassName="size-[18px]"
-          />
-          {!collapsed && "Account Binding"}
-        </Link>
+      {/* Settings — pinned to the bottom of the rail */}
+      <div className="border-t border-sidebar-border/50 px-3 py-3">
         <Link
           href="/settings/org"
           title={collapsed ? "Settings" : undefined}
           className={cn(
             ITEM,
-            "mt-0.5",
             collapsed && "justify-center px-0",
             pathname.startsWith("/settings/org") ? ACTIVE : INACTIVE
           )}
@@ -232,7 +215,7 @@ export function Sidebar() {
           />
           {!collapsed && "Settings"}
         </Link>
-      </nav>
+      </div>
     </aside>
   );
 }
