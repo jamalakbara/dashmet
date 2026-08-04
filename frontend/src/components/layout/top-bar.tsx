@@ -65,13 +65,13 @@ export function TopBar() {
           <AnimatedIcon icon={Bell} motionPreset="wiggle" iconClassName="size-[18px]" />
         </button>
         <div className="flex items-center gap-2.5">
-          <div className="hidden text-right leading-tight sm:block">
+          <UserMenu />
+          <div className="hidden leading-tight sm:block">
             <p className="text-sm font-semibold">{me?.name ?? "—"}</p>
             <p className="max-w-[160px] truncate text-xs text-muted-foreground">
               {me?.email ?? ""}
             </p>
           </div>
-          <UserMenu />
         </div>
       </div>
     </header>
