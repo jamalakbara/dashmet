@@ -188,6 +188,19 @@ All notable changes to this project are documented here. Format follows
   `workers/meta_client.py` (`get_insights` now requires `time_range`, no longer accepts `date_preset`).
 
 ### Fixed
+- TikTok sync jobs failing with "App … reaches the QPS limit 10, current QPS is 11" during
+  connect-time backfill fan-out. `TikTokClient._rate_limit_check()` only enforced a per-*minute*
+  counter and never the real app-wide 10 QPS limit, so concurrent tasks burst past it (TikTok
+  returns HTTP 200 with `code != 0`, finalizing the job "failed"). Replaced with an app-level
+  per-second token bucket in Redis, shared across all workers and capped at 8 QPS for headroom
+  (`backend/workers/tiktok_client.py`); overflow requests sleep to the next one-second window and
+  re-check. Still a no-op without Redis. The bucket alone was inert because every task call site
+  constructed `TikTokClient(access_token)` with no Redis client — wired the shared
+  `workers.rate_limit.redis_client` into all six constructions so the bucket is genuinely app-wide
+  (`backend/workers/tasks/tiktok_structure.py`, `tiktok_insights.py`, `tiktok_breakdowns.py`,
+  `tiktok_creatives.py`, `tiktok_token_refresh.py`). Guarded by
+  `backend/tests/test_tiktok_limiter.py`, including a source-level assertion that no task call site
+  omits `redis_client`.
 - Laggy sidebar collapse/expand animation. The rail animated its `width` as a
   `shrink-0` flex sibling, so the content panel (charts/tables) recomputed layout
   every frame — heavy reflow. The rail is now an **absolute overlay** over an

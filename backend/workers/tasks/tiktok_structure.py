@@ -75,6 +75,7 @@ def sync_tiktok_accounts_for_connection(
     from app.models.platform import Account, AccountConfig, PlatformConnection
     from app.services.auth import decrypt_token
     from workers.tiktok_client import TikTokClient, TikTokAPIError
+    from workers.rate_limit import redis_client
 
     try:
         with get_worker_db() as db:
@@ -83,7 +84,7 @@ def sync_tiktok_accounts_for_connection(
                 return
             access_token = decrypt_token(conn.access_token)
 
-        with TikTokClient(access_token) as client:
+        with TikTokClient(access_token, redis_client=redis_client) as client:
             advertiser_infos = client.get_advertiser_info(advertiser_ids)
 
         info_map = {str(a["advertiser_id"]): a for a in advertiser_infos}
@@ -189,6 +190,7 @@ def sync_tiktok_structure_for_account(self, account_id: str):
     from app.models.structure import Campaign, AdGroup, Ad, Creative
     from app.services.auth import decrypt_token
     from workers.tiktok_client import TikTokClient, TikTokAPIError
+    from workers.rate_limit import redis_client
 
     account_uuid = uuid.UUID(account_id)
 
@@ -214,7 +216,7 @@ def sync_tiktok_structure_for_account(self, account_id: str):
             access_token = decrypt_token(conn.access_token)
             advertiser_id = account.external_id
 
-        with TikTokClient(access_token) as client:
+        with TikTokClient(access_token, redis_client=redis_client) as client:
             campaigns_raw = client.get_campaigns(advertiser_id)
             adgroups_raw = client.get_adgroups(advertiser_id)
             ads_raw = client.get_ads(advertiser_id)

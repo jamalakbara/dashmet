@@ -139,7 +139,7 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
         upsert_metrics_daily,
         bulk_upsert_action_stats,
     )
-    from workers.rate_limit import acquire_lock, release_lock
+    from workers.rate_limit import acquire_lock, release_lock, redis_client
     from app.models.platform import Account, AccountConfig, PlatformConnection
     from app.models.structure import Campaign, AdGroup, Ad
     from app.services.auth import decrypt_token
@@ -203,7 +203,7 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
         total_metric_rows = 0
         total_action_rows = 0
 
-        with TikTokClient(access_token) as client:
+        with TikTokClient(access_token, redis_client=redis_client) as client:
             for data_level, entity_type, entity_dim in DATA_LEVELS:
                 entity_map = {"campaign_id": camp_map, "adgroup_id": adgroup_map, "ad_id": ad_map}[entity_dim]
                 dimensions = [entity_dim, "stat_time_day"]

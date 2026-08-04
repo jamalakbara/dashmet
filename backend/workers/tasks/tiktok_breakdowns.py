@@ -110,7 +110,7 @@ def sync_tiktok_breakdowns_all(self):
 def sync_tiktok_breakdowns_for_account(self, account_id: str, date_preset: str = "last_30d"):
     from celery.exceptions import SoftTimeLimitExceeded
     from workers.db_helpers import get_worker_db, create_sync_job, finalize_sync_job
-    from workers.rate_limit import acquire_lock, release_lock
+    from workers.rate_limit import acquire_lock, release_lock, redis_client
     from app.models.platform import Account, PlatformConnection
     from app.models.metrics import MetricBreakdowns
     from app.services.auth import decrypt_token
@@ -144,7 +144,7 @@ def sync_tiktok_breakdowns_for_account(self, account_id: str, date_preset: str =
         start_date, end_date = _resolve_dates(date_preset, account_timezone)
         total = 0
 
-        with TikTokClient(access_token) as client:
+        with TikTokClient(access_token, redis_client=redis_client) as client:
             for bd_type, cfg in TIKTOK_BREAKDOWN_CONFIGS.items():
                 dimension = cfg["dimension"]
                 value_fn = cfg["value_fn"]
