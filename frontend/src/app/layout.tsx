@@ -1,16 +1,12 @@
 import type { Metadata } from "next";
-import { Inter, Geist, Geist_Mono, Manrope } from "next/font/google";
+import { Rubik, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/shared/providers";
 import { cn } from "@/lib/utils";
 
-const geist = Geist({subsets:['latin'],variable:'--font-sans'});
+const rubik = Rubik({ subsets: ["latin"], variable: "--font-sans" });
 
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" });
-
-const manrope = Manrope({ subsets: ["latin"], variable: "--font-manrope" });
-
-const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "DashMet — Marketing Dashboard",
@@ -26,9 +22,9 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("font-sans", geist.variable, geistMono.variable, manrope.variable)}
+      className={cn("font-sans", rubik.variable, geistMono.variable)}
     >
-      <body className={inter.className}>
+      <body className="font-sans">
         <Providers>{children}</Providers>
       </body>
     </html>

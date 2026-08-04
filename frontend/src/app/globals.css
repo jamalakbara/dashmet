@@ -39,7 +39,7 @@
   --color-tint-butter-fg: var(--tint-butter-fg);
   --color-tint-blush: var(--tint-blush);
   --color-tint-blush-fg: var(--tint-blush-fg);
-  --font-display: var(--font-manrope);
+  --font-display: var(--font-sans);
   --font-mono: var(--font-mono);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);

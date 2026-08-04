@@ -59,6 +59,9 @@ All notable changes to this project are documented here. Format follows
   `frontend/src/components/views/{overview-view,funnel-view,table-view,ads-view}.tsx`.
 
 ### Changed
+- **App font switched to Rubik.** Replaced Inter/Geist/Manrope with Rubik as the sans + display
+  family (`--font-sans`, `--font-display`); Geist Mono retained for `--font-mono`
+  (`frontend/src/app/layout.tsx`, `frontend/src/app/globals.css`).
 - **Sidebar collapse toggle moved into the brand block (ChatGPT-style).** Retired the round
   chevron handle straddling the rail's right edge. Expanded: a ghost chevron button right-aligned
   in the brand row next to the logo. Collapsed: the logo alone shows and hovering it swaps the
