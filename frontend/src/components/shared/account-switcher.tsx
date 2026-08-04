@@ -9,6 +9,7 @@ import { PlatformBadge } from "@/components/shared/platform-badge";
 import { AccountCommandList } from "@/components/shared/account-command-list";
 import { useAccountSearch, useAccountsCount, useSelectedAccount } from "@/hooks/use-account";
 import { usePlatform } from "@/hooks/use-platform";
+import { useIsOwner } from "@/hooks/use-role";
 import { cn } from "@/lib/utils";
 
 const TRIGGER_CLASS =
@@ -37,6 +38,7 @@ export function AccountSwitcher() {
 // ── Platform route: single account, scoped to the platform ──
 function SingleAccountSwitcher({ platform }: { platform: string }) {
   const [open, setOpen] = useState(false);
+  const isOwner = useIsOwner();
   const [, setAccountId] = useQueryState("account_id");
   const { accountId: resolvedId, account } = useSelectedAccount();
   const { accounts: firstPage, isLoading } = useAccountSearch(platform, "");
@@ -53,7 +55,9 @@ function SingleAccountSwitcher({ platform }: { platform: string }) {
   }
   if (firstPage.length === 0 && !isLoading) {
     return (
-      <span className="text-sm text-muted-foreground">No {platform} accounts connected</span>
+      <span className="text-sm text-muted-foreground">
+        {isOwner ? `No ${platform} accounts connected` : "No accounts assigned to you"}
+      </span>
     );
   }
 
@@ -88,9 +92,14 @@ function SingleAccountSwitcher({ platform }: { platform: string }) {
 function MultiAccountSwitcher() {
   const [accountsParam, setAccountsParam] = useQueryState("accounts");
   const count = useConnectPolling();
+  const isOwner = useIsOwner();
 
   if (count === 0) {
-    return <span className="text-sm text-muted-foreground">No accounts connected</span>;
+    return (
+      <span className="text-sm text-muted-foreground">
+        {isOwner ? "No accounts connected" : "No accounts assigned to you"}
+      </span>
+    );
   }
 
   const isAll = accountsParam == null;

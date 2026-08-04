@@ -27,6 +27,7 @@ import { connectionsApi } from "@/lib/api/connections";
 import { accountsApi } from "@/lib/api/accounts";
 import { syncApi } from "@/lib/api/sync";
 import { queryKeys } from "@/lib/query-keys";
+import { useIsOwner } from "@/hooks/use-role";
 
 const tokenSchema = z.object({
   access_token: z.string().min(10, "Token is too short"),
@@ -198,6 +199,7 @@ function ConnectionsSettingsPageInner() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  const isOwner = useIsOwner();
   const [connectingPlatform, setConnectingPlatform] = useState<typeof PLATFORMS[0] | null>(null);
   const [disconnectId, setDisconnectId] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -414,6 +416,8 @@ function ConnectionsSettingsPageInner() {
                       <Button
                         variant="outline"
                         size="sm"
+                        disabled={!isOwner}
+                        title={!isOwner ? "Owner only" : undefined}
                         className="text-destructive border-destructive/30 hover:bg-destructive/5"
                         onClick={() => setDisconnectId(conn.id)}
                       >
@@ -424,13 +428,20 @@ function ConnectionsSettingsPageInner() {
                         size="sm"
                         className="group"
                         onClick={() => handleOAuthConnect(platform)}
-                        disabled={oauthLoading}
+                        disabled={oauthLoading || !isOwner}
+                        title={!isOwner ? "Owner only" : undefined}
                       >
                         <AnimatedIcon icon={ExternalLink} motionPreset="draw" iconClassName="size-3.5" />
                         {oauthLoading ? "Redirecting…" : "Connect"}
                       </Button>
                     ) : (
-                      <Button size="sm" className="group" onClick={() => openConnect(platform)}>
+                      <Button
+                        size="sm"
+                        className="group"
+                        disabled={!isOwner}
+                        title={!isOwner ? "Owner only" : undefined}
+                        onClick={() => openConnect(platform)}
+                      >
                         <AnimatedIcon icon={Plug} motionPreset="draw" iconClassName="size-3.5" />
                         Connect
                       </Button>

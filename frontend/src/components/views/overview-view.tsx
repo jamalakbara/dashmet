@@ -27,6 +27,7 @@ import { useSelectedAccount } from "@/hooks/use-account";
 import { useSyncActive } from "@/hooks/use-sync-jobs";
 import { useDateRange } from "@/hooks/use-date-range";
 import { usePlatform } from "@/hooks/use-platform";
+import { useIsOwner } from "@/hooks/use-role";
 import { useOverviewFilter } from "@/hooks/use-overview-filter";
 import { useSharedFilterQuery } from "@/hooks/use-shared-query";
 import { staggerGrid } from "@/lib/motion";
@@ -331,6 +332,7 @@ function formatHeadline(
 
 export function OverviewView() {
   const { accountId, currency, accountType } = useSelectedAccount();
+  const isOwner = useIsOwner();
   const platform = usePlatform() ?? "meta";
   const withQuery = useSharedFilterQuery();
   const dateRange = useDateRange();
@@ -357,7 +359,13 @@ export function OverviewView() {
 
   if (!accountId) {
     return (
-      <EmptyState message="No account selected. Connect an account in Settings → Account Binding." />
+      <EmptyState
+        message={
+          isOwner
+            ? "No account selected. Connect an account in Settings → Connections."
+            : "No accounts assigned to you yet. Ask your organization owner to grant access."
+        }
+      />
     );
   }
 

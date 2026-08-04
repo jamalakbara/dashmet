@@ -135,7 +135,7 @@ def _stub_all_reads(monkeypatch, *, account, overview=None, campaigns=None,
 
     monkeypatch.setattr(
         insights_ep.acc_svc, "assert_account_belongs_to_org",
-        lambda db, account_id, org_id: account,
+        lambda db, account_id, org_id, allowed_ids=None: account,
     )
     monkeypatch.setattr(
         insights_ep.insights_svc, "resolve_date_range",
@@ -186,7 +186,7 @@ def test_summary_cross_org_returns_403(monkeypatch):
 
     generate_overview_diagnosis must NEVER be reached for a forbidden account
     (no tokens spent on an unauthorized read) — we assert that too."""
-    def _forbidden(db, account_id, org_id):
+    def _forbidden(db, account_id, org_id, allowed_ids=None):
         raise ForbiddenError("Account does not belong to your organization")
 
     monkeypatch.setattr(insights_ep.acc_svc, "assert_account_belongs_to_org", _forbidden)
@@ -221,7 +221,7 @@ def test_peek_cross_org_returns_403(monkeypatch):
     """Tenant isolation on GET peek: the get_overview guard (inside
     _resolve_dates) raises ForbiddenError → 403, BEFORE any redis.get. peek must
     not leak whether a cached summary exists for another org's account."""
-    def _forbidden(db, account_id, org_id):
+    def _forbidden(db, account_id, org_id, allowed_ids=None):
         raise ForbiddenError("Account does not belong to your organization")
 
     monkeypatch.setattr(insights_ep.acc_svc, "assert_account_belongs_to_org", _forbidden)

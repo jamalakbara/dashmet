@@ -1,7 +1,6 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useQuery } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { DateRangePicker } from "@/components/shared/date-range-picker";
@@ -9,8 +8,7 @@ import { SyncStatusBadge } from "@/components/shared/sync-status-badge";
 import { UserMenu } from "@/components/shared/user-menu";
 import { PlatformBadge } from "@/components/shared/platform-badge";
 import { usePlatform } from "@/hooks/use-platform";
-import { authApi } from "@/lib/api/auth";
-import { queryKeys } from "@/lib/query-keys";
+import { useMe } from "@/hooks/use-me";
 
 const AccountSwitcher = dynamic(
   () =>
@@ -34,11 +32,7 @@ export function TopBar() {
   const platform = usePlatform();
   const title = platform ? PLATFORM_TITLE[platform] : "Summary";
 
-  const { data: me } = useQuery({
-    queryKey: queryKeys.me(),
-    queryFn: async () => (await authApi.me()).data.data as { name: string; email: string },
-    staleTime: 60 * 60 * 1000,
-  });
+  const { data: me } = useMe();
 
   return (
     <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-border bg-card px-5">

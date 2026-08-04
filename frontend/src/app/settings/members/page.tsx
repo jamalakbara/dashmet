@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
-import { UserPlus, Trash2 } from "lucide-react";
+import { UserPlus, Trash2, KeyRound } from "lucide-react";
 import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,8 +31,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { orgApi } from "@/lib/api/org";
-import { authApi } from "@/lib/api/auth";
-import { queryKeys } from "@/lib/query-keys";
+import { useMe } from "@/hooks/use-me";
+import { useIsOwner } from "@/hooks/use-role";
+import { ManageAccessDialog } from "@/components/settings/manage-access-dialog";
 
 const inviteSchema = z.object({
   email: z.string().email("Invalid email"),
@@ -40,7 +41,8 @@ const inviteSchema = z.object({
 type InviteForm = z.infer<typeof inviteSchema>;
 
 interface Member {
-  id: string;
+  membership_id: string;
+  id?: string | null;
   name?: string | null;
   email: string;
   role: string;
@@ -50,18 +52,16 @@ interface Member {
 
 export default function MembersSettingsPage() {
   const qc = useQueryClient();
+  const isOwner = useIsOwner();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [removeId, setRemoveId] = useState<string | null>(null);
+  const [manageAccess, setManageAccess] = useState<{ id: string; name: string } | null>(null);
 
   // Current user — to prevent self-removal
-  const { data: meRes } = useQuery({
-    queryKey: queryKeys.me(),
-    queryFn: () => authApi.me(),
-    staleTime: 60 * 60 * 1000,
-  });
-  const currentUserId = (meRes?.data?.data as { id?: string } | undefined)?.id;
+  const { data: me } = useMe();
+  const currentUserId = me?.id;
 
   const { data: membersRes, isLoading } = useQuery({
     queryKey: ["members"],
@@ -88,7 +88,7 @@ export default function MembersSettingsPage() {
   });
 
   const removeMutation = useMutation({
-    mutationFn: (userId: string) => orgApi.removeMember(userId),
+    mutationFn: (membershipId: string) => orgApi.removeMember(membershipId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["members"] });
       setRemoveId(null);
@@ -110,7 +110,7 @@ export default function MembersSettingsPage() {
               <CardTitle className="text-base">Members</CardTitle>
               <CardDescription>Manage who has access to this organization.</CardDescription>
             </div>
-            <Button size="sm" className="group" onClick={() => { setInviteOpen(true); setInviteSuccess(null); setInviteError(null); reset(); }}>
+            <Button size="sm" className="group" disabled={!isOwner} title={!isOwner ? "Owner only" : undefined} onClick={() => { setInviteOpen(true); setInviteSuccess(null); setInviteError(null); reset(); }}>
               <AnimatedIcon icon={UserPlus} motionPreset="pop" iconClassName="size-4" />
               Invite member
             </Button>
@@ -133,12 +133,12 @@ export default function MembersSettingsPage() {
                   <TableHead>Role</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Joined</TableHead>
-                  <TableHead className="w-12" />
+                  <TableHead className="text-right">Access</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {members.map((m) => (
-                  <TableRow key={m.id}>
+                  <TableRow key={m.membership_id}>
                     <TableCell>
                       <div>
                         <p className="text-sm font-medium">{m.name ?? "—"}</p>
@@ -166,16 +166,35 @@ export default function MembersSettingsPage() {
                       {m.joined_at ? format(new Date(m.joined_at), "MMM d, yyyy") : "—"}
                     </TableCell>
                     <TableCell>
-                      {m.id !== currentUserId && (
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="group text-destructive hover:text-destructive"
-                          onClick={() => setRemoveId(m.id)}
-                        >
-                          <AnimatedIcon icon={Trash2} motionPreset="wiggle" iconClassName="size-3.5" />
-                        </Button>
-                      )}
+                      <div className="flex items-center justify-end gap-1">
+                        {m.role === "owner" ? (
+                          <span className="text-xs text-muted-foreground">All accounts</span>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={!isOwner}
+                            title={!isOwner ? "Owner only" : "Manage account access"}
+                            className="group gap-1.5 text-xs"
+                            onClick={() => setManageAccess({ id: m.membership_id, name: m.name ?? m.email })}
+                          >
+                            <AnimatedIcon icon={KeyRound} motionPreset="pop" iconClassName="size-3.5" />
+                            Manage access
+                          </Button>
+                        )}
+                        {m.id !== currentUserId && (
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            disabled={!isOwner}
+                            title={!isOwner ? "Owner only" : "Remove member"}
+                            className="group text-destructive hover:text-destructive"
+                            onClick={() => setRemoveId(m.membership_id)}
+                          >
+                            <AnimatedIcon icon={Trash2} motionPreset="wiggle" iconClassName="size-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -228,6 +247,14 @@ export default function MembersSettingsPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Manage account access dialog */}
+      <ManageAccessDialog
+        membershipId={manageAccess?.id ?? null}
+        memberName={manageAccess?.name ?? ""}
+        open={!!manageAccess}
+        onOpenChange={(o) => { if (!o) setManageAccess(null); }}
+      />
 
       {/* Remove confirm dialog */}
       <Dialog open={!!removeId} onOpenChange={(o) => { if (!o) setRemoveId(null); }}>

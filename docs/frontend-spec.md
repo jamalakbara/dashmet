@@ -56,6 +56,7 @@ src/
 │   │   ├── login/page.tsx
 │   │   ├── signup/page.tsx
 │   │   ├── verify-email/page.tsx
+│   │   ├── accept-invite/page.tsx   # Accept org invite (name+password → join+login)
 │   │   ├── forgot-password/page.tsx
 │   │   └── reset-password/page.tsx
 │   │
@@ -135,6 +136,7 @@ src/
 | `/login` | Login | ❌ | — |
 | `/signup` | Signup | ❌ | — |
 | `/verify-email` | Email verification | ❌ | — |
+| `/accept-invite` | Accept org invite (`?token=`) → join + login | ❌ | — |
 | `/forgot-password` | Request reset | ❌ | — |
 | `/reset-password` | Set new password | ❌ | — |
 | `/dashboard` | Combined cross-platform summary | ✅ | any |
@@ -150,7 +152,7 @@ src/
 
 The per-platform tab bar is **Overview · Table · Ads** (plus TikTok's Engagement) — `PLATFORM_TABS` in `lib/constants.ts`. Each tab is its own route so deep links stay shareable. **Overview is a composed scroll** (Base Data reference style): grouped metric cards → `PeriodicView` (trends) → `FunnelView` → a **Table preview** (`<TableView preview />`) → an **Ads preview** (`<AdsView preview />`). Periodic and Funnel therefore no longer have their own tabs; their routes (`/periodic`, `/funnel`) still exist for deep-links but aren't surfaced in the bar. Table and Ads keep full tabs — their previews on Overview show the top rows/creatives with a **See All →** link to the full view. **Breakdowns are part of the Periodic view** (`BreakdownSection` at the bottom of `periodic-view.tsx`).
 
-Auth guard is a middleware (`middleware.ts`) that checks for a valid JWT cookie. Unauthenticated users are redirected to `/login`. Members trying to access owner-only settings pages see a `403` page.
+Auth guard is a proxy (`src/proxy.ts`, Next.js 16's renamed middleware) that checks for a valid JWT cookie. It holds a `PUBLIC_PATHS` allowlist (`/login`, `/signup`, `/verify-email`, `/accept-invite`, `/forgot-password`, `/reset-password`); unauthenticated users hitting anything else are redirected to `/login`, and authenticated users hitting a public path are redirected to `/dashboard`. The proxy does **not** gate by role — members can open the `/settings/*` pages, but owner-only controls there are **disabled** (locked, not hidden) via the `useIsOwner()` hook (`src/hooks/use-role.ts`, reads `GET /auth/me` → `org.role`); a member-access banner (`SettingsReadonlyBanner`) sits under the settings nav. The backend still enforces the boundary with a `403` on the underlying owner-only endpoints, so the lock is UX, not the security control.
 
 ---
 
@@ -209,7 +211,7 @@ The dashboard layout (`(dashboard)/layout.tsx`) renders two inset floating panel
   - **stale** (amber): `last 30d may be outdated · synced Xh ago`
   - **failed** (red): `Sync failed · last 30d`
   - **idle** (gray): `Last updated —` / `No account`
-- **Contextual manual sync (P-5):** on the **stale** and **failed** variants only — where there's a real reason — the pill renders an inline `Sync now` action (`RefreshCw` icon, spinner while pending) that fires `POST /sync/trigger` for the resolved account, toasts on success/error, and invalidates `queryKeys.syncStatus`. Fresh / syncing / idle show no sync action. This replaces the old permanent "Sync Data" button.
+- **Contextual manual sync (P-5):** on the **stale** and **failed** variants only — where there's a real reason — the pill renders an inline `Sync now` action (`RefreshCw` icon, spinner while pending) that fires `POST /sync/trigger` for the resolved account, toasts on success/error, and invalidates `queryKeys.syncStatus`. Fresh / syncing / idle show no sync action. This replaces the old permanent "Sync Data" button. The action is **owner-only**: for members it renders disabled ("Owner only" title) since `POST /sync/trigger` is owner-gated (`useIsOwner()`).
 - Polls `GET /sync/status` every 30 seconds.
 
 **User menu** — shadcn `DropdownMenu`
@@ -337,9 +339,21 @@ The embedded sub-views are self-contained (own data hooks off the shared URL par
 └──────────────────────────────────────┘
 ```
 
-Props: `title`, `headline` (formatted), `icon` (Lucide), `accent` (chip bg class), `subMetrics` (`{key,label,value,raw?}[]`), `previewCount?`, `detailHref?`, `loading?`, plus period-over-period props `compare?`, `previous?` (raw prior values keyed by metric), `headlineKey?`, `headlineValue?`, `currency?`. When `compare` is on and `previous` is present, an inline `DeltaPill` renders next to the headline and each sub-metric (using each `SubMetric.raw` vs `previous[key]`), including a muted `vs <prev>` absolute value; `currency` is threaded through so currency metrics format correctly.
+Props: `title`, `headline?` (formatted — **omit for a title-only card**, which drops the big-number block and its top border so a metric family with no single headline never shows a fake number), `icon` (Lucide), `accent` (chip bg class), `subMetrics` (`{key,label,value,raw?}[]`), `previewCount?`, `detailHref?`, `loading?`, plus period-over-period props `compare?`, `previous?` (raw prior values keyed by metric), `headlineKey?`, `headlineValue?`, `currency?`. When `compare` is on and `previous` is present, an inline `DeltaPill` renders next to the headline and each sub-metric (using each `SubMetric.raw` vs `previous[key]`), including a muted `vs <prev>` absolute value; `currency` is threaded through so currency metrics format correctly.
 
-`overview-view.tsx` builds two cards: **Spend** (delivery family — Reach, Impressions, Frequency, CTR, CPM, CPC, Clicks, Link Clicks…) headlined by spend, and a **Results** card headlined by the first present of `roas → conversions → web_purchases → result → engagement_rate → outbound_clicks` (title = that metric's label). Sub-metrics are filtered to keys present in the overview `summary`; labels/format come from `METRIC_REGISTRY` (`metricLabel`/`metricType`), so the grid adapts per platform and account type. `See Detail` links to the platform's Table view. Both cards receive the global `compare` flag (from `?compare`) plus the overview response's `previous` summary, so the headline and sub-metric delta pills light up when compare is on.
+`overview-view.tsx` renders an **account-type-scoped** card set from a `Record<AccountType, CardSpec[]>` config (`OVERVIEW_CARDS`), keyed on the selected account's `accountType` (`useSelectedAccount`). Standard and CPAS are **strictly separated** — the config is keyed on account type so a standard account renders zero `*_shared` metrics and a CPAS account renders none of the standard ROAS / Post & Media set.
+
+- **standard → three cards:**
+  - **Spend** (headline `spend`): `reach, impressions, frequency, ctr, cpm, inline_link_clicks, clicks, cpc, landing_page_views, cost_per_landing_page_view`.
+  - **ROAS** (headline `roas`): `purchase, conversion_value, cost_per_purchase, add_to_cart, add_to_cart_value, cost_per_add_to_cart, conversion_rate, avg_basket_price`.
+  - **Post & Media** (title-only, no headline; **full-width**): `inline_post_engagement, post_saves, post_reactions, comments, video_thruplays, video_views, video_p100, video_avg_time`. Spans both columns of the outer grid on `lg` (`CardSpec.span: 2` → `lg:col-span-2`) so the odd third card fills the row left empty by Spend + ROAS, and lays its 8 sub-metrics as a **4-column** inner grid (`CardSpec.cols: 4` → `MetricGroupCard columns=4` → `grid-cols-2 lg:grid-cols-4`): two rows of four on desktop, 2-up on small screens. `span`/`cols` default to `1`/`2` so Spend, ROAS, and both CPAS cards stay 2-up with a 2-column inner grid, unchanged.
+- **cpas → two cards:**
+  - **Spend** (headline `spend`): `reach, impressions, ctr, cpm, inline_link_clicks, clicks, cpc`.
+  - **ROAS Shared Item** (headline `roas_shared`): `purchase_shared, purchase_value_shared, cost_per_purchase_shared, add_to_cart_shared, add_to_cart_value_shared, cost_per_add_to_cart_shared, content_view_shared, cost_per_content_view_shared`.
+
+Sub-metrics are filtered (`buildSubMetrics`) to keys present (non-null) in the overview `summary` — absent metrics are dropped silently, no forced zeros (P-1/P-2); the `headlineKey` is excluded from its card's grid so it isn't duplicated. Labels/format come from `METRIC_REGISTRY` (`metricLabel`/`metricType`). `See Detail` links to the platform's Table view. Every card receives the global `compare` flag (from `?compare`) plus the overview response's `previous` summary, so the headline and sub-metric delta pills light up when compare is on.
+
+Adding a metric to a card is a two-step edit: add the key to the relevant `CardSpec.keys` in `OVERVIEW_CARDS` and (if not already present) a matching `METRIC_REGISTRY` row with the right platform/account-type flags and a backend field of the same key. The Meta CPAS "Shared Item" family (`*_shared`) is empty for standard accounts (retailer-owned pixel, see `docs/meta-ad-account-types.md`).
 
 **AI Summary card** — `AiSummaryCard` (in `overview-view.tsx`), rendered between the metric-group cards and Trends. An on-demand grounded diagnosis of the overview, generation is **opt-in** so token spend is always intentional (P-5). On mount the card **peeks** the cache — a token-free `GET /insights/overview/summary/peek` (`insightsApi.peekSummary`, `useQuery`) — so an already-generated diagnosis renders instantly; it only falls to Idle when there's no cached summary. Display precedence is freshest-first: a just-generated mutation result wins over the peeked cache, both fall back to Idle. States:
 
@@ -355,7 +369,7 @@ The card is **keyed on account + period + filter**, so changing any of them remo
 #### Embedded sub-views
 
 - **Trends** — `<PeriodicView />` (see §6.2): metric-tab time-series charts + `BreakdownSection`.
-- **Funnel** — `<FunnelView />`: step bar chart + conversion-rate table. When the global `?compare` toggle is on, each step shows an inline `DeltaPill` (step value vs the overview response's `previous[step.key]`) with a muted `vs <prev>` absolute value.
+- **Funnel** — `<FunnelView />`: step bar chart + conversion-rate table. Steps are resolved by `getFunnelSteps(platform, accountType)` (`lib/constants.ts`), which is **account-type-aware for Meta**: standard uses `landing_page_views → add_to_cart → initiate_checkout → purchase`; CPAS uses the shared-item steps `content_view_shared → add_to_cart_shared → purchase_shared`. tiktok / google_ads funnels are platform-only (unchanged). Steps with null/0 values are hidden so no-Pixel accounts collapse cleanly. When the global `?compare` toggle is on, each step shows an inline `DeltaPill` (step value vs the overview response's `previous[step.key]`) with a muted `vs <prev>` absolute value.
 - **Table preview** — `<TableView preview />`: a "Data Based On" card with the top campaigns by spend (visible columns only, no expand/pagination) + **See All →** `/table`.
 - **Ads preview** — `<AdsView preview />`: top 3 creatives as `AdCard`s (click opens the shared `AdDetailSheet`) + **See All →** `/ads`.
 
@@ -601,7 +615,7 @@ Full-width side panel showing:
 - Format, platform
 
 **Right panel (metrics):**
-- Full metrics for the selected date range
+- Full metrics for the selected date range — the row list is **registry-driven and account-type aware**: rows come from `usePlatformMetrics().tableMetricDefs` (the account-type-filtered `METRIC_REGISTRY` ad-level set), not a hardcoded list, and are presence-filtered to the keys actually present (non-null) in the ad's `metrics` so absent metrics are dropped rather than shown as zero (P-1/P-2). A standard account renders standard metrics (incl. add-to-cart value, avg. basket price, post reactions/saves, comments); a CPAS account renders the `*_shared` set — no cross-leak between account types. Labels/formatting flow through the shared `metricLabel`/`metricType`/`formatMetric` (currency-aware)
 - Video retention funnel (if video ad) — horizontal bar chart: plays → 25% → 50% → 75% → 100%
 - Placement breakdown (facebook feed vs instagram story, etc.)
 - Campaign and ad group hierarchy breadcrumb
@@ -621,20 +635,25 @@ Creatives are loaded lazily. The page first loads ad metadata + metrics from `GE
 
 ## 7. Settings & Org Pages
 
+> **Role note:** all `/settings/*` pages are viewable by members; **owner-only
+> controls are disabled (locked, not hidden)** for members via `useIsOwner()`,
+> with a `SettingsReadonlyBanner` under the nav. The backend enforces the real
+> boundary (`403`). "Owner action" below means the control is locked for members.
+
 ### `/settings/org`
 
-Simple form page. **Owner only.**
+Simple form page.
 
 - Org name (text input, editable)
 - Org slug (read-only display)
-- "Save changes" button → `PATCH /org`
-- Danger zone: "Delete organization" (confirmation dialog — owner must type org name to confirm)
+- "Save changes" button → `PATCH /org` (owner action)
+
+There is no "Delete organization" action — the feature/endpoint isn't built, so
+the stub Danger-zone UI was removed rather than left as a no-op.
 
 ### `/settings/members`
 
-**Owner only.**
-
-Layout: header with "Invite member" button → opens shadcn `Dialog`.
+Layout: header with "Invite member" button (owner action) → opens shadcn `Dialog`.
 
 **Invite dialog:**
 - Email input + Role selector (Member only — role is always member in current model)
@@ -649,11 +668,19 @@ Layout: header with "Invite member" button → opens shadcn `Dialog`.
 | Role | Badge: Owner / Member |
 | Status | Joined / Pending invite |
 | Joined | Date |
-| Actions | Remove button (owner can't remove themselves) |
+| Access | Owner rows show "All accounts"; member rows show a **Manage access** action (owner-only) + Remove button (owner can't remove themselves) |
+
+**Manage access dialog** (`components/settings/manage-access-dialog.tsx`, owner action):
+per-member modal listing all org accounts grouped by platform with checkboxes,
+pre-seeded from `GET /org/members/:membership_id/accounts`; Save → `PUT` the full
+selected set. This is the per-member account allowlist — a member sees only the
+accounts checked here. Members with no grants get "No accounts assigned to you"
+empty states in the account switcher and dashboard/overview (role-aware copy via
+`useIsOwner()`), instead of the owner's "connect an account" prompt.
 
 ### `/settings/connections`
 
-**Owner only.**
+Connect / Disconnect are owner actions (locked for members).
 
 List of platform connections. One card per platform.
 
@@ -754,7 +781,7 @@ Centered illustration + title + description + optional CTA button. Used when: no
 Animated pulse placeholder. Variants: card, table-row, chart.
 
 ### `ConfirmDialog`
-shadcn `AlertDialog` wrapper for destructive actions (disconnect, remove member, delete org). Requires typing a confirmation phrase for high-risk actions.
+shadcn `AlertDialog` wrapper for destructive actions (disconnect, remove member). Requires typing a confirmation phrase for high-risk actions.
 
 ### `AnimatedIcon`
 `components/shared/animated-icon.tsx` — the single wrapper for giving any `lucide-react` glyph a tasteful micro-animation. Both modes honor the OS "reduce motion" preference. Props: `icon: LucideIcon`, `motionPreset` (name of a preset in `lib/motion.ts`), `trigger?: "hover" | "state"` (default `"hover"`), `active?` + `activeVariant?` + `appear?` (for `trigger="state"`), `iconClassName?`, `size?`, `className?`.

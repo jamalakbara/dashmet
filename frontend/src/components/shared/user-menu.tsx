@@ -1,6 +1,5 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { LogOut, Settings } from "lucide-react";
 import { AnimatedIcon } from "@/components/shared/animated-icon";
@@ -14,26 +13,12 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { authApi } from "@/lib/api/auth";
 import { clearAuthCookie } from "@/lib/api/client";
-import { queryKeys } from "@/lib/query-keys";
-
-interface Me {
-  id: string;
-  name: string;
-  email: string;
-  org: { id: string; name: string; slug: string; role: string };
-}
+import { useMe } from "@/hooks/use-me";
 
 export function UserMenu() {
   const router = useRouter();
 
-  const { data: me } = useQuery({
-    queryKey: queryKeys.me(),
-    queryFn: async () => {
-      const res = await authApi.me();
-      return res.data.data as Me;
-    },
-    staleTime: 60 * 60 * 1000,
-  });
+  const { data: me } = useMe();
 
   const initials = me?.name
     ? me.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)

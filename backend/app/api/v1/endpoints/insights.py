@@ -56,14 +56,17 @@ router = APIRouter()
 
 def _resolve_dates(
     account_id: str,
-    org_id: str,
+    current_user: dict,
     db: Session,
     date_preset: Optional[str],
     date_start: Optional[date],
     date_end: Optional[date],
 ):
+    allowed = acc_svc.get_accessible_account_ids(db, current_user)
     try:
-        account = acc_svc.assert_account_belongs_to_org(db, account_id, org_id)
+        account = acc_svc.assert_account_belongs_to_org(
+            db, account_id, current_user["org_id"], allowed_ids=allowed
+        )
     except (NotFoundError, ForbiddenError) as e:
         raise HTTPException(status_code=403, detail=str(e))
 
@@ -81,24 +84,31 @@ def _resolve_dates(
 
 def _resolve_combined_dates(
     account_ids_raw: str,
-    org_id: str,
+    current_user: dict,
     db: Session,
     date_preset: Optional[str],
     date_start: Optional[date],
     date_end: Optional[date],
 ):
+    org_id = current_user["org_id"]
+    allowed = acc_svc.get_accessible_account_ids(db, current_user)
     account_ids = [a.strip() for a in account_ids_raw.split(",") if a.strip()]
 
     if account_ids:
         try:
             accounts = [
-                acc_svc.assert_account_belongs_to_org(db, aid, org_id) for aid in account_ids
+                acc_svc.assert_account_belongs_to_org(
+                    db, aid, org_id, allowed_ids=allowed
+                )
+                for aid in account_ids
             ]
         except (NotFoundError, ForbiddenError) as e:
             raise HTTPException(status_code=403, detail=str(e))
     else:
-        # Empty selection = all org accounts (ids are already org-scoped).
-        account_ids = [str(i) for i in acc_svc.get_org_account_ids(db, org_id)]
+        # Empty selection = all *accessible* accounts: every org account for an
+        # owner, the member's grant set for a member.
+        ids = allowed if allowed is not None else acc_svc.get_org_account_ids(db, org_id)
+        account_ids = [str(i) for i in ids]
         accounts = []
 
     tz = accounts[0].timezone if accounts else "UTC"
@@ -124,7 +134,7 @@ def combined(
     date_end: Optional[date] = Query(None),
 ):
     ids, ds, de, preset = _resolve_combined_dates(
-        account_ids, current_user["org_id"], db, date_preset, date_start, date_end
+        account_ids, current_user, db, date_preset, date_start, date_end
     )
     data = insights_svc.get_combined_overview(
         db, ids, current_user["org_id"], ds, de, date_preset=preset
@@ -144,7 +154,7 @@ def combined_timeseries(
     time_increment: str = Query("day"),
 ):
     ids, ds, de, preset = _resolve_combined_dates(
-        account_ids, current_user["org_id"], db, date_preset, date_start, date_end
+        account_ids, current_user, db, date_preset, date_start, date_end
     )
     data = insights_svc.get_combined_timeseries(
         db, ids, current_user["org_id"], ds, de,
@@ -166,7 +176,7 @@ def overview(
     search: Optional[str] = Query(None),
 ):
     ds, de, account, preset = _resolve_dates(
-        account_id, current_user["org_id"], db, date_preset, date_start, date_end
+        account_id, current_user, db, date_preset, date_start, date_end
     )
     data = insights_svc.get_overview(
         db, account_id, current_user["org_id"], ds, de, date_preset=preset,
@@ -229,7 +239,7 @@ def overview_summary(
     # read via the shared get_overview (tenant check + P-6 parity inside); the
     # AI service only narrates over that dict, it never queries metrics (P-7).
     ds, de, account, preset = _resolve_dates(
-        account_id, current_user["org_id"], db, date_preset, date_start, date_end
+        account_id, current_user, db, date_preset, date_start, date_end
     )
     # get_overview does the tenant check and returns the freshness token
     # (cached_at) that keys the cache. We fetch it up front so a cache HIT can
@@ -312,7 +322,7 @@ def overview_summary_peek(
     # same key, and either replays a cached diagnosis or reports "no cached
     # summary" via 204 so the client can render an idle state token-free (P-5).
     ds, de, account, preset = _resolve_dates(
-        account_id, current_user["org_id"], db, date_preset, date_start, date_end
+        account_id, current_user, db, date_preset, date_start, date_end
     )
     overview = insights_svc.get_overview(
         db, account_id, current_user["org_id"], ds, de, date_preset=preset,
@@ -345,7 +355,7 @@ def overview_export_pptx(
     # construction (P-6). All three reads go through the shared insights
     # functions; no second query path to the metrics tables (P-7).
     ds, de, account, preset = _resolve_dates(
-        account_id, current_user["org_id"], db, date_preset, date_start, date_end
+        account_id, current_user, db, date_preset, date_start, date_end
     )
     overview = insights_svc.get_overview(
         db, account_id, current_user["org_id"], ds, de, date_preset=preset,
@@ -425,7 +435,7 @@ def timeseries(
     search: Optional[str] = Query(None),
 ):
     ds, de, account, preset = _resolve_dates(
-        account_id, current_user["org_id"], db, date_preset, date_start, date_end
+        account_id, current_user, db, date_preset, date_start, date_end
     )
     metrics_list = [m.strip() for m in metrics.split(",") if m.strip()]
     data = insights_svc.get_timeseries(
@@ -461,7 +471,7 @@ def table(
     compare_previous: bool = Query(False),
 ):
     ds, de, account, preset = _resolve_dates(
-        account_id, current_user["org_id"], db, date_preset, date_start, date_end
+        account_id, current_user, db, date_preset, date_start, date_end
     )
     rows, total = insights_svc.get_table(
         db, account_id, current_user["org_id"], ds, de,
@@ -500,7 +510,7 @@ def engagement(
     date_end: Optional[date] = Query(None),
 ):
     ds, de, account, preset = _resolve_dates(
-        account_id, current_user["org_id"], db, date_preset, date_start, date_end
+        account_id, current_user, db, date_preset, date_start, date_end
     )
     data = insights_svc.get_engagement(
         db, account_id, current_user["org_id"], ds, de, date_preset=preset
@@ -530,7 +540,7 @@ def breakdown(
         )
 
     ds, de, account, preset = _resolve_dates(
-        account_id, current_user["org_id"], db, date_preset, date_start, date_end
+        account_id, current_user, db, date_preset, date_start, date_end
     )
     data = insights_svc.get_breakdown(
         db, account_id, current_user["org_id"], ds, de,

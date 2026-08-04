@@ -39,6 +39,19 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
 
+    # SMTP (member invite emails). If SMTP_HOST is empty the invite link is
+    # logged instead of emailed (dev fallback) — the invite row is still
+    # created either way. STARTTLS on 587 (default); for implicit SSL use
+    # port 465 with SMTP_USE_SSL=true.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""  # sender address; falls back to SMTP_USER when empty
+    SMTP_FROM_NAME: str = "DashMet"
+    SMTP_USE_TLS: bool = True   # STARTTLS (port 587)
+    SMTP_USE_SSL: bool = False  # implicit SSL (port 465)
+
     # CORS
     CORS_ORIGINS: str = "http://localhost:3000"
 

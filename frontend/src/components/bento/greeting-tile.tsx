@@ -1,27 +1,14 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
 import { BentoTile } from "./bento-tile";
-import { authApi } from "@/lib/api/auth";
-import { queryKeys } from "@/lib/query-keys";
+import { useMe } from "@/hooks/use-me";
 import { useAccountsCount } from "@/hooks/use-account";
-
-interface Me {
-  id: string;
-  name: string;
-  email: string;
-  org: { id: string; name: string; slug: string; role: string };
-}
 
 /** Greeting tile — a big display hello + a plain workspace status line. */
 export function GreetingTile({ className }: { className?: string }) {
   const accountCount = useAccountsCount();
 
-  const { data: me } = useQuery({
-    queryKey: queryKeys.me(),
-    queryFn: async () => (await authApi.me()).data.data as Me,
-    staleTime: 60 * 60 * 1000,
-  });
+  const { data: me } = useMe();
 
   const firstName = me?.name?.split(" ")[0] ?? "there";
   const orgName = me?.org?.name ?? "your workspace";

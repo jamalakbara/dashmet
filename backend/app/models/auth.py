@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 from sqlalchemy import (
     String, Boolean, DateTime, Text, ForeignKey,
-    UniqueConstraint, CheckConstraint, Index, func
+    UniqueConstraint, CheckConstraint, Index, func, text
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
@@ -69,6 +69,15 @@ class OrganizationMembership(UUIDPrimaryKeyMixin, Base):
         Index("ix_membership_org_id", "organization_id"),
         Index("ix_membership_user_id", "user_id"),
         Index("ix_membership_invite_token", "invite_token"),
+        # One pending invite per email per org — prevents duplicate pending rows
+        # when the invited email has no user account yet (user_id is NULL).
+        Index(
+            "uq_membership_org_invite_email",
+            "organization_id",
+            "invite_email",
+            unique=True,
+            postgresql_where=text("invite_email IS NOT NULL"),
+        ),
     )
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
@@ -81,6 +90,7 @@ class OrganizationMembership(UUIDPrimaryKeyMixin, Base):
     invited_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    invite_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     invite_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     invite_expires_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -95,4 +105,36 @@ class OrganizationMembership(UUIDPrimaryKeyMixin, Base):
     organization: Mapped["Organization"] = relationship(back_populates="memberships")
     user: Mapped[Optional["User"]] = relationship(
         back_populates="memberships", foreign_keys=[user_id]
+    )
+    account_grants: Mapped[list["MembershipAccount"]] = relationship(
+        back_populates="membership", cascade="all, delete-orphan"
+    )
+
+
+class MembershipAccount(UUIDPrimaryKeyMixin, Base):
+    """Per-member account allowlist. A row grants one membership access to one
+    account. Owners are unrestricted (implicit access to every org account) and
+    have no rows here; members see only the accounts granted to them. No row =
+    no access. Cascades on both sides so removing a member or an account drops
+    the grant automatically."""
+
+    __tablename__ = "membership_accounts"
+    __table_args__ = (
+        UniqueConstraint("membership_id", "account_id", name="uq_membership_account"),
+        Index("ix_membership_account_membership", "membership_id"),
+        Index("ix_membership_account_account", "account_id"),
+    )
+
+    membership_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("organization_memberships.id", ondelete="CASCADE"), nullable=False
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    membership: Mapped["OrganizationMembership"] = relationship(
+        back_populates="account_grants"
     )

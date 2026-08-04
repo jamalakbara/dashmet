@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { SettingsNav } from "@/components/shared/settings-nav";
+import { SettingsReadonlyBanner } from "@/components/shared/settings-readonly-banner";
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -20,6 +21,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
             </div>
             <div className="mt-4 px-6">
               <SettingsNav />
+              <SettingsReadonlyBanner />
             </div>
             <div className="px-6 py-6">
               <Suspense>

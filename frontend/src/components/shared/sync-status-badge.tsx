@@ -11,6 +11,7 @@ import { accountsApi } from "@/lib/api/accounts";
 import { queryKeys } from "@/lib/query-keys";
 import { DEFAULT_DATE_PRESET } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { useIsOwner } from "@/hooks/use-role";
 
 // Which job types matter for each date preset (mirrors the old SyncStatusBar).
 const RANGE_JOBS: Record<string, string[]> = {
@@ -52,6 +53,10 @@ const VARIANT_STYLE: Record<Variant, string> = {
  * navbar always reports freshness.
  */
 export function SyncStatusBadge() {
+  // Manual sync is owner-only (backend POST /sync/trigger → 403 for members).
+  // Keep the recovery action visible but locked so members see the freshness
+  // state without an action that would fail.
+  const isOwner = useIsOwner();
   const [accountIdParam] = useQueryState("account_id");
   const [datePreset] = useQueryState("date_preset", { defaultValue: DEFAULT_DATE_PRESET });
 
@@ -167,6 +172,8 @@ export function SyncStatusBadge() {
         label={`Sync failed · ${rangeLabel}`}
         onSync={() => sync.mutate()}
         syncing={sync.isPending}
+        syncDisabled={!isOwner}
+        syncTitle={!isOwner ? "Owner only" : undefined}
       />
     );
   }
@@ -210,6 +217,8 @@ export function SyncStatusBadge() {
         label={`${rangeLabel} may be outdated${ago ? ` · synced ${ago}` : ""}`}
         onSync={() => sync.mutate()}
         syncing={sync.isPending}
+        syncDisabled={!isOwner}
+        syncTitle={!isOwner ? "Owner only" : undefined}
       />
     );
   }
@@ -238,6 +247,8 @@ function Pill({
   label,
   onSync,
   syncing,
+  syncDisabled,
+  syncTitle,
 }: {
   variant: Variant;
   icon: React.ReactNode;
@@ -245,6 +256,9 @@ function Pill({
   /** When provided, renders an inline "Sync now" recovery action (P-5). */
   onSync?: () => void;
   syncing?: boolean;
+  /** Locks the action (e.g. non-owner) without hiding it. */
+  syncDisabled?: boolean;
+  syncTitle?: string;
 }) {
   return (
     <div
@@ -259,7 +273,8 @@ function Pill({
         <button
           type="button"
           onClick={onSync}
-          disabled={syncing}
+          disabled={syncing || syncDisabled}
+          title={syncTitle}
           className="ml-0.5 inline-flex shrink-0 items-center gap-1 rounded-full border border-current/30 px-1.5 py-0.5 font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
         >
           <RefreshCw className={cn("size-3", syncing && "animate-spin")} />

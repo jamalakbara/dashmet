@@ -10,7 +10,10 @@ from app.models.platform import Account
 from app.models.structure import Ad
 from app.schemas.campaigns import AdResponse, CreativeResponse
 from app.schemas.common import DataResponse, PaginatedResponse, build_pagination, calculate_offset
-from app.services.accounts import assert_account_belongs_to_org
+from app.services.accounts import (
+    assert_account_belongs_to_org,
+    get_accessible_account_ids,
+)
 
 router = APIRouter()
 
@@ -29,7 +32,10 @@ def list_ads(
     per_page: int = Query(25, ge=1, le=200),
 ):
     try:
-        account = assert_account_belongs_to_org(db, account_id, current_user["org_id"])
+        allowed = get_accessible_account_ids(db, current_user)
+        account = assert_account_belongs_to_org(
+            db, account_id, current_user["org_id"], allowed_ids=allowed
+        )
     except (NotFoundError, ForbiddenError) as e:
         raise HTTPException(status_code=403, detail=str(e))
 
@@ -68,8 +74,11 @@ def get_creative(ad_id: str, current_user: CurrentUser, db: DbSession):
         raise HTTPException(status_code=404, detail="Ad not found")
 
     try:
-        assert_account_belongs_to_org(db, str(ad.account_id), current_user["org_id"])
-    except ForbiddenError as e:
+        allowed = get_accessible_account_ids(db, current_user)
+        assert_account_belongs_to_org(
+            db, str(ad.account_id), current_user["org_id"], allowed_ids=allowed
+        )
+    except (NotFoundError, ForbiddenError) as e:
         raise HTTPException(status_code=403, detail=str(e))
 
     if ad.creative and ad.creative.thumbnail_url:

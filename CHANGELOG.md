@@ -6,6 +6,186 @@ All notable changes to this project are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **Per-member account access (frontend) — owner assignment UI + member empty states.** Settings →
+  Members gains an owner-only **Manage access** action per member row
+  (`frontend/src/components/settings/manage-access-dialog.tsx`): a modal listing all org accounts
+  grouped by platform with checkboxes, pre-seeded from `GET /org/members/:id/accounts`, saving the
+  full set via `PUT`. Owner rows show "All accounts". Members with no grants now see role-aware "No
+  accounts assigned to you" copy in the account switcher
+  (`frontend/src/components/shared/account-switcher.tsx`) and overview
+  (`frontend/src/components/views/overview-view.tsx`) instead of the owner's "connect an account"
+  prompt. `memberAccounts`/`setMemberAccounts` added to `frontend/src/lib/api/org.ts`. No switcher/
+  dashboard fetch changes needed — backend scoping filters automatically. Docs: `docs/frontend-spec.md`.
+- **Per-member account access (backend) — members see only owner-granted accounts.** New
+  `membership_accounts` allowlist table (migration `d8e9f0a1b2c3`, model in
+  `backend/app/models/auth.py`): one row grants a membership access to one account; owners are
+  unrestricted (no rows), members see only granted accounts, **no row = no access** (new members and
+  newly-synced accounts are not auto-granted). Single resolver
+  `accounts.get_accessible_account_ids(db, current_user)` (owner → `None` sentinel = unrestricted;
+  member → grant set) drives all three enforcement chokepoints:
+  `assert_account_belongs_to_org(..., allowed_ids=)` (single-account reads: `/insights/*` via the
+  shared `_resolve_dates`/`_resolve_combined_dates`, `/ads`, `/adgroups`, `/campaigns`,
+  `GET /accounts/:id`), `list_accounts(..., restrict_ids=)` (the account switcher), and the combined
+  dashboard's "all accounts" default. Ungranted account → `403`. `PATCH /accounts/:id/config` is now
+  **owner-only** (`OwnerUser`). Owner grant API: `GET /org/members/:membership_id/accounts` and
+  idempotent `PUT` (validates ids belong to the org → `403` otherwise; owner target → `409`). Refs:
+  `backend/app/services/accounts.py`, `backend/app/services/org.py`, `backend/app/schemas/org.py`,
+  `backend/app/api/v1/endpoints/{org,accounts,insights,ads,adgroups,campaigns}.py`. Tests:
+  `backend/tests/test_account_access.py` (10 — resolver, assert/list scoping, grant replace,
+  cross-org rejection, owner-can't-be-scoped, insights-resolver enforcement). Frontend
+  (manage-access UI + member empty states) handled separately. Docs: `docs/backend-api-spec.md`,
+  `docs/internal-schema-spec.md`.
+
+### Fixed
+- **Navbar user name/email silently blanked to "—".** Six components read the `queryKeys.me()` cache
+  entry with two different `queryFn` shapes — some cached the full axios response, some the parsed
+  `.data.data` body. TanStack keys one cache entry per key, so the value that won depended on mount
+  order; when a full-response consumer (members page / the new `useIsOwner`) populated the cache
+  first, the parsed consumers (`top-bar`, `header`, `greeting-tile`, `user-menu`) read `.name` off the
+  wrong shape and got `undefined`. Introduced a single canonical `useMe()` hook
+  (`frontend/src/hooks/use-me.ts`, one parsed shape) and routed all six consumers through it. Refs:
+  `frontend/src/components/layout/{top-bar,header}.tsx`,
+  `frontend/src/components/{shared/user-menu,bento/greeting-tile}.tsx`,
+  `frontend/src/hooks/use-role.ts`, `frontend/src/app/settings/members/page.tsx`.
+- **Accepted invitees got a synthetic `pending_*@pending.dashmet` email instead of their real
+  address.** `accept_invite` created the user account with a `pending_{token}@pending.dashmet` stub
+  (written before the invited email was stored anywhere). Now it uses the membership's `invite_email`
+  (the synthetic form remains only as a fallback for legacy pre-`invite_email` invites); if an account
+  with that email already exists (invited to a second org), the membership attaches to it rather than
+  hitting the `users.email` unique constraint, leaving the existing name/password untouched. Refs:
+  `backend/app/services/org.py`. Tests: `backend/tests/test_org_members.py`
+  (`test_accept_invite_uses_real_invited_email`, `test_accept_invite_attaches_to_existing_account`).
+- **Members saw owner-only settings controls as if they could use them.** The `/settings/*` pages
+  rendered Save org / Delete organization / Invite member / remove-member / Connect / Disconnect with
+  no role gating (the backend `403`s the mutations, but the UI gave no signal). Added `useIsOwner()`
+  (`frontend/src/hooks/use-role.ts`, reads `GET /auth/me` → `org.role`); owner-only controls on the
+  org, members, and connections settings pages are now **disabled** for members (locked, not hidden —
+  visibility preserved) with an "Owner only" title, plus a `SettingsReadonlyBanner`
+  (`frontend/src/components/shared/settings-readonly-banner.tsx`) under the settings nav. Backend
+  authorization is unchanged — this is the matching UX. The `Sync now` recovery action on the sync
+  status badge (`frontend/src/components/shared/sync-status-badge.tsx`) is locked the same way, since
+  `POST /sync/trigger` is owner-only. Refs:
+  `frontend/src/app/settings/{org,members,connections}/page.tsx`, `frontend/src/app/settings/layout.tsx`.
+
+### Removed
+- **"Delete organization" stub UI dropped from `/settings/org`.** The Danger-zone button was a no-op
+  (no `DELETE /org` endpoint; `onClick` only closed the dialog) — misleading for owners and members
+  alike. Removed the button, confirm dialog, and dead state rather than leaving a fake control. Refs:
+  `frontend/src/app/settings/org/page.tsx`, `docs/frontend-spec.md`.
+
+### Added
+- **Member invites are now emailed (SMTP), with an accept-invite landing page** — previously an
+  invite only wrote a token to the server log; the invitee had no way to receive or accept it.
+  New `backend/app/services/email.py` (stdlib `smtplib`, no new dependency) sends the invite with a
+  link to `{FRONTEND_URL}/accept-invite?token=…`. Delivery never gates the invite (P-8): the
+  membership row is committed first, then the email is sent *after* commit — if SMTP is unconfigured
+  (`SMTP_HOST` empty) the link is logged as a dev fallback, and if a configured server fails the error
+  is logged; either way the invite exists and the `201` response now carries `email_sent: false` with
+  honest message text (never a fake "sent"). SMTP config added to `backend/app/config.py` /
+  `.env.example` (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`,
+  `SMTP_FROM_NAME`, `SMTP_USE_TLS`, `SMTP_USE_SSL`). `POST /org/members/invite` wires the send
+  (`backend/app/api/v1/endpoints/org.py`). New public frontend page
+  `frontend/src/app/(auth)/accept-invite/page.tsx` (name + password → `orgApi.acceptInvite` → sets
+  auth cookie → `/dashboard`); `acceptInvite` added to `frontend/src/lib/api/org.ts`. Tests:
+  `backend/tests/test_email_service.py` (dev fallback, STARTTLS+login send, configured-failure →
+  `EmailError`). Docs: `docs/backend-api-spec.md`, `docs/frontend-spec.md`.
+
+### Changed
+- **Overview cards and funnel are now account-type-aware, with strict standard/CPAS separation.**
+  `overview-view.tsx` replaces the flat `DELIVERY_KEYS`/`RESULT_KEYS`/`RESULT_HEADLINE` arrays with an
+  `OVERVIEW_CARDS: Record<AccountType, CardSpec[]>` config keyed on the selected account's
+  `accountType`: standard renders **three** cards (Spend / ROAS / a title-only **Post & Media** card),
+  CPAS renders **two** (Spend / **ROAS Shared Item**). The config is keyed on account type so a
+  standard account renders zero `*_shared` metrics and a CPAS account renders none of the standard
+  ROAS/Post & Media set. `buildSubMetrics` presence-filtering, the `compare`/`previous` delta pills,
+  and `See Detail → table` links are unchanged. `MetricGroupCard` (`metric-group-card.tsx`) now takes
+  an optional `headline` — omitting it drops the big-number block (and its top border) for the
+  title-only Post & Media card, so no fake headline number is forced (P-1/P-2). The standard
+  **Post & Media** card is now **full-width** (`CardSpec.span: 2` → `lg:col-span-2`) with a 4-column
+  inner sub-metric grid (`CardSpec.cols: 4` → `MetricGroupCard` `columns` prop →
+  `grid-cols-2 lg:grid-cols-4`), so its 8 metrics form two rows of four and fill the row left empty
+  by the odd third card (Spend + ROAS stay 2-up, CPAS layout unchanged). The funnel
+  (`funnel-view.tsx`) resolves steps via the new `getFunnelSteps(platform, accountType)` in
+  `constants.ts` (`META_FUNNEL_STEPS` keyed by account type): Meta standard uses
+  `landing_page_views → add_to_cart → initiate_checkout → purchase`, Meta CPAS uses
+  `content_view_shared → add_to_cart_shared → purchase_shared`; tiktok / google_ads funnels are
+  unchanged. Refs: `frontend/src/components/views/overview-view.tsx`,
+  `frontend/src/components/views/funnel-view.tsx`, `frontend/src/lib/constants.ts`,
+  `frontend/src/components/metrics/metric-group-card.tsx`.
+- **Ads detail sheet metric list is now registry-driven and account-type-aware.** `ads-view.tsx`'s
+  `AdDetailSheet` replaces its hardcoded 11-row `metricRows` array with rows built from
+  `usePlatformMetrics().tableMetricDefs` (the account-type-filtered ad-level `METRIC_REGISTRY` set),
+  presence-filtered to the keys actually non-null in the ad's `metrics` (P-1/P-2 — no forced zeros)
+  and formatted via the shared `metricLabel`/`metricType`/`formatMetric`. A standard account now shows
+  standard metrics (incl. `add_to_cart_value`, `avg_basket_price`, `post_reactions`, `post_saves`,
+  `comments`), a CPAS account shows the `*_shared` set — no cross-leak by construction. `AdMetrics`
+  widened to an index signature (`[key: string]: number | null | undefined`, keys read directly in the
+  card/row summaries kept explicit) — no `any` on the response type. Refs:
+  `frontend/src/components/views/ads-view.tsx`.
+
+### Fixed
+- **Pending member invites were unaddressable — no email shown, couldn't be removed, and piled up
+  as duplicates.** A pending invite creates a membership row with `user_id = NULL` (no account yet),
+  but the invited email was never stored, `list_members` keyed the row id off the (missing) user, and
+  `DELETE /org/members/{…}` + `remove_member` filtered on `user_id` — so pending rows surfaced with a
+  null id (React key collision, dead remove button) and were impossible to delete. Added
+  `organization_memberships.invite_email` (+ partial unique index
+  `uq_membership_org_invite_email` on `(organization_id, invite_email) WHERE invite_email IS NOT NULL`)
+  so pending invites store/display their address, dedup on repeat invite, and are removable by
+  membership PK. `list_members` now returns `membership_id` (stable row id, always present) alongside
+  the nullable user `id`; the delete route is keyed on `membership_id` with self-removal still guarded
+  via the row's `user_id`. Refs: `backend/app/models/auth.py`,
+  `backend/migrations/versions/c7d8e9f0a1b2_add_invite_email_to_memberships.py`,
+  `backend/app/services/org.py`, `backend/app/schemas/org.py`,
+  `backend/app/api/v1/endpoints/org.py`, `frontend/src/lib/api/org.ts`,
+  `frontend/src/app/settings/members/page.tsx`. Test: `backend/tests/test_org_members.py`.
+
+### Added
+- **Meta CPAS shared-item (catalog-segment) metrics surfaced in the insights read layer** — the
+  raw catalog-segment data already stored generically in `metric_action_stats` by the sync worker
+  is now returned by the insights API (no worker change). `_ACTION_PIVOT_COLS` gained five FILTER
+  columns — `purchase_shared`/`add_to_cart_shared`/`content_view_shared`
+  (`catalog_segment_actions` × purchase/add_to_cart/view_content) and
+  `purchase_value_shared`/`add_to_cart_value_shared` (`catalog_segment_value` × purchase/add_to_cart)
+  — registered in `_ACTION_INT_KEYS`/`_ACTION_FLOAT_KEYS`; `_finalize_metrics` derives
+  `cost_per_purchase_shared`, `cost_per_add_to_cart_shared`, `cost_per_content_view_shared`
+  (spend ÷ count) and `roas_shared` (purchase_value_shared ÷ spend) after aggregation, never stored
+  (same rule as ROAS/CPA, P-7) (`backend/app/services/insights.py`). The nine fields
+  (`purchase_shared`, `add_to_cart_shared`, `content_view_shared`, `purchase_value_shared`,
+  `add_to_cart_value_shared`, `cost_per_purchase_shared`, `cost_per_add_to_cart_shared`,
+  `cost_per_content_view_shared`, `roas_shared`) added to `MetricsSummary`, `TimeSeriesPoint`, and
+  `TableMetrics` (`backend/app/schemas/insights.py`). Frontend registry
+  (`frontend/src/lib/metrics.ts`) + `insights.ts` types gain the same fields (handled separately).
+  Test coverage pending (hand off to testing).
+- **Insights metric registry surfaces the new Meta metrics in the overview/table/trends grids**
+  (`frontend/src/lib/metrics.ts`). Standard: `add_to_cart_value`, `avg_basket_price`,
+  `post_reactions` (Post Reaction), `post_saves` (Post Save), and `comments` (Post Comment, now
+  rendered for Meta — previously TikTok-only). CPAS: the nine catalog-segment "Shared Item" rows
+  (`purchase_shared` … `roas_shared`, `accountTypes:["cpas"]`), and `inline_link_clicks` (Link
+  Clicks) extended to CPAS as well as standard. Registry-driven — cards adapt per platform/account
+  type with no per-view wiring. Docs: `docs/frontend-spec.md`.
+- **Meta CPAS shared-item (catalog-segment) conversions synced** — the insights worker now
+  requests `catalog_segment_actions` and `catalog_segment_value` for all Meta accounts across
+  campaign/adset/ad non-unique fetches (added to `_METRIC_FIELDS`), the only conversion source for
+  Collaborative Ads accounts where the retailer owns the pixel and regular
+  `actions`/`action_values`/`purchase_roas` return empty. Both stored into `metric_action_stats`
+  via `ACTION_STAT_FIELDS` (no migration — table is generic). `parse_insight_row` normalizes each
+  catalog-segment `action_type` to canonical `purchase`/`add_to_cart`/`view_content` via
+  `_normalize_catalog_segment_action` (unknown types kept verbatim; normalization scoped to
+  catalog_segment fields only) so the read layer has a stable pivot contract
+  (`backend/workers/tasks/insights.py`). Read-layer surfacing handled separately.
+- **Four Meta metrics surfaced in the insights read layer** — Post Reactions, Post Saves,
+  Add to Cart Value, and Avg. Basket Price are now returned by the insights API. The raw data
+  was already stored generically in `metric_action_stats` by the sync worker (`parse_insight_row`);
+  only the read pivot + schemas needed to surface it (no worker change). `_ACTION_PIVOT_COLS`
+  gained three FILTER columns — `post_reactions` (`actions`/`post_reaction`), `post_saves`
+  (`actions`/`onsite_conversion.post_save`), `add_to_cart_value` (`action_values`/`add_to_cart`) —
+  registered in `_ACTION_INT_KEYS`/`_ACTION_FLOAT_KEYS`; `_finalize_metrics` derives
+  `avg_basket_price` = conversion_value ÷ purchase after aggregation, never stored (same rule as
+  ROAS/CPA), None-guarded for timeseries points lacking conversion_value (P-4/P-7)
+  (`backend/app/services/insights.py`). The four fields added to `MetricsSummary`,
+  `TimeSeriesPoint`, and `TableMetrics` (`backend/app/schemas/insights.py`). Frontend
+  `frontend/src/lib/api/insights.ts` types gain the same four fields (handled separately).
 - **On-demand AI overview diagnosis** — a grounded LLM diagnosis over the single-account overview
   numbers. New service `backend/app/services/ai_summary.py` diagnoses over dicts from the shared
   read path (`insights.get_overview` + `get_table` + `get_timeseries`) — it computes nothing, states

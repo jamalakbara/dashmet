@@ -6,8 +6,76 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.exceptions import ConflictError, ForbiddenError, InvalidTokenError, NotFoundError
-from app.models.auth import Organization, OrganizationMembership, User
+from app.models.auth import (
+    MembershipAccount,
+    Organization,
+    OrganizationMembership,
+    User,
+)
+from app.models.platform import Account
 from app.services.auth import create_user_and_org, hash_password
+
+
+def _get_org_membership(
+    db: Session, org_id: str, membership_id: str
+) -> OrganizationMembership:
+    mem = (
+        db.query(OrganizationMembership)
+        .filter(
+            OrganizationMembership.organization_id == uuid.UUID(org_id),
+            OrganizationMembership.id == uuid.UUID(membership_id),
+        )
+        .first()
+    )
+    if not mem:
+        raise NotFoundError("Member not found")
+    return mem
+
+
+def list_member_accounts(db: Session, org_id: str, membership_id: str) -> list[str]:
+    """Account ids granted to a membership. Owners are unrestricted (they have
+    no grant rows); callers should treat an owner as having access to all."""
+    mem = _get_org_membership(db, org_id, membership_id)
+    rows = (
+        db.query(MembershipAccount.account_id)
+        .filter(MembershipAccount.membership_id == mem.id)
+        .all()
+    )
+    return [str(r.account_id) for r in rows]
+
+
+def set_member_accounts(
+    db: Session, org_id: str, membership_id: str, account_ids: list[str]
+) -> list[str]:
+    """Replace a member's account grant set. Validates the membership and every
+    account belong to this org. Owners can't be scoped (they see everything)."""
+    mem = _get_org_membership(db, org_id, membership_id)
+    if mem.role == "owner":
+        raise ConflictError("Owners already have access to all accounts")
+
+    org_uuid = uuid.UUID(org_id)
+    requested = {uuid.UUID(a) for a in account_ids}
+
+    if requested:
+        valid = {
+            row.id
+            for row in db.query(Account.id).filter(
+                Account.id.in_(requested),
+                Account.organization_id == org_uuid,
+            )
+        }
+        missing = requested - valid
+        if missing:
+            raise ForbiddenError("One or more accounts do not belong to your organization")
+
+    # Replace the grant set: drop existing, insert requested.
+    db.query(MembershipAccount).filter(
+        MembershipAccount.membership_id == mem.id
+    ).delete(synchronize_session=False)
+    for aid in requested:
+        db.add(MembershipAccount(membership_id=mem.id, account_id=aid))
+
+    return [str(a) for a in requested]
 
 
 def get_org(db: Session, org_id: str) -> Organization:
@@ -34,9 +102,10 @@ def list_members(db: Session, org_id: str) -> list[dict]:
         user = mem.user
         is_pending = mem.accepted_at is None
         result.append({
+            "membership_id": str(mem.id),
             "id": str(user.id) if user else None,
             "name": user.name if user else None,
-            "email": user.email if user else (mem.invite_token and "pending"),
+            "email": user.email if user else mem.invite_email,
             "role": mem.role,
             "joined_at": mem.accepted_at,
             "invite_pending": is_pending,
@@ -81,6 +150,23 @@ def invite_member(
             pending.invite_token = secrets.token_urlsafe(32)
             pending.invite_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
             return pending
+    else:
+        # No user account yet — dedup pending invites by email so repeat
+        # clicks reuse the same row instead of piling up (user_id is NULL, so
+        # the (org, user_id) unique constraint can't catch these).
+        pending = (
+            db.query(OrganizationMembership)
+            .filter(
+                OrganizationMembership.organization_id == org_uuid,
+                OrganizationMembership.invite_email == email,
+                OrganizationMembership.accepted_at.is_(None),
+            )
+            .first()
+        )
+        if pending:
+            pending.invite_token = secrets.token_urlsafe(32)
+            pending.invite_expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+            return pending
 
     invite_token = secrets.token_urlsafe(32)
     mem = OrganizationMembership(
@@ -88,6 +174,7 @@ def invite_member(
         user_id=existing_user.id if existing_user else None,
         role=role,
         invited_by_user_id=uuid.UUID(invited_by_user_id),
+        invite_email=email,
         invite_token=invite_token,
         invite_expires_at=datetime.now(timezone.utc) + timedelta(days=7),
     )
@@ -117,15 +204,27 @@ def accept_invite(
             raise InvalidTokenError("Invite token has expired")
 
     if mem.user_id is None:
-        existing_mem_email = None
-        user = User(
-            email=f"pending_{token[:8]}@pending.dashmet",
-            password_hash=hash_password(password),
-            name=name,
-            email_verified=True,
-        )
-        db.add(user)
-        db.flush()
+        # Use the real invited address (stored on the membership). Fall back to
+        # a synthetic one only for legacy invites created before invite_email
+        # existed, so those still accept instead of hitting a NOT NULL error.
+        email = mem.invite_email or f"pending_{token[:8]}@pending.dashmet"
+
+        existing = db.query(User).filter(User.email == email).first()
+        if existing:
+            # An account with this email already exists (e.g. the person was
+            # invited to a second org). Attach this membership to it rather
+            # than creating a duplicate (users.email is unique); don't touch
+            # their existing name/password.
+            user = existing
+        else:
+            user = User(
+                email=email,
+                password_hash=hash_password(password),
+                name=name,
+                email_verified=True,
+            )
+            db.add(user)
+            db.flush()
         mem.user_id = user.id
     else:
         user = db.get(User, mem.user_id)
@@ -137,27 +236,30 @@ def accept_invite(
 
     mem.accepted_at = now
     mem.invite_token = None
+    mem.invite_email = None
     return user, mem
 
 
 def remove_member(
     db: Session,
     org_id: str,
-    target_user_id: str,
+    membership_id: str,
     requesting_user_id: str,
 ) -> None:
-    if target_user_id == requesting_user_id:
-        raise ForbiddenError("Cannot remove yourself from the organization")
-
+    # Key on the membership PK, not user_id: pending invites have a NULL
+    # user_id and can't be targeted otherwise.
     mem = (
         db.query(OrganizationMembership)
         .filter(
             OrganizationMembership.organization_id == uuid.UUID(org_id),
-            OrganizationMembership.user_id == uuid.UUID(target_user_id),
+            OrganizationMembership.id == uuid.UUID(membership_id),
         )
         .first()
     )
     if not mem:
         raise NotFoundError("Member not found")
+
+    if mem.user_id is not None and str(mem.user_id) == requesting_user_id:
+        raise ForbiddenError("Cannot remove yourself from the organization")
 
     db.delete(mem)

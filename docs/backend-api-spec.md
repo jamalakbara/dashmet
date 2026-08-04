@@ -383,6 +383,7 @@ List all members of the current org.
 {
   "data": [
     {
+      "membership_id": "uuid",
       "id":          "uuid",
       "name":        "Akbar",
       "email":       "akbar@example.com",
@@ -390,7 +391,8 @@ List all members of the current org.
       "joined_at":   "2026-01-15T09:00:00Z"
     },
     {
-      "id":          "uuid",
+      "membership_id": "uuid",
+      "id":          null,
       "name":        null,
       "email":       "teammate@example.com",
       "role":        "member",
@@ -401,9 +403,26 @@ List all members of the current org.
 }
 ```
 
+`membership_id` is the stable per-row identifier (the membership PK) and is
+always present — use it for the `DELETE` call below. `id` is the **user** id
+and is `null` for a pending invite (no user account exists until the invite is
+accepted). For a pending invite, `email` is the invited address (stored on the
+membership), not a user record.
+
 #### `POST /api/v1/org/members/invite`
 
-Invite a new member by email. **Owner only.** Sends an invite email with a link to accept.
+Invite a new member by email. **Owner only.** The invited email is stored on the
+membership; re-inviting the same still-pending email reuses the existing row and
+rotates its token (no duplicate pending rows).
+
+After the row is committed, an invite email is sent via SMTP with a link to
+`{FRONTEND_URL}/accept-invite?token=…` (services/email.py). Delivery never gates
+the invite: if SMTP is unconfigured (`SMTP_HOST` empty) the link is logged
+instead (dev fallback) and `email_sent` is `false`; if a configured server
+fails, the invite is still created, the error is logged, and `email_sent` is
+`false`. SMTP config env: `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USER`,
+`SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`, `SMTP_USE_TLS` (STARTTLS),
+`SMTP_USE_SSL` (implicit SSL on 465).
 
 **Request body**
 ```json
@@ -417,14 +436,25 @@ Invite a new member by email. **Owner only.** Sends an invite email with a link 
 ```json
 {
   "data": {
-    "message": "Invite sent to teammate@example.com"
+    "message": "Invite sent to teammate@example.com",
+    "email_sent": true
   }
 }
 ```
 
+`email_sent` is `false` when SMTP is unconfigured or the send failed — the
+message text reflects this ("Invite created … but the email could not be sent").
+
 #### `POST /api/v1/org/members/accept-invite`
 
-Accept an invite token (called when the invitee clicks the email link). Creates user account if new, adds to org.
+Accept an invite token (called from the `/accept-invite` page when the invitee
+clicks the email link). Creates the user account using the **invited email**
+(`invite_email` on the membership; a legacy synthetic `pending_*@pending.dashmet`
+address is used only for pre-`invite_email` invites), adds them to the org, and
+returns an access token (invitee is logged in immediately — same shape as login).
+If an account with the invited email already exists (e.g. the person was invited
+to a second org), the membership attaches to that existing account instead of
+creating a duplicate — the existing name/password are left untouched.
 
 **Request body**
 ```json
@@ -437,11 +467,50 @@ Accept an invite token (called when the invitee clicks the email link). Creates 
 
 **Response `200`** — returns access token (user is logged in immediately).
 
-#### `DELETE /api/v1/org/members/:user_id`
+#### `DELETE /api/v1/org/members/:membership_id`
 
-Remove a member from the org. **Owner only.** Cannot remove yourself.
+Remove a member (or cancel a pending invite) from the org. **Owner only.**
+Cannot remove yourself. The path segment is the `membership_id` from
+`GET /org/members`, not the user id — pending invites have no user id, so keying
+on the membership PK is what lets them be cancelled.
 
 **Response `204`** — no body.
+**`404`** — no such membership in this org (also returned for a malformed id).
+**`403`** — attempting to remove your own membership.
+
+#### `GET /api/v1/org/members/:membership_id/accounts`
+
+List the account ids a member is granted access to. **Owner only.**
+
+**Response `200`**
+```json
+{ "data": { "account_ids": ["uuid", "uuid"] } }
+```
+
+An owner membership returns whatever grants exist (normally empty — owners are
+unrestricted and don't need grants).
+
+#### `PUT /api/v1/org/members/:membership_id/accounts`
+
+Replace a member's account grant set (the per-member allowlist). **Owner only.**
+Idempotent — sends the full desired set, not a delta.
+
+**Request body**
+```json
+{ "account_ids": ["uuid", "uuid"] }
+```
+
+**Response `200`** — `{ "data": { "account_ids": [...] } }` (the stored set).
+**`409`** — target membership is an owner (owners already have all accounts).
+**`403`** — one or more `account_ids` don't belong to this org.
+**`404`** — no such membership in this org.
+
+> **Access model:** owners have implicit access to every org account; members
+> see only accounts granted here (**no grant = no access**). This scopes
+> `GET /accounts` (the switcher), the combined dashboard's "all accounts"
+> default, and every account-scoped read (`/insights/*`, `/ads`, `/adgroups`,
+> `/campaigns`, `GET /accounts/:id`) — an ungranted account returns `403`.
+> Editing account config (`PATCH /accounts/:id/config`) is **owner only**.
 
 ---
 
@@ -1499,6 +1568,26 @@ Standard metric keys used in `metrics` objects across all endpoints.
 | `video_p100` | Completed video |
 | `video_thruplay` | ThruPlay completions |
 | `video_avg_watch_time_ms` | Average watch time in milliseconds |
+| `post_reactions` | Post reactions (Meta `post_reaction` action) |
+| `post_saves` | Post saves (Meta `onsite_conversion.post_save` action) |
+| `add_to_cart_value` | Monetary value of add-to-cart events (Meta `add_to_cart` in `action_values`) |
+| `avg_basket_price` | Average basket price — computed ratio `conversion_value ÷ purchase`, never stored; `null` when either is 0/absent |
+
+**CPAS "Shared Item" (catalog-segment) keys.** Sourced from the catalog-segment stores `catalog_segment_actions` (counts) and `catalog_segment_value` (revenue), which are the only source of conversions for Collaborative Ads (CPAS) accounts (see `docs/meta-ads-metrics-reference.md` §15). These stores are **empty for standard (non-catalog) accounts**, so all keys below are `null`/`0` there. Meta-only.
+
+| Key | Description |
+|---|---|
+| `purchase_shared` | CPAS catalog-segment purchases (count) |
+| `add_to_cart_shared` | CPAS catalog-segment add-to-cart events (count) |
+| `content_view_shared` | CPAS catalog-segment content views (count) |
+| `purchase_value_shared` | CPAS catalog-segment purchase revenue |
+| `add_to_cart_value_shared` | CPAS catalog-segment add-to-cart value |
+| `cost_per_purchase_shared` | Computed ratio `spend ÷ purchase_shared`, never stored; `null` when either is 0/absent |
+| `cost_per_add_to_cart_shared` | Computed ratio `spend ÷ add_to_cart_shared`, never stored; `null` when either is 0/absent |
+| `cost_per_content_view_shared` | Computed ratio `spend ÷ content_view_shared`, never stored; `null` when either is 0/absent |
+| `roas_shared` | Computed ratio `purchase_value_shared ÷ spend`, never stored; `null` when either is 0/absent |
+
+The four `*_shared` cost-per / ROAS ratios are derived after aggregation (P-7), never stored — same rule as `roas`/`cpa`/`avg_basket_price`.
 
 ---
 
