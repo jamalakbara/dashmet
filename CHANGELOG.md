@@ -6,6 +6,18 @@ All notable changes to this project are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **PPTX export of a single-account overview** — new `GET /insights/overview/export.pptx`
+  (`backend/app/api/v1/endpoints/insights.py`) returns a 5-slide PowerPoint deck (title+meta,
+  KPI summary, native spend-trend chart, top-campaigns table, top-6 ads with 4:5 creative
+  thumbnails) as a binary `StreamingResponse`. Deck built by the new
+  `backend/app/services/export.py` (`generate_overview_pptx`), which reuses the shared
+  `get_overview`/`get_timeseries`/`get_table` read functions — identical numbers by
+  construction, no second query path (P-6/P-7). Frontend: `insightsApi.exportOverviewPptx`
+  (`frontend/src/lib/api/insights.ts`) plus an **Export PPTX** button shown on single-account
+  views (`frontend/src/components/layout/control-strip.tsx`). New backend deps
+  `python-pptx==1.0.2` + `Pillow==11.3.0` (`backend/requirements.txt`). Known gap: the
+  single-account `get_overview()` read path lacks a freshness/coverage envelope, so the title
+  slide stamps only "Data as of <date_stop>" (P-1 follow-up, tracked in `BOARD.md`).
 - **Animated lucide icons** across the dashboard via a new reusable `AnimatedIcon` primitive
   (`frontend/src/components/shared/animated-icon.tsx`) that wraps any `lucide-react` glyph in a
   framer-motion `motion.span` — so every animation honors OS reduce-motion through the global
@@ -38,9 +50,10 @@ All notable changes to this project are documented here. Format follows
 
 ### Changed
 - **Brand + platform logos now use real SVG assets.** Sidebar brand swapped from the `Sparkles`
-  lucide glyph to `/logo.svg`; `PlatformBadge` renders `/meta-logo.svg` and `/tiktok-logo.svg` for
-  meta/tiktok (other platforms keep the colored letter tile). Assets added under `frontend/public/`.
-  Touches `frontend/src/components/layout/sidebar.tsx`,
+  lucide glyph to `/logo.svg`; `PlatformBadge` renders `/meta-logo.svg`, `/tiktok-logo.svg`, and
+  `/gads-logo.svg` for meta/tiktok/google_ads (colored letter tile kept as fallback for any other
+  platform). Assets added under `frontend/public/`. Touches
+  `frontend/src/components/layout/sidebar.tsx`,
   `frontend/src/components/shared/platform-badge.tsx`.
 - **Icon hover animations now trigger on the whole container, not the icon itself.** `AnimatedIcon`
   with `trigger="hover"` switched from framer-motion `whileHover` (icon-only) to CSS `group-hover:`,

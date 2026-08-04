@@ -8,8 +8,9 @@ interface PlatformBadgeProps {
 // Platforms with a real logo asset in /public render the SVG; others fall back
 // to a colored letter tile.
 const PLATFORM_LOGO: Record<string, string> = {
-  meta:   "/meta-logo.svg",
-  tiktok: "/tiktok-logo.svg",
+  meta:       "/meta-logo.svg",
+  tiktok:     "/tiktok-logo.svg",
+  google_ads: "/gads-logo.svg",
 };
 
 const PLATFORM_CONFIG: Record<string, { icon: string; color: string }> = {

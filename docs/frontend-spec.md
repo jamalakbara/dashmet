@@ -723,7 +723,7 @@ Polls sync status every 60 seconds. Shows dot indicator + last updated time. Tri
 Color-coded badge for entity status. Props: `status: 'active' | 'paused' | 'archived' | 'deleted'`
 
 ### `PlatformBadge`
-Small platform icon. `meta`/`tiktok` render their brand SVG (`/meta-logo.svg`, `/tiktok-logo.svg`); other platforms fall back to a colored letter tile. Props: `platform: 'meta' | 'google_ads' | 'tiktok'`, `size?: 'sm' | 'md'`
+Small platform icon. `meta`/`tiktok`/`google_ads` render their brand SVG (`/meta-logo.svg`, `/tiktok-logo.svg`, `/gads-logo.svg`); any other platform falls back to a colored letter tile. Props: `platform: 'meta' | 'google_ads' | 'tiktok'`, `size?: 'sm' | 'md'`
 
 ### `MetricValue`
 Formatted metric display. Handles currency, percentage, multiplier (ROAS), and large number abbreviation (1.2M, 45K). Props: `value`, `type: 'currency' | 'percent' | 'number' | 'roas'`, `currency?: string`
