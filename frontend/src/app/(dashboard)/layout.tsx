@@ -13,19 +13,19 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="relative flex h-screen overflow-hidden bg-background">
       <Suspense fallback={<div className="m-3 w-60 shrink-0 rounded-2xl bg-sidebar" />}>
         <Sidebar />
       </Suspense>
 
-      <div className="my-3 ml-3 mr-3 flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl shadow-xl ring-1 ring-black/5">
+      <div className="my-3 mr-3 flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl shadow-xl ring-1 ring-black/5 [contain:layout_paint]">
         <Suspense fallback={<div className="h-16 shrink-0 border-b border-border bg-card" />}>
           <TopBar />
         </Suspense>
         <Suspense fallback={<div className="h-14 shrink-0 border-b border-border bg-card" />}>
           <ControlStrip />
         </Suspense>
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+        <main className="flex-1 overflow-y-auto p-4 [contain:layout_paint] md:p-6">
           <Suspense
             fallback={
               <div className="h-full w-full animate-pulse rounded-2xl bg-muted/40" />

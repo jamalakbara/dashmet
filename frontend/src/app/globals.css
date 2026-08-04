@@ -229,3 +229,14 @@
   75% { transform: rotate(-6deg); }
   100% { transform: rotate(0deg); }
 }
+
+/* Crossfade for the sidebar's inner content on collapse/expand. The rail width
+   animates (200ms) but its content (labels vs icon-only layout) swaps discretely;
+   fading the new layout in from 0 masks the frames where content geometry doesn't
+   yet match the animating width. Keyed wrapper in components/layout/sidebar.tsx
+   replays this on every toggle. Applied via motion-safe: so reduced-motion users
+   get an instant swap. */
+@keyframes sidebar-swap-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

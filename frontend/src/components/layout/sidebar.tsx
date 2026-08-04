@@ -62,12 +62,33 @@ export function Sidebar() {
   const toggleCollapsed = useUIStore((s) => s.toggleSidebar);
 
   return (
-    <aside
-      className={cn(
-        "relative z-30 m-3 flex shrink-0 flex-col rounded-2xl bg-sidebar text-sidebar-foreground shadow-xl ring-1 ring-black/5 transition-[width] duration-200 ease-in-out",
-        collapsed ? "w-[68px]" : "w-60"
-      )}
-    >
+    <>
+      {/* In-flow spacer reserves the rail's footprint (margin + width) so the
+          content column sizes off THIS, not the animating rail. It snaps with no
+          transition, so content reflows exactly once per toggle instead of every
+          frame. The rail itself is an absolute overlay (below) that animates its
+          width over this empty slot — its tiny, contained subtree is the only
+          thing that reflows during the 200ms. */}
+      <div
+        aria-hidden
+        className={cn("shrink-0", collapsed ? "w-[92px]" : "w-[264px]")}
+      />
+      <aside
+        className={cn(
+          "absolute inset-y-0 left-0 z-30 m-3 flex flex-col rounded-2xl bg-sidebar text-sidebar-foreground shadow-xl ring-1 ring-black/5 transition-[width] duration-200 ease-out will-change-[width]",
+          collapsed ? "w-[68px]" : "w-60"
+        )}
+      >
+      {/* Inner content is keyed on `collapsed` so React remounts it on every
+          toggle, replaying the `sidebar-swap-in` fade (globals.css). This masks
+          the frames where the (discrete) collapsed/expanded layout doesn't yet
+          match the (animating) rail width — the new layout fades in from 0 while
+          the width settles, instead of snapping to the wrong-width geometry.
+          motion-safe: so reduced-motion users get an instant swap. */}
+      <div
+        key={collapsed ? "collapsed" : "expanded"}
+        className="flex flex-1 flex-col motion-safe:animate-[sidebar-swap-in_200ms_ease-out]"
+      >
       {/* Brand + collapse toggle. The toggle sits next to the logo (ChatGPT
           style). When collapsed, the logo alone shows; hovering it swaps the
           logo for the expand button so the icon-only rail stays clean. */}
@@ -122,7 +143,7 @@ export function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto overflow-x-hidden px-3 pb-4">
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden px-3 pb-4 [contain:layout_paint]">
         <SectionLabel collapsed={collapsed}>Data</SectionLabel>
 
         <Link
@@ -234,6 +255,8 @@ export function Sidebar() {
           {!collapsed && "Settings"}
         </Link>
       </div>
-    </aside>
+      </div>
+      </aside>
+    </>
   );
 }

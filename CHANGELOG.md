@@ -145,6 +145,18 @@ All notable changes to this project are documented here. Format follows
   `workers/meta_client.py` (`get_insights` now requires `time_range`, no longer accepts `date_preset`).
 
 ### Fixed
+- Laggy sidebar collapse/expand animation. The rail animated its `width` as a
+  `shrink-0` flex sibling, so the content panel (charts/tables) recomputed layout
+  every frame — heavy reflow. The rail is now an **absolute overlay** over an
+  in-flow spacer (`w-[264px]`/`w-[92px]`, no transition) that reserves its column
+  (`frontend/src/components/layout/sidebar.tsx`,
+  `frontend/src/app/(dashboard)/layout.tsx`): the content panel sizes off the
+  spacer and reflows once per toggle, while `[contain:layout_paint]` scopes the
+  remaining reflow/paint to the rail, content column, and `<main>`. The rail's
+  inner content is keyed on `collapsed` and replays a `sidebar-swap-in` opacity
+  fade (`frontend/src/app/globals.css`, `motion-safe:` only) so the discrete
+  layout swap fades in while the animated width settles — no more flash of labels
+  clipped in the narrow rail / icons floating in the wide rail mid-animation.
 - Disabled accounts read as gone from single-account resolution. `get_account_with_config`
   (`backend/app/services/accounts.py`) now raises `NotFoundError` for `account_status="disabled"`,
   so `GET /accounts/{id}` returns `404` like `GET /accounts` already hides them — a stale client
