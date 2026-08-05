@@ -220,6 +220,46 @@ Both calls write to the same `metrics_daily` rows via upsert — they merge, not
 > as-is. See `docs/meta-ads-metrics-reference.md` §15 for the full normalization
 > table.
 
+> **TikTok insights metric tiers (`workers/tasks/tiktok_insights.py`).** TikTok's
+> integrated reporting request is built from three lists:
+> - `SCALAR_METRICS` — core spend/impression/rate fields, written to `metrics_daily`.
+> - `ACTION_METRICS` — video/engagement/result fields, requested on **every** call
+>   (part of `base_metrics`); each maps through `TIKTOK_ACTION_MAP` into a
+>   `metric_action_stats` row. Includes `average_video_play` and
+>   `average_video_play_per_user` (both stored as `field_name = "average_video_play*"`,
+>   `action_type = "video_view"`, average values — never summed across rows, P-4).
+>   Also includes `engagements` (standard aggregate engagement metric, not Pixel /
+>   feature-gated → stays in the always-requested tier), stored as
+>   `field_name = "engagements"`, `action_type = "engagement"`.
+> - `EVENT_METRICS` — website/app page-event fields that require a Pixel / app SDK.
+>   TikTok rejects the **whole** request with "invalid metric fields" if these are
+>   requested for an advertiser without a Pixel configured, so they are in a
+>   **graceful-fallback tier**: on the first such error the worker sets
+>   `event_supported = False` and retries once with `base_metrics` only, so core
+>   metrics still sync (this is a distinguishable degraded state, not a fake zero, P-4).
+>   Onsite/shop fields currently requested (TikTok's ONSITE family, not the
+>   pixel-web `page_event_*` family): `onsite_shopping`,
+>   `total_onsite_shopping_value`, `onsite_on_web_cart`,
+>   `total_onsite_on_web_cart_value`, `onsite_initiate_checkout_count`,
+>   `total_onsite_initiate_checkout_count_value`, `ix_page_view_count`, and
+>   `app_event_install`. Also in this graceful-fallback tier: the interactive-addon
+>   field `ix_product_click_count` and the LIVE fields `live_effective_views` and
+>   `live_product_clicks` — all three are feature-gated and dropped on the same
+>   "invalid metric fields" fallback if the advertiser hasn't enabled them.
+>
+> Each `EVENT_METRICS` field maps through `TIKTOK_ACTION_MAP` into `metric_action_stats`:
+> counts land under `field_name = "page_events"` (action_types `purchase`,
+> `add_to_cart`, `checkout`, `page_view`) and monetary values under
+> `field_name = "page_event_values"` (action_types `purchase`, `add_to_cart`,
+> `checkout`). App installs land under `field_name = "app_events"`, `action_type = "install"`.
+> The three added feature-gated fields keep `field_name` verbatim:
+> `ix_product_click_count` → (`ix_product_click_count`, `product_click`),
+> `live_effective_views` → (`live_effective_views`, `live_view`),
+> `live_product_clicks` → (`live_product_clicks`, `product_click`).
+> No DB migration is needed — `metric_action_stats` is a generic
+> `(field_name, action_type, value)` store. See `docs/tiktok-api-metrics-reference.md`
+> §5, §12, §16 for the upstream field definitions.
+
 ### Breakdown fetches (hourly beat)
 
 Breakdowns are synced hourly via the `sync_breakdowns_all` beat task → `sync_breakdowns_for_account` per account. Each run fetches `last_30d` of data, covering the default UI date range. Results are stored in `metric_breakdowns` and queried directly by the breakdown API.

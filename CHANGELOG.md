@@ -6,6 +6,64 @@ All notable changes to this project are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **TikTok engagement / interactive / LIVE metrics synced + surfaced.** The four
+  previously-deferred TikTok metrics now land end-to-end. The sync worker stores them in
+  `metric_action_stats` under internal `(field_name, action_type)` keys: `engagements` →
+  (`engagement`), `ix_product_click_count` → (`product_click`), `live_effective_views` →
+  (`live_view`), `live_product_clicks` → (`product_click`). The read layer
+  (`backend/app/services/insights.py`) pivots four new summable-count columns out of
+  `metric_action_stats` — `total_engagement`, `product_clicks_ix`, `live_views_10s`,
+  `live_product_clicks` (all registered in `_ACTION_INT_KEYS`; raw counts, no derived ratio). The
+  four fields are exposed on `MetricsSummary`, `TimeSeriesPoint`, and `TableMetrics` in
+  `backend/app/schemas/insights.py`. No DB migration (`metric_action_stats` is generic). Frontend
+  registry + `insights.ts` and read-layer tests pending (hand off to frontend + testing).
+- **TikTok onsite/shop insights — onsite-family metrics synced.**
+  `backend/workers/tasks/tiktok_insights.py` requests TikTok's ONSITE family
+  (`onsite_*`, `total_onsite_*`, `ix_*`) — the correct "(Shop)"/"(Onsite)" fields, **not** the
+  pixel-web `page_event_*` family — in the graceful-fallback `EVENT_METRICS` tier (dropped
+  automatically if the advertiser has no TikTok Shop / onsite tracking, so a rejected field can't
+  break the core request), plus `average_video_play_per_user` (video tier, next to
+  `average_video_play`). `TIKTOK_ACTION_MAP` stores each into `metric_action_stats` under
+  unchanged internal `(field_name, action_type)` keys: `ix_page_view_count` →
+  (`page_events`, `page_view`), `onsite_on_web_cart` → (`page_events`, `add_to_cart`),
+  `total_onsite_on_web_cart_value` → (`page_event_values`, `add_to_cart`),
+  `onsite_initiate_checkout_count` → (`page_events`, `checkout`),
+  `total_onsite_initiate_checkout_count_value` → (`page_event_values`, `checkout`),
+  `onsite_shopping` → (`page_events`, `purchase`),
+  `total_onsite_shopping_value` → (`page_event_values`, `purchase`),
+  `average_video_play_per_user` → (`average_video_play_per_user`, `video_view`).
+  No DB migration (`metric_action_stats` is generic). Read-layer pivot + tests pending.
+  Docs: `docs/sync-worker-spec.md`, `docs/tiktok-api-metrics-reference.md`.
+  Deferred: `clicks_all`, `interactive_addon_destination_clicks`, `live_views`, `live_product_clicks`
+  — exact TikTok API field names unverified, pending validation against a live account.
+- **TikTok onsite/shop insights — read layer surfaces the synced page-event / video metrics.**
+  `backend/app/services/insights.py` pivots four new columns out of `metric_action_stats`:
+  `page_view_onsite` (`page_events`/`page_view`, count), `web_add_to_cart_value`
+  (`page_event_values`/`add_to_cart`), `web_checkout_value` (`page_event_values`/`checkout`), and
+  `avg_watch_time_per_user` (`average_video_play_per_user`, AVG — averaged not summed, P-4). Two
+  computed ratios derived after aggregation (never stored, P-7): `roas_shop`
+  (`web_purchase_value` ÷ spend) and `cost_per_web_checkout` (spend ÷ `web_checkout`). The six new
+  fields are exposed on `MetricsSummary`, `TimeSeriesPoint`, and `TableMetrics` in
+  `backend/app/schemas/insights.py`. Frontend registry + `insights.ts` and read-layer tests pending
+  (hand off to frontend + testing).
+- **TikTok onsite/shop metrics wired into the frontend.** `METRIC_REGISTRY`
+  (`frontend/src/lib/metrics.ts`) gains 6 TikTok rows (`page_view_onsite`, `web_add_to_cart_value`,
+  `web_checkout_value`, `avg_watch_time_per_user`, `roas_shop`, `cost_per_web_checkout`) and relabels
+  the existing web-event rows to "(Shop)" naming. Overview cards are now platform-aware
+  (`frontend/src/components/views/overview-view.tsx`): `OVERVIEW_CARDS` is keyed by platform then
+  account type with a `getOverviewCards(platform, accountType)` resolver that falls back to Meta —
+  TikTok renders two cards (Cost + ROAS (Shop)); Meta standard/cpas layouts unchanged. The TikTok
+  funnel (`frontend/src/lib/constants.ts`) switches to the onsite/shop path (page views → ATC →
+  checkout init → purchase). `CardSpec` gains an optional per-card `labels` override map
+  (`buildSubMetrics` uses `labels?.[k] ?? metricLabel(k)`); the TikTok Cost + ROAS (Shop) cards use it
+  to match the reference dashboard's exact wording (e.g. "Clicks (destination)", "(Shop)" conversions)
+  without changing the shared global registry labels. `CardSpec` also gains an opt-in `fillAbsent`
+  flag — an **intentional per-card deviation from P-2** used only by the two TikTok cards — so they
+  render their full metric grid with `0` placeholders (`IDR 0`/`0`/`0%`/`0.00x`) instead of collapsing
+  to a "No data" state when values are absent; Meta/CPAS cards keep hiding absent metrics. The funnel
+  (`frontend/src/components/views/funnel-view.tsx`) now renders every configured step as a labeled
+  zero-height bar when values are absent (divide-by-zero guarded → `—`) instead of a "No funnel data"
+  message — a fallback message shows only when no steps are defined at all. Docs: `docs/frontend-spec.md`.
 - **Per-member account access (frontend) — owner assignment UI + member empty states.** Settings →
   Members gains an owner-only **Manage access** action per member row
   (`frontend/src/components/settings/manage-access-dialog.tsx`): a modal listing all org accounts

@@ -21,18 +21,23 @@ SCALAR_METRICS = [
 ACTION_METRICS = [
     "video_play_actions", "video_watched_2s", "video_watched_6s",
     "video_views_p25", "video_views_p50", "video_views_p75", "video_views_p100",
-    "average_video_play",
+    "average_video_play", "average_video_play_per_user",
     "conversion", "result",
     "likes", "shares", "comments", "follows", "profile_visits",
+    "engagements",
 ]
 
 # Website/app event metrics are only valid for advertisers with a Pixel / app SDK
 # configured — TikTok rejects the WHOLE request with "invalid metric fields" otherwise.
 # Requested with a graceful fallback (see sync loop) so they never break core metrics.
 EVENT_METRICS = [
-    "page_event_purchase", "page_event_purchase_value", "page_event_add_to_cart",
-    "page_event_checkout",
+    "onsite_shopping", "total_onsite_shopping_value", "onsite_on_web_cart",
+    "onsite_initiate_checkout_count",
+    "ix_page_view_count", "total_onsite_on_web_cart_value",
+    "total_onsite_initiate_checkout_count_value",
     "app_event_install",
+    "ix_product_click_count",
+    "live_effective_views", "live_product_clicks",
 ]
 
 TIKTOK_ACTION_MAP = {
@@ -44,16 +49,24 @@ TIKTOK_ACTION_MAP = {
     "video_views_p75":      ("video_p75_watched_actions",        "video_view"),
     "video_views_p100":     ("video_p100_watched_actions",       "video_view"),
     "average_video_play":   ("average_video_play",               "video_view"),
+    "average_video_play_per_user": ("average_video_play_per_user", "video_view"),
     "likes":                ("actions",                          "like"),
     "shares":               ("actions",                          "share"),
     "comments":             ("actions",                          "comment"),
     "follows":              ("actions",                          "follow"),
     "profile_visits":       ("actions",                          "profile_visit"),
+    "engagements":          ("engagements",                      "engagement"),
     "result":               ("results",                          "result"),
-    "page_event_purchase":       ("page_events",                 "purchase"),
-    "page_event_purchase_value": ("page_event_values",           "purchase"),
-    "page_event_add_to_cart":    ("page_events",                 "add_to_cart"),
-    "page_event_checkout":       ("page_events",                 "checkout"),
+    "onsite_shopping":                            ("page_events",       "purchase"),
+    "total_onsite_shopping_value":                ("page_event_values", "purchase"),
+    "onsite_on_web_cart":                         ("page_events",       "add_to_cart"),
+    "onsite_initiate_checkout_count":             ("page_events",       "checkout"),
+    "ix_page_view_count":                         ("page_events",       "page_view"),
+    "total_onsite_on_web_cart_value":             ("page_event_values", "add_to_cart"),
+    "total_onsite_initiate_checkout_count_value": ("page_event_values", "checkout"),
+    "ix_product_click_count":                     ("ix_product_click_count", "product_click"),
+    "live_effective_views":                       ("live_effective_views",   "live_view"),
+    "live_product_clicks":                        ("live_product_clicks",    "product_click"),
     "app_event_install":         ("app_events",                  "install"),
 }
 

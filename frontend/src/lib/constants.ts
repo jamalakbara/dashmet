@@ -129,14 +129,12 @@ export interface FunnelStep {
  * `FUNNEL_STEPS.meta` directly. tiktok / google_ads are platform-only.
  */
 export const FUNNEL_STEPS: Record<string, FunnelStep[]> = {
+  // TikTok onsite/shop path: page views → ATC → checkout init → purchase.
   tiktok: [
-    { key: "impressions",      label: "Impressions" },
-    { key: "clicks",           label: "Clicks" },
-    { key: "video_views",      label: "Video Views" },
-    { key: "web_add_to_cart",  label: "Web Add to Cart" },
-    { key: "web_checkout",     label: "Web Checkout" },
-    { key: "web_purchases",    label: "Web Purchases" },
-    { key: "conversions",      label: "Conversions" },
+    { key: "page_view_onsite", label: "Page Views (Onsite)" },
+    { key: "web_add_to_cart",  label: "Add to Cart (Shop)" },
+    { key: "web_checkout",     label: "Checkouts Init. (Shop)" },
+    { key: "web_purchases",    label: "Purchases (Shop)" },
   ],
   // Google has no ecommerce-pixel funnel — show the search funnel.
   google_ads: [

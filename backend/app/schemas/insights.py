@@ -72,6 +72,13 @@ class MetricsSummary(BaseModel):
     cost_per_lead: Optional[float] = None
     cost_per_web_purchase: Optional[float] = None
     cost_per_web_add_to_cart: Optional[float] = None
+    # ── TikTok onsite/shop events + values + computed ratios ──
+    page_view_onsite: Optional[int] = None
+    web_add_to_cart_value: Optional[float] = None
+    web_checkout_value: Optional[float] = None
+    avg_watch_time_per_user: Optional[float] = None
+    roas_shop: Optional[float] = None
+    cost_per_web_checkout: Optional[float] = None
     # ── CPAS "Shared Item" (catalog-segment) events + cost-per-step + ROAS ──
     purchase_shared: Optional[int] = None
     add_to_cart_shared: Optional[int] = None
@@ -82,6 +89,11 @@ class MetricsSummary(BaseModel):
     cost_per_add_to_cart_shared: Optional[float] = None
     cost_per_content_view_shared: Optional[float] = None
     roas_shared: Optional[float] = None
+    # ── TikTok engagement / interactive / LIVE counts ──
+    total_engagement: Optional[int] = None
+    product_clicks_ix: Optional[int] = None
+    live_views_10s: Optional[int] = None
+    live_product_clicks: Optional[int] = None
 
 
 class VsPrevious(BaseModel):
@@ -207,6 +219,13 @@ class TimeSeriesPoint(BaseModel):
     cost_per_lead: Optional[float] = None
     cost_per_web_purchase: Optional[float] = None
     cost_per_web_add_to_cart: Optional[float] = None
+    # ── TikTok onsite/shop events + values + computed ratios ──
+    page_view_onsite: Optional[int] = None
+    web_add_to_cart_value: Optional[float] = None
+    web_checkout_value: Optional[float] = None
+    avg_watch_time_per_user: Optional[float] = None
+    roas_shop: Optional[float] = None
+    cost_per_web_checkout: Optional[float] = None
     # ── CPAS "Shared Item" (catalog-segment) events + cost-per-step + ROAS ──
     purchase_shared: Optional[int] = None
     add_to_cart_shared: Optional[int] = None
@@ -217,6 +236,11 @@ class TimeSeriesPoint(BaseModel):
     cost_per_add_to_cart_shared: Optional[float] = None
     cost_per_content_view_shared: Optional[float] = None
     roas_shared: Optional[float] = None
+    # ── TikTok engagement / interactive / LIVE counts ──
+    total_engagement: Optional[int] = None
+    product_clicks_ix: Optional[int] = None
+    live_views_10s: Optional[int] = None
+    live_product_clicks: Optional[int] = None
 
 
 class TimeSeriesEntity(BaseModel):
@@ -302,6 +326,13 @@ class TableMetrics(BaseModel):
     cost_per_lead: Optional[float] = None
     cost_per_web_purchase: Optional[float] = None
     cost_per_web_add_to_cart: Optional[float] = None
+    # ── TikTok onsite/shop events + values + computed ratios ──
+    page_view_onsite: Optional[int] = None
+    web_add_to_cart_value: Optional[float] = None
+    web_checkout_value: Optional[float] = None
+    avg_watch_time_per_user: Optional[float] = None
+    roas_shop: Optional[float] = None
+    cost_per_web_checkout: Optional[float] = None
     # ── CPAS "Shared Item" (catalog-segment) events + cost-per-step + ROAS ──
     purchase_shared: Optional[int] = None
     add_to_cart_shared: Optional[int] = None
@@ -312,6 +343,11 @@ class TableMetrics(BaseModel):
     cost_per_add_to_cart_shared: Optional[float] = None
     cost_per_content_view_shared: Optional[float] = None
     roas_shared: Optional[float] = None
+    # ── TikTok engagement / interactive / LIVE counts ──
+    total_engagement: Optional[int] = None
+    product_clicks_ix: Optional[int] = None
+    live_views_10s: Optional[int] = None
+    live_product_clicks: Optional[int] = None
 
 
 class TableRow(BaseModel):

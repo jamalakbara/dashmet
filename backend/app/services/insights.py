@@ -134,6 +134,10 @@ _ACTION_PIVOT_COLS = """
     SUM(value) FILTER (WHERE field_name='page_event_values' AND action_type='purchase')  AS web_purchase_value,
     SUM(value) FILTER (WHERE field_name='page_events' AND action_type='add_to_cart')     AS web_add_to_cart,
     SUM(value) FILTER (WHERE field_name='page_events' AND action_type='checkout')        AS web_checkout,
+    SUM(value) FILTER (WHERE field_name='page_events' AND action_type='page_view')            AS page_view_onsite,
+    SUM(value) FILTER (WHERE field_name='page_event_values' AND action_type='add_to_cart')    AS web_add_to_cart_value,
+    SUM(value) FILTER (WHERE field_name='page_event_values' AND action_type='checkout')       AS web_checkout_value,
+    AVG(value) FILTER (WHERE field_name='average_video_play_per_user')                         AS avg_watch_time_per_user,
     SUM(value) FILTER (WHERE field_name='catalog_segment_actions' AND action_type='purchase')      AS purchase_shared,
     SUM(value) FILTER (WHERE field_name='catalog_segment_actions' AND action_type='add_to_cart')   AS add_to_cart_shared,
     SUM(value) FILTER (WHERE field_name='catalog_segment_actions' AND action_type='view_content')   AS content_view_shared,
@@ -153,7 +157,11 @@ _ACTION_PIVOT_COLS = """
     SUM(value) FILTER (WHERE field_name='video_watched_2s')                              AS video_2s_views,
     SUM(value) FILTER (WHERE field_name='video_watched_6s')                              AS video_6s_views,
     AVG(value) FILTER (WHERE field_name='video_avg_time_watched_actions')                AS video_avg_time,
-    AVG(value) FILTER (WHERE field_name='average_video_play')                            AS avg_watch_time
+    AVG(value) FILTER (WHERE field_name='average_video_play')                            AS avg_watch_time,
+    SUM(value) FILTER (WHERE field_name='engagements')            AS total_engagement,
+    SUM(value) FILTER (WHERE field_name='ix_product_click_count') AS product_clicks_ix,
+    SUM(value) FILTER (WHERE field_name='live_effective_views')   AS live_views_10s,
+    SUM(value) FILTER (WHERE field_name='live_product_clicks')    AS live_product_clicks
 """.strip()
 
 _ACTION_WHERE = (
@@ -198,10 +206,13 @@ _ACTION_INT_KEYS = (
     "video_thruplays", "video_2s", "video_2s_views", "video_6s_views",
     "post_reactions", "post_saves",
     "purchase_shared", "add_to_cart_shared", "content_view_shared",
+    "page_view_onsite",
+    "total_engagement", "product_clicks_ix", "live_views_10s", "live_product_clicks",
 )
 _ACTION_FLOAT_KEYS = (
     "web_purchase_value", "video_avg_time", "avg_watch_time", "add_to_cart_value",
     "purchase_value_shared", "add_to_cart_value_shared",
+    "web_add_to_cart_value", "web_checkout_value", "avg_watch_time_per_user",
 )
 
 
@@ -262,6 +273,13 @@ def _finalize_metrics(m: dict) -> dict:
     m["cost_per_add_to_cart_shared"] = round(spend / acs, 4) if spend and acs else None
     m["cost_per_content_view_shared"] = round(spend / cvs, 4) if spend and cvs else None
     m["roas_shared"] = round(pvs / spend, 4) if spend and pvs else None
+
+    # TikTok onsite/shop computed ratios — spend already bound above; computed
+    # after aggregation, never stored (same rule as ROAS/CPA, P-7).
+    wpv = m.get("web_purchase_value")
+    m["roas_shop"] = round(wpv / spend, 4) if spend and wpv else None
+    web_checkout = m.get("web_checkout")
+    m["cost_per_web_checkout"] = round(spend / web_checkout, 4) if spend and web_checkout else None
     return m
 
 

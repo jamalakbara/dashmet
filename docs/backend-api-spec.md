@@ -1589,6 +1589,28 @@ Standard metric keys used in `metrics` objects across all endpoints.
 
 The four `*_shared` cost-per / ROAS ratios are derived after aggregation (P-7), never stored — same rule as `roas`/`cpa`/`avg_basket_price`.
 
+**TikTok onsite / shop keys.** Sourced from TikTok page-event and video metrics (see `docs/tiktok-api-metrics-reference.md`): onsite page-event counts/values land in `metric_action_stats` under `field_name = "page_events"` / `"page_event_values"`, and the watch-time average under `field_name = "average_video_play*"`. TikTok-relevant; `null`/`0` for platforms that don't emit these.
+
+| Key | Description |
+|---|---|
+| `page_view_onsite` | TikTok onsite page views (`page_events` / `page_view`, count) |
+| `web_add_to_cart_value` | TikTok Shop add-to-cart value (`page_event_values` / `add_to_cart`) |
+| `web_checkout_value` | TikTok Shop checkout-initiation value (`page_event_values` / `checkout`) |
+| `avg_watch_time_per_user` | Average watch time per person — an **average** (`average_video_play_per_user`), never summed across rows (P-4) |
+| `roas_shop` | Computed ratio `web_purchase_value ÷ spend`, computed after aggregation, never stored; `null` when either is 0/absent |
+| `cost_per_web_checkout` | Computed ratio `spend ÷ web_checkout`, computed after aggregation, never stored; `null` when either is 0/absent |
+
+`roas_shop` and `cost_per_web_checkout` are derived after aggregation (P-7), never stored — same rule as `roas`/`cpa`/the `*_shared` ratios.
+
+**TikTok engagement / interactive / LIVE counts.** Sourced from TikTok engagement and feature-gated interactive-addon / LIVE metrics (see `docs/tiktok-api-metrics-reference.md` §5, §12, §16), stored in `metric_action_stats` under their verbatim `field_name`. `total_engagement` comes from the standard aggregate `engagements` field (always requested); the interactive/LIVE keys are **feature-gated** — the worker drops them on TikTok's "invalid metric fields" fallback for accounts without those features, so they are `null`/`0` there and for non-TikTok platforms.
+
+| Key | Description |
+|---|---|
+| `total_engagement` | TikTok total paid engagement / all interactions (`engagements`, count) |
+| `product_clicks_ix` | Product Card Clicks — Interactive add-on; feature-gated (`ix_product_click_count`, count) |
+| `live_views_10s` | 10-second effective LIVE views; feature-gated (`live_effective_views`, count) |
+| `live_product_clicks` | LIVE Product Clicks; feature-gated (`live_product_clicks`, count) |
+
 ---
 
 ## 8. Enum Reference

@@ -83,6 +83,10 @@ export const METRIC_REGISTRY: MetricDef[] = [
   { key: "follows",         label: "Follows",        type: "number",  align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
   { key: "profile_visits",  label: "Profile Visits", type: "number",  align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
   { key: "engagement_rate", label: "Engagement Rate",type: "percent", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true, showInTable:true, tableDefaultVisible:true  },
+  { key: "total_engagement",   label: "Total Engagement",     type: "number", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "product_clicks_ix",  label: "Product Clicks (IX)",  type: "number", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "live_views_10s",     label: "10-sec LIVE Views",    type: "number", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "live_product_clicks",label: "LIVE Product Clicks",  type: "number", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
 
   // ── TikTok conversion & results ───────────────────────────────────────
   { key: "result",          label: "Results",         type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
@@ -94,9 +98,9 @@ export const METRIC_REGISTRY: MetricDef[] = [
   { key: "avg_watch_time",  label: "Avg Watch Time", type: "number", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
 
   // ── TikTok website / app events ───────────────────────────────────────
-  { key: "web_purchases",      label: "Web Purchases",  type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
-  { key: "web_purchase_value", label: "Web Purch. Val", type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
-  { key: "web_add_to_cart",    label: "Web Add to Cart",type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "web_purchases",      label: "Purchases (Shop)",    type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "web_purchase_value", label: "Gross Revenue (Shop)",type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "web_add_to_cart",    label: "Add to Cart (Shop)",  type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
   { key: "app_installs",       label: "App Installs",   type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
   { key: "install_cost",       label: "Install Cost",   type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
 
@@ -115,9 +119,17 @@ export const METRIC_REGISTRY: MetricDef[] = [
   { key: "cost_per_lead",               label: "Cost/Lead",         type: "currency", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
 
   // ── TikTok web funnel events ──────────────────────────────────────────
-  { key: "web_checkout",          label: "Web Checkouts",     type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
-  { key: "cost_per_web_purchase", label: "Cost/Web Purchase", type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
-  { key: "cost_per_web_add_to_cart", label: "Cost/Web ATC",   type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "web_checkout",          label: "Checkouts Init. (Shop)", type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "cost_per_web_purchase", label: "Cost/Purchase (Shop)",   type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "cost_per_web_add_to_cart", label: "Cost/ATC (Shop)",     type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+
+  // ── TikTok onsite / shop events ───────────────────────────────────────
+  { key: "page_view_onsite",        label: "Page Views (Onsite)",   type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "web_add_to_cart_value",   label: "ATC Value (Shop)",      type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "web_checkout_value",      label: "Checkout Value (Shop)", type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "avg_watch_time_per_user", label: "Avg Watch/User",        type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "roas_shop",               label: "ROAS (Shop)",           type: "roas",     align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true, showInTable:true, tableDefaultVisible:true  },
+  { key: "cost_per_web_checkout",   label: "Cost/Checkout (Shop)",  type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
 ];
 
 /** Resolve a metric's display label / format type by key (single source of truth). */

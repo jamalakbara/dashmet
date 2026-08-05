@@ -29,6 +29,7 @@ const COST_KEY: Record<string, string> = {
   purchase_shared: "cost_per_purchase_shared",
   // TikTok
   web_add_to_cart: "cost_per_web_add_to_cart",
+  web_checkout: "cost_per_web_checkout",
   web_purchases: "cost_per_web_purchase",
   conversions: "cpa",
 };
@@ -62,10 +63,11 @@ export function FunnelView() {
   const previous: Summary = res?.data?.data?.previous ?? {};
   const allSteps = getFunnelSteps(platform, accountType);
 
-  // Keep only steps that actually have data (so no-Pixel accounts collapse cleanly).
-  const steps = allSteps
-    .map((s) => ({ ...s, value: Number(summary[s.key] ?? 0) }))
-    .filter((s) => s.value > 0);
+  // Render EVERY configured step, even when its value is absent/zero — a step
+  // with no data becomes a labeled zero-height bar (0 value), matching the
+  // reference dashboard's zero-state funnel instead of an empty message. The
+  // only genuine empty state is a platform with no step definitions at all.
+  const steps = allSteps.map((s) => ({ ...s, value: Number(summary[s.key] ?? 0) }));
 
   const topValue = steps.length ? steps[0].value : 0;
 
@@ -83,8 +85,10 @@ export function FunnelView() {
               ))}
             </div>
           ) : steps.length === 0 ? (
+            // Only reached when the platform has no funnel step definitions at
+            // all — a zero-valued but configured funnel still renders its bars.
             <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-              No funnel data for selected period
+              No funnel steps defined for this platform
             </div>
           ) : (
             <div className="space-y-1">

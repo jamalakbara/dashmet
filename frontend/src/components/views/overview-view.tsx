@@ -56,15 +56,96 @@ interface CardSpec {
   span?: 1 | 2;
   /** Inner sub-metric grid column count (default 2). `4` lays 8 metrics as 2×4. */
   cols?: 2 | 4;
+  /**
+   * Per-card, per-metric-key label overrides. Shown instead of the global
+   * registry label for this card only (`labels[k] ?? metricLabel(k)`). Used so
+   * TikTok cards match the reference dashboard's exact wording without mutating
+   * the shared registry labels (keys like clicks/cpc/ctr are shared with Meta).
+   */
+  labels?: Record<string, string>;
+  /**
+   * Opt-in deviation from the usual "hide absent metrics" behavior (P-2). When
+   * true, `buildSubMetrics` emits EVERY key in `keys` (minus the headline) even
+   * when its summary value is absent, filling absent values with `0` (formatted
+   * per metric type — "IDR 0", "0", "0%", "0.00x"). Used only by the TikTok
+   * cards to match the reference dashboard's full-grid completeness. Meta/CPAS
+   * cards leave this unset and keep presence-filtering absent metrics.
+   */
+  fillAbsent?: boolean;
 }
 
+/** TikTok's two overview cards, shared across standard/cpas. */
+const TIKTOK_CARDS: CardSpec[] = [
+  {
+    title: "Cost",
+    icon: Wallet,
+    accent: "bg-orange-500",
+    headlineKey: "spend",
+    fillAbsent: true,
+    keys: [
+      "impressions", "reach", "frequency", "clicks", "cpc", "cpm", "cpp", "ctr",
+      "video_views", "avg_watch_time", "avg_watch_time_per_user",
+      "total_engagement",
+      "follows", "profile_visits",
+    ],
+    // Reference-dashboard wording. impressions/reach/frequency/cpm keep their
+    // generic registry labels (shared with Meta/Google — don't override those).
+    labels: {
+      clicks: "Clicks (destination)",
+      cpc: "CPC (destination)",
+      cpp: "Cost per 1000 People Reached",
+      ctr: "CTR (destination)",
+      video_views: "Video views",
+      avg_watch_time: "Avg. Watch Time per Video View",
+      avg_watch_time_per_user: "Avg. Watch Time per User",
+      total_engagement: "Total Engagement / Clicks (all)",
+      follows: "Paid follows",
+      profile_visits: "Paid profile visits",
+    },
+  },
+  {
+    title: "ROAS (Shop)",
+    icon: PieChart,
+    accent: "bg-emerald-500",
+    headlineKey: "roas_shop",
+    fillAbsent: true,
+    keys: [
+      "page_view_onsite", "web_add_to_cart", "web_add_to_cart_value", "cost_per_web_add_to_cart",
+      "web_checkout", "cost_per_web_checkout", "web_checkout_value",
+      "web_purchases", "web_purchase_value", "cost_per_web_purchase",
+      "product_clicks_ix", "live_views_10s", "live_product_clicks",
+    ],
+    // Reference-dashboard wording (shop/onsite conversions).
+    labels: {
+      page_view_onsite: "Page Views (Onsite)",
+      web_add_to_cart: "Add to cart (Shop)",
+      web_add_to_cart_value: "Add to cart value (Shop)",
+      cost_per_web_add_to_cart: "Cost per Add to cart (Shop)",
+      web_checkout: "Checkouts initiated (Shop)",
+      cost_per_web_checkout: "Cost per Checkout Initiated (Shop)",
+      web_checkout_value: "Checkout initiation value (Shop)",
+      web_purchases: "Purchases (Shop)",
+      web_purchase_value: "Gross revenue (Shop)",
+      cost_per_web_purchase: "Cost per purchase (Shop)",
+      product_clicks_ix: "Product Clicks (Instant Experience)",
+      live_views_10s: "10-second LIVE views",
+      live_product_clicks: "LIVE Product Clicks",
+    },
+  },
+];
+
 /**
- * Account-type-scoped card definitions. STRICTLY separated: a standard account
- * renders zero `*_shared` metrics, a cpas account renders none of the standard
- * ROAS / Post & Media metrics. Driven off `accountType` from the selected
+ * Platform- and account-type-scoped card definitions. Keyed first by platform,
+ * then by account type. STRICTLY separated: a standard Meta account renders zero
+ * `*_shared` metrics, a cpas account renders none of the standard ROAS / Post &
+ * Media metrics. Driven off `platform` + `accountType` from the selected
  * account — never mixed. Keys absent from the summary are dropped silently.
+ *
+ * Platforms without a bespoke design (e.g. google_ads) fall back to `meta` via
+ * `getOverviewCards`, so adding a platform never regresses an existing one.
  */
-const OVERVIEW_CARDS: Record<AccountType, CardSpec[]> = {
+const OVERVIEW_CARDS: Record<string, Record<AccountType, CardSpec[]>> = {
+  meta: {
   standard: [
     {
       title: "Spend",
@@ -125,7 +206,27 @@ const OVERVIEW_CARDS: Record<AccountType, CardSpec[]> = {
       ],
     },
   ],
+  },
+  // TikTok has no Post & Media / full-width card — two 2-up cards: delivery
+  // Cost and onsite/shop ROAS. Standard and cpas share the same layout.
+  tiktok: {
+    standard: TIKTOK_CARDS,
+    cpas: TIKTOK_CARDS,
+  },
 };
+
+/**
+ * Resolve the overview card set for a platform + account type. Platforms without
+ * a bespoke design fall back to Meta's cards (no regression), and a null/unknown
+ * account type falls back to `standard`. Never returns undefined.
+ */
+function getOverviewCards(
+  platform: string | null | undefined,
+  accountType: AccountType | null,
+): CardSpec[] {
+  const byType = OVERVIEW_CARDS[platform ?? "meta"] ?? OVERVIEW_CARDS.meta;
+  return byType[accountType ?? "standard"];
+}
 
 function EmptyState({ message }: { message: string }) {
   return (
@@ -144,22 +245,34 @@ function SectionHeading({ title, subtitle }: { title: string; subtitle?: string 
   );
 }
 
-/** Build the sub-metric rows for a card from the keys present in the summary. */
+/**
+ * Build the sub-metric rows for a card. Default behavior (P-2): only keys
+ * present in the summary are emitted. When `fillAbsent` is true, EVERY key
+ * (minus the headline `skip`) is emitted — absent values fall back to `0`,
+ * formatted per metric type — so the card renders its full grid (TikTok
+ * reference completeness) instead of collapsing to a "No data" state.
+ */
 function buildSubMetrics(
   keys: string[],
   summary: OverviewMetrics | undefined,
   currency: string,
   skip?: string,
+  labels?: Record<string, string>,
+  fillAbsent?: boolean,
 ): SubMetric[] {
-  if (!summary) return [];
+  if (!summary && !fillAbsent) return [];
   return keys
-    .filter((k) => k !== skip && summary[k] != null)
-    .map((k) => ({
-      key: k,
-      label: metricLabel(k),
-      value: formatMetric(summary[k], metricType(k), currency),
-      raw: summary[k],
-    }));
+    .filter((k) => k !== skip && (fillAbsent || summary?.[k] != null))
+    .map((k) => {
+      const present = summary?.[k] != null;
+      const raw = present ? summary![k] : 0;
+      return {
+        key: k,
+        label: labels?.[k] ?? metricLabel(k),
+        value: formatMetric(raw, metricType(k), currency),
+        raw,
+      };
+    });
 }
 
 /**
@@ -369,11 +482,12 @@ export function OverviewView() {
     );
   }
 
-  // Account-type-scoped card set. Standard → 3 cards (Spend / ROAS / Post &
-  // Media); cpas → 2 cards (Spend / ROAS Shared Item). Falls back to standard
-  // when the account type isn't yet resolved. Strict separation is guaranteed
-  // by keying the config on accountType — no card ever mixes the two sets.
-  const cards = OVERVIEW_CARDS[accountType ?? "standard"];
+  // Platform- and account-type-scoped card set. Meta standard → 3 cards (Spend /
+  // ROAS / Post & Media); Meta cpas → 2 cards (Spend / ROAS Shared Item); TikTok
+  // → 2 cards (Cost / ROAS (Shop)). Platforms without a design fall back to Meta,
+  // and an unresolved account type falls back to standard. Strict separation is
+  // guaranteed by keying the config on platform + accountType.
+  const cards = getOverviewCards(platform, accountType);
 
   return (
     <motion.div {...staggerGrid} className="space-y-6">
@@ -391,6 +505,8 @@ export function OverviewView() {
             summary,
             currency,
             card.headlineKey,
+            card.labels,
+            card.fillAbsent,
           );
           const columns = card.cols ?? 2;
           return (
