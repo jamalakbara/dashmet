@@ -341,6 +341,30 @@ in §9:
 | `onsite_shopping` | Purchases (Onsite / Shop) | (`page_events`, `purchase`) |
 | `total_onsite_shopping_value` | Purchase Value (Onsite / Shop) | (`page_event_values`, `purchase`) |
 
+### GMV Max view — KPI → metric mapping
+
+The frontend **TikTok GMV Max** view (`/tiktok/gmv-max`, ADS lens of the reference
+dashboard) is scoped to campaigns whose raw `objective_type` is `PRODUCT_SALES`
+(the GMV Max objective; stored as `campaigns.platform_objective` — the normalized
+`objective` collapses it to `sales`, so the raw value is what identifies GMV Max).
+Its headline KPIs map to metrics dashmet already reads:
+
+| GMV Max KPI | dashmet metric key | Source |
+|---|---|---|
+| Cost | `spend` | `metrics_daily.spend` |
+| Gross Revenue | `web_purchase_value` | (`page_event_values`, `purchase`) |
+| Orders | `web_purchases` | (`page_events`, `purchase`) |
+| Cost per Order | `cost_per_web_purchase` | `spend ÷ web_purchases` (derived after aggregation) |
+| ROAS (Shop) | `roas_shop` | `web_purchase_value ÷ spend` (derived after aggregation) |
+
+The reference mockup's **Net cost** and a separate **ROI** are intentionally
+**not** surfaced: TikTok's ads reporting exposes no refund/adjustment feed to back
+a "net" figure, and inventing one would violate P-4 (refuse rather than answer
+wrong). ROAS (Shop) stands in as the return metric. The mockup's **TikTok Shop**
+and **Ads × Shop** modes need the TikTok Shop **Open API** (orders, products,
+LIVE, affiliate, finance, channel attribution), which dashmet does not integrate —
+they render locked in the UI, never as fabricated data.
+
 The sync worker's `EVENT_METRICS` graceful-fallback tier also requests these
 feature-gated interactive-addon (§16) and LIVE (§12) fields. They keep
 `field_name` verbatim and are dropped on the same "invalid metric fields"

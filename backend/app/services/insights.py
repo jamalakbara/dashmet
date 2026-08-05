@@ -425,14 +425,19 @@ def _resolve_campaign_ids(
     account_id: str,
     status: Optional[str] = None,
     search: Optional[str] = None,
+    platform_objective: Optional[str] = None,
 ) -> Optional[list[str]]:
     """Resolve the Overview-page campaign filter to a concrete id list.
 
     Returns None when no filter is active (SQL predicate becomes a no-op). When a
     filter is active but matches nothing, returns [] so downstream queries yield
     zero rows rather than silently ignoring the filter.
+
+    `platform_objective` scopes to a raw platform objective (e.g. TikTok
+    "PRODUCT_SALES" for the GMV Max view) so the Overview KPIs match the
+    GMV-Max-filtered table exactly (P-6 report/dashboard parity by construction).
     """
-    if not status and not search:
+    if not status and not search and not platform_objective:
         return None
     sql = "SELECT id::text FROM campaigns WHERE account_id = :account_id"
     p: dict = {"account_id": uuid.UUID(account_id)}
@@ -442,6 +447,9 @@ def _resolve_campaign_ids(
     if search:
         sql += " AND name ILIKE '%' || :search || '%'"
         p["search"] = search
+    if platform_objective:
+        sql += " AND platform_objective = :platform_objective"
+        p["platform_objective"] = platform_objective
     return [r[0] for r in db.execute(text(sql), p).all()]
 
 
@@ -454,9 +462,10 @@ def get_overview(
     date_preset: Optional[str] = None,
     status: Optional[str] = None,
     search: Optional[str] = None,
+    platform_objective: Optional[str] = None,
 ) -> dict:
     assert_account_belongs_to_org(db, account_id, org_id)
-    campaign_ids = _resolve_campaign_ids(db, account_id, status, search)
+    campaign_ids = _resolve_campaign_ids(db, account_id, status, search, platform_objective)
     params = {
         "account_id": uuid.UUID(account_id),
         "date_start": date_start,
@@ -843,6 +852,7 @@ SELECT
     c.name              AS entity_name,
     c.status            AS entity_status,
     c.effective_status  AS entity_effective_status,
+    c.platform_objective AS entity_platform_objective,
     c.objective         AS entity_objective,
     c.daily_budget      AS entity_daily_budget,
     :platform_id        AS entity_platform,
@@ -851,6 +861,7 @@ FROM entity_metrics e
 JOIN campaigns c ON c.id = e.entity_id
 WHERE (:search IS NULL OR c.name ILIKE '%' || :search || '%')
   AND (:status IS NULL OR c.status = :status)
+  AND (:platform_objective IS NULL OR c.platform_objective = :platform_objective)
 ORDER BY {sort_col} {sort_dir}
 LIMIT :per_page OFFSET :offset
 """
@@ -873,6 +884,12 @@ TABLE_SQL_ADGROUP = TABLE_SQL.replace(
     "JOIN campaigns c ON c.id = e.entity_id",
     "JOIN ad_groups c ON c.id = e.entity_id\nLEFT JOIN campaigns camp ON camp.id = c.campaign_id",
 ).replace(
+    "c.platform_objective AS entity_platform_objective,",
+    "NULL::varchar       AS entity_platform_objective,",
+).replace(
+    "  AND (:platform_objective IS NULL OR c.platform_objective = :platform_objective)",
+    "  AND (:platform_objective IS NULL OR TRUE)",
+).replace(
     "c.objective         AS entity_objective,\n    c.daily_budget      AS entity_daily_budget,",
     "NULL::varchar       AS entity_objective,\n    c.daily_budget      AS entity_daily_budget,",
 ).replace(
@@ -889,6 +906,12 @@ TABLE_SQL_AD = TABLE_SQL.replace(
     "JOIN ads c ON c.id = e.entity_id\n"
     "LEFT JOIN ad_groups ag ON ag.id = c.ad_group_id\n"
     "LEFT JOIN campaigns camp ON camp.id = c.campaign_id",
+).replace(
+    "c.platform_objective AS entity_platform_objective,",
+    "NULL::varchar       AS entity_platform_objective,",
+).replace(
+    "  AND (:platform_objective IS NULL OR c.platform_objective = :platform_objective)",
+    "  AND (:platform_objective IS NULL OR TRUE)",
 ).replace(
     "c.objective         AS entity_objective,\n    c.daily_budget      AS entity_daily_budget,",
     "NULL::varchar       AS entity_objective,\n    NULL::numeric       AS entity_daily_budget,",
@@ -930,6 +953,7 @@ def get_table(
     adgroup_id: Optional[str] = None,
     status: Optional[str] = None,
     search: Optional[str] = None,
+    platform_objective: Optional[str] = None,
     sort_by: str = "spend",
     sort_order: str = "desc",
     page: int = 1,
@@ -967,6 +991,7 @@ def get_table(
             "date_end": date_end,
             "search": search,
             "status": status,
+            "platform_objective": platform_objective,
             "per_page": per_page,
             "offset": calculate_offset(page, per_page),
             "platform_id": platform_id,
@@ -1041,6 +1066,7 @@ def get_table(
             "status": r["entity_status"],
             "effective_status": r["entity_effective_status"],
             "objective": r.get("entity_objective"),
+            "platform_objective": r.get("entity_platform_objective"),
             "daily_budget": _safe_float(r.get("entity_daily_budget")),
             "platform": r.get("entity_platform", "meta"),
             "adgroup_name": r.get("entity_adgroup_name"),

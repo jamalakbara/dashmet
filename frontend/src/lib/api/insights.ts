@@ -11,6 +11,12 @@ export type InsightParams = {
 export type OverviewParams = InsightParams & {
   status?: string;
   search?: string;
+  /**
+   * Scope the overview KPIs to campaigns with this raw platform objective
+   * (e.g. TikTok "PRODUCT_SALES" for the GMV Max view) so the cards match the
+   * GMV-Max-filtered table by construction.
+   */
+  platform_objective?: string;
 };
 
 // PPTX export takes the overview params plus an optional flag to have the deck's
@@ -62,6 +68,11 @@ export type TableParams = InsightParams & {
   level?: string;
   status?: string;
   search?: string;
+  /**
+   * Filter campaigns by raw platform objective (e.g. TikTok "PRODUCT_SALES"
+   * for the GMV Max view). Campaign level only; ignored at ad-group/ad level.
+   */
+  platform_objective?: string;
   sort_by?: string;
   sort_order?: string;
   page?: number;

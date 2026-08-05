@@ -363,6 +363,10 @@ class TableRow(BaseModel):
     period: PeriodInfo
     # Campaign-specific
     objective: Optional[str] = None
+    # Raw platform objective (e.g. TikTok "PRODUCT_SALES") — kept alongside the
+    # normalized `objective` so callers can distinguish GMV Max (PRODUCT_SALES)
+    # from generic sales/conversion campaigns, which both normalize to "sales".
+    platform_objective: Optional[str] = None
     daily_budget: Optional[float] = None
     # Ad-specific
     creative_preview: Optional[Any] = None

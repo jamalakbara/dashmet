@@ -285,7 +285,19 @@ function SortIcon({ col, sortBy, sortOrder }: {
 
 // ─── View ─────────────────────────────────────────────────────────────────────
 
-export function TableView({ preview = false }: { preview?: boolean } = {}) {
+export function TableView({
+  preview = false,
+  platformObjective,
+}: {
+  preview?: boolean;
+  /**
+   * When set, filters campaigns to this raw platform objective (e.g. TikTok
+   * "PRODUCT_SALES" for the GMV Max view) and locks the table to campaign
+   * level (the level tabs hide — objective is a campaign concept). Passed
+   * straight through to the table endpoint's `platform_objective` param.
+   */
+  platformObjective?: string;
+} = {}) {
   const accountId  = useAccountId();
   const dateRange  = useDateRange();
   const platform   = usePlatform() ?? "meta";
@@ -368,6 +380,7 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
     queryKey: queryKeys.table(accountId ?? "", dateRange, level, {
       status:   status !== "all" ? status : undefined,
       search:   search ?? undefined,
+      platform_objective: platformObjective ?? undefined,
       sort_by:  sortBy,
       sort_order: sortOrder,
       page,
@@ -382,6 +395,7 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
         level,
         status:      status !== "all" ? status : undefined,
         search:      search ?? undefined,
+        platform_objective: platformObjective ?? undefined,
         sort_by:     sortBy,
         sort_order:  sortOrder,
         page,
@@ -522,13 +536,16 @@ export function TableView({ preview = false }: { preview?: boolean } = {}) {
 
   return (
     <div className="space-y-4">
-      {/* Level tabs */}
-      <SegmentControl
-        items={LEVEL_TABS}
-        value={level}
-        onValueChange={switchLevel}
-        ariaLabel="Entity level"
-      />
+      {/* Level tabs — hidden in GMV Max mode, which is campaign-scoped (a
+          platform objective is a campaign concept, not an ad-group/ad one). */}
+      {!platformObjective && (
+        <SegmentControl
+          items={LEVEL_TABS}
+          value={level}
+          onValueChange={switchLevel}
+          ariaLabel="Entity level"
+        />
+      )}
 
       {/* Drill-down breadcrumb */}
       {(campaignId || adgroupId) && (

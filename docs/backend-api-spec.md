@@ -815,7 +815,7 @@ The main summary panel — aggregated metrics for an account over a period, with
 
 #### `GET /api/v1/insights/overview`
 
-**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `status`, `search`
+**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `status`, `search`, `platform_objective`
 
 **Campaign filter** (shared with `timeseries` and the Table/Ads tabs — driven by the Control-strip Filter popover):
 
@@ -823,8 +823,9 @@ The main summary panel — aggregated metrics for an account over a period, with
 |---|---|---|---|
 | `status` | string | — | Restrict to campaigns with this status (`active` \| `paused` \| `archived`). Omitted = all. |
 | `search` | string | — | Restrict to campaigns whose name matches (`ILIKE '%search%'`). |
+| `platform_objective` | string | — | Restrict to campaigns with this **raw platform objective** (e.g. TikTok `PRODUCT_SALES`). Used by the TikTok **GMV Max** view so its KPI cards aggregate the same GMV-Max-scoped campaigns as its table (P-6 parity). |
 
-When either is set, the summary, `vs_previous`, and `top_campaigns` aggregate only the matching campaigns' rows. A filter that matches no campaign yields empty/`null` metrics (not a silent all-rows fallback). Resolved once via `_resolve_campaign_ids` → `entity_id = ANY(...)` predicate in `app/services/insights.py`.
+When any is set, the summary, `vs_previous`, and `top_campaigns` aggregate only the matching campaigns' rows. A filter that matches no campaign yields empty/`null` metrics (not a silent all-rows fallback). Resolved once via `_resolve_campaign_ids` → `entity_id = ANY(...)` predicate in `app/services/insights.py`.
 
 **Response `200`**
 ```json
@@ -1105,7 +1106,7 @@ Tabular view of campaigns / ad groups / ads with their performance metrics. Powe
 
 #### `GET /api/v1/insights/table`
 
-**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `level`, `campaign_id`, `adgroup_id`, `status`, `search`, `sort_by`, `sort_order`, `page`, `per_page`
+**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `level`, `campaign_id`, `adgroup_id`, `status`, `search`, `platform_objective`, `sort_by`, `sort_order`, `page`, `per_page`
 
 **Additional params:**
 
@@ -1113,7 +1114,10 @@ Tabular view of campaigns / ad groups / ads with their performance metrics. Powe
 |---|---|---|---|
 | `level` | string | `campaign` | `campaign` \| `adgroup` \| `ad` |
 | `search` | string | — | Filter rows by name (case-insensitive substring) |
+| `platform_objective` | string | — | Filter campaigns by **raw platform objective** (e.g. TikTok `PRODUCT_SALES`). Campaign level only — neutralized at ad-group/ad level (those entities have no objective). Drives the TikTok **GMV Max** view's campaign table. |
 | `compare_previous` | boolean | `false` | When `true`, each row also carries `metrics_previous` (prior-period values, same key set as `metrics`) for period-over-period delta pills |
+
+Each campaign row also carries `platform_objective` — the raw upstream objective (e.g. `PRODUCT_SALES`, `CONVERSIONS`) — alongside the normalized `objective`. Both `PRODUCT_SALES` and `CONVERSIONS` normalize to `"sales"`, so the raw value is what distinguishes GMV Max campaigns.
 
 **Response `200`**
 ```json
@@ -1125,6 +1129,7 @@ Tabular view of campaigns / ad groups / ads with their performance metrics. Powe
       "status":           "active",
       "effective_status": "active",
       "objective":        "sales",
+      "platform_objective": "CONVERSIONS",
       "platform":         "meta",
       "daily_budget":     50.00,
       "metrics": {

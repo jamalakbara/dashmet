@@ -40,6 +40,11 @@ TIKTOK_OBJECTIVE_MAP = {
     "CATALOG_SALES": "sales",
     "AWARENESS": "awareness",
     "SHOP_PURCHASES": "sales",
+    # Product GMV Max / TikTok Shop sales objective — the raw objective_type the
+    # Business API actually returns for shop-sales campaigns. Without this it fell
+    # through to the "awareness" default, mislabeling every shop campaign.
+    "PRODUCT_SALES": "sales",
+    "BRAND_CONSIDERATION": "awareness",
 }
 
 STALE_THRESHOLD = timedelta(minutes=30)

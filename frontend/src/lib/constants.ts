@@ -102,6 +102,10 @@ export const PLATFORM_TABS: Record<string, PlatformTab[]> = {
     { slug: "ads",      label: "Ads" },
   ],
   tiktok: [
+    // GMV Max tab parked pending requirements — the view + route
+    // (/tiktok/gmv-max) still exist, just not surfaced in the bar. Re-add
+    // `{ slug: "gmv-max", label: "GMV Max" }` here (and restore the /tiktok
+    // redirect) to re-enable.
     { slug: "overview",   label: "Overview" },
     { slug: "table",      label: "Table" },
     { slug: "ads",        label: "Ads" },

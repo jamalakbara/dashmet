@@ -5,6 +5,8 @@ export type DateRange =
 export type TableFilters = {
   status?: string;
   search?: string;
+  /** Raw platform objective filter (e.g. TikTok "PRODUCT_SALES", GMV Max view). */
+  platform_objective?: string;
   sort_by?: string;
   sort_order?: string;
   page?: number;

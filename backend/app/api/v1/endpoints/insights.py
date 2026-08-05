@@ -174,13 +174,19 @@ def overview(
     date_end: Optional[date] = Query(None),
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    platform_objective: Optional[str] = Query(
+        None,
+        description="Scope the overview KPIs to campaigns with this raw platform "
+        "objective (e.g. TikTok 'PRODUCT_SALES' for the GMV Max view), so the "
+        "cards match the GMV-Max-filtered table.",
+    ),
 ):
     ds, de, account, preset = _resolve_dates(
         account_id, current_user, db, date_preset, date_start, date_end
     )
     data = insights_svc.get_overview(
         db, account_id, current_user["org_id"], ds, de, date_preset=preset,
-        status=status, search=search,
+        status=status, search=search, platform_objective=platform_objective,
     )
     return DataResponse(data=data)
 
@@ -464,6 +470,11 @@ def table(
     adgroup_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    platform_objective: Optional[str] = Query(
+        None,
+        description="Filter campaigns by raw platform objective (e.g. TikTok "
+        "'PRODUCT_SALES' for the GMV Max view). Campaign level only.",
+    ),
     sort_by: str = Query("spend"),
     sort_order: str = Query("desc"),
     page: int = Query(1, ge=1),
@@ -480,6 +491,7 @@ def table(
         adgroup_id=adgroup_id,
         status=status,
         search=search,
+        platform_objective=platform_objective,
         sort_by=sort_by,
         sort_order=sort_order,
         page=page,
