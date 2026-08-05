@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Globe } from "lucide-react";
-import { BentoTile } from "./bento-tile";
+import { DashCard } from "@/components/shared/dash-card";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { irisColor } from "@/lib/chart-theme";
@@ -91,7 +91,12 @@ export function GeoTile({ className, accountId, dateRange, caption }: GeoTilePro
       : null;
 
   return (
-    <BentoTile label={caption ?? "Geo reach"} icon={Globe} className={className}>
+    <DashCard
+      title={caption ?? "Geo reach"}
+      icon={Globe}
+      accent="bg-sky-500"
+      className={className}
+    >
       <div className="relative flex-1 px-2 pb-2">
         <svg
           viewBox={`0 0 ${W} ${H}`}
@@ -156,6 +161,6 @@ export function GeoTile({ className, accountId, dateRange, caption }: GeoTilePro
           ))}
         </div>
       </div>
-    </BentoTile>
+    </DashCard>
   );
 }

@@ -2,11 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
 import { ChevronDown, ArrowUpRight, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { fadeInUp } from "@/lib/motion";
 import { AnimatedIcon } from "@/components/shared/animated-icon";
+import { DashCard } from "@/components/shared/dash-card";
 import { DeltaPill } from "@/components/metrics/delta-pill";
 
 export interface SubMetric {
@@ -78,42 +77,24 @@ export function MetricGroupCard({
   const shown = expanded ? subMetrics : subMetrics.slice(0, previewCount);
   const showDelta = !!compare && !!previous;
 
-  return (
-    <motion.div
-      variants={fadeInUp}
-      className={cn(
-        "flex flex-col overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 shadow-[var(--shadow-soft)]",
-        className
-      )}
+  const detailLink = detailHref ? (
+    <Link
+      href={detailHref}
+      className="group inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-accent"
     >
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 px-5 pt-5">
-        <div className="flex items-center gap-2.5">
-          <span
-            className={cn(
-              "flex size-8 items-center justify-center rounded-full text-white",
-              accent
-            )}
-          >
-            <Icon className="size-[18px]" />
-          </span>
-          <span className="text-base font-semibold">{title}</span>
-        </div>
-        {detailHref && (
-          <Link
-            href={detailHref}
-            className="group inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-accent"
-          >
-            <AnimatedIcon
-              icon={ArrowUpRight}
-              motionPreset="draw"
-              iconClassName="size-4"
-            />
-            See Detail
-          </Link>
-        )}
-      </div>
+      <AnimatedIcon icon={ArrowUpRight} motionPreset="draw" iconClassName="size-4" />
+      See Detail
+    </Link>
+  ) : undefined;
 
+  return (
+    <DashCard
+      title={title}
+      icon={Icon}
+      accent={accent}
+      action={detailLink}
+      className={className}
+    >
       {/* Headline — omitted entirely for title-only cards so no fake number
           is rendered when a metric family has no single headline. */}
       {headline != null && (
@@ -190,6 +171,6 @@ export function MetricGroupCard({
           />
         </button>
       )}
-    </motion.div>
+    </DashCard>
   );
 }

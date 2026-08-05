@@ -11,9 +11,11 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { motion } from "framer-motion";
+import { Heart } from "lucide-react";
 import { format, parseISO } from "date-fns";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MetricCard, tintByIndex } from "@/components/metrics/metric-card";
+import { DashCard } from "@/components/shared/dash-card";
+import { SectionHeading } from "@/components/shared/section-heading";
+import { MetricGroupCard, type SubMetric } from "@/components/metrics/metric-group-card";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useAccountId } from "@/hooks/use-account";
@@ -53,16 +55,22 @@ function formatXDate(dateStr: string) {
   }
 }
 
-const KPIS: { key: keyof EngagementSummary; label: string; kind: "number" | "percent" }[] = [
-  { key: "likes",             label: "Likes",            kind: "number" },
-  { key: "comments",          label: "Comments",         kind: "number" },
-  { key: "shares",            label: "Shares",           kind: "number" },
-  { key: "follows",           label: "Follows",          kind: "number" },
-  { key: "profile_visits",    label: "Profile Visits",   kind: "number" },
-  { key: "total_engagements", label: "Total Engagements", kind: "number" },
-  { key: "engagement_rate",   label: "Engagement Rate",  kind: "percent" },
-  { key: "impressions",       label: "Impressions",      kind: "number" },
+// Headline (total_engagements) + sub-metrics, in reference order.
+const SUB_KPIS: { key: keyof EngagementSummary; label: string; kind: "number" | "percent" }[] = [
+  { key: "likes",           label: "Likes",           kind: "number" },
+  { key: "comments",        label: "Comments",        kind: "number" },
+  { key: "shares",          label: "Shares",          kind: "number" },
+  { key: "follows",         label: "Follows",         kind: "number" },
+  { key: "profile_visits",  label: "Profile Visits",  kind: "number" },
+  { key: "engagement_rate", label: "Engagement Rate", kind: "percent" },
+  { key: "impressions",     label: "Impressions",     kind: "number" },
 ];
+
+function fmt(value: number | null | undefined, kind: "number" | "percent") {
+  return kind === "percent"
+    ? formatPercent(value ?? undefined)
+    : formatNumber(value ?? undefined);
+}
 
 export default function EngagementPage() {
   const accountId = useAccountId();
@@ -86,42 +94,40 @@ export default function EngagementPage() {
     );
   }
 
+  const subMetrics: SubMetric[] = SUB_KPIS.map(({ key, label, kind }) => ({
+    key,
+    label,
+    value: fmt(summary?.[key], kind),
+    raw: summary?.[key] ?? null,
+  }));
+
   return (
-    <div className="space-y-8">
-      {/* ── Engagement metrics ── */}
+    <motion.div {...staggerGrid} className="space-y-6">
+      {/* Engagement metrics — one grouped card, matching the platform Overview. */}
       <section className="space-y-3">
-        <h2 className="font-display text-base font-semibold leading-tight">
-          Engagement metrics
-        </h2>
-        <motion.div
-          className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6"
-          {...staggerGrid}
-        >
-        {KPIS.map(({ key, label, kind }, i) => (
-          <MetricCard
-            key={key}
-            label={label}
-            value={
-              kind === "percent"
-                ? formatPercent(summary?.[key] ?? undefined)
-                : formatNumber(summary?.[key] ?? undefined)
-            }
-            numericValue={summary?.[key] ?? null}
-            format={(n) => (kind === "percent" ? formatPercent(n) : formatNumber(n))}
-            sparkline={series.map((s) => s.engagements ?? 0)}
-            tint={tintByIndex(i)}
-            loading={isLoading}
-          />
-        ))}
-        </motion.div>
+        <SectionHeading
+          title="Engagement"
+          subtitle="Audience interaction for the selected period."
+        />
+        <MetricGroupCard
+          title="Engagement"
+          icon={Heart}
+          accent="bg-rose-500"
+          columns={4}
+          headline={fmt(summary?.total_engagements, "number")}
+          subMetrics={subMetrics}
+          previewCount={subMetrics.length}
+          loading={isLoading}
+        />
       </section>
 
       {/* Engagement trend */}
-      <Card className="shadow-[var(--shadow-soft)]">
-        <CardHeader className="pb-2">
-          <CardTitle className="font-display text-sm font-semibold">Engagement trend</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <section className="space-y-3">
+        <SectionHeading
+          title="Engagement trend"
+          subtitle="Daily engagements over the selected period."
+        />
+        <DashCard bodyClassName="p-5">
           {isLoading ? (
             <div className="h-60 animate-pulse rounded bg-muted" />
           ) : series.length === 0 ? (
@@ -158,8 +164,8 @@ export default function EngagementPage() {
               </AreaChart>
             </ResponsiveContainer>
           )}
-        </CardContent>
-      </Card>
-    </div>
+        </DashCard>
+      </section>
+    </motion.div>
   );
 }

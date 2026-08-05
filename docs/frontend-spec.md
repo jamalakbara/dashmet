@@ -71,6 +71,7 @@ src/
 │   │   │   └── ads/page.tsx
 │   │   └── tiktok/               # TikTok section — views render as tabs
 │   │       ├── page.tsx          #   bare /tiktok → redirect to overview
+│   │       ├── gmv-max/page.tsx  #   GMV Max (Ads) view — PARKED (route exists, not in tab bar)
 │   │       ├── overview/page.tsx
 │   │       ├── periodic/page.tsx
 │   │       ├── table/page.tsx
@@ -89,7 +90,7 @@ src/
 │   ├── layout/                   # Sidebar, Header, PlatformTabs
 │   ├── views/                    # Per-platform view bodies (Overview/Periodic/Table/Ads)
 │   ├── charts/                   # Recharts wrappers
-│   ├── metrics/                  # MetricCard, MetricTable, BreakdownSection, etc.
+│   ├── metrics/                  # MetricGroupCard, MetricTable, BreakdownSection, etc.
 │   ├── ads/                      # AdCard, CreativePreview, etc.
 │   └── shared/                   # AccountSwitcher, AccountCommandList, DateRangePicker, StatusBadge, etc.
 │
@@ -141,6 +142,7 @@ src/
 | `/reset-password` | Set new password | ❌ | — |
 | `/dashboard` | Combined cross-platform summary | ✅ | any |
 | `/meta`, `/tiktok` | Redirect → `…/overview` | ✅ | any |
+| `/tiktok/gmv-max` | TikTok **GMV Max** (Ads) — **parked** (route lives, not in tab bar) | ✅ | any |
 | `/{platform}/overview` | Platform overview (summary) | ✅ | any |
 | `/{platform}/periodic` | Time series **+ breakdowns** | ✅ | any |
 | `/{platform}/table` | Metrics table | ✅ | any |
@@ -151,6 +153,8 @@ src/
 | `/settings/connections` | Platform connections | ✅ | owner |
 
 The per-platform tab bar is **Overview · Table · Ads** (plus TikTok's Engagement) — `PLATFORM_TABS` in `lib/constants.ts`. Each tab is its own route so deep links stay shareable. **Overview is a composed scroll** (Base Data reference style): grouped metric cards → `PeriodicView` (trends) → `FunnelView` → a **Table preview** (`<TableView preview />`) → an **Ads preview** (`<AdsView preview />`). Periodic and Funnel therefore no longer have their own tabs; their routes (`/periodic`, `/funnel`) still exist for deep-links but aren't surfaced in the bar. Table and Ads keep full tabs — their previews on Overview show the top rows/creatives with a **See All →** link to the full view. **Breakdowns are part of the Periodic view** (`BreakdownSection` at the bottom of `periodic-view.tsx`).
+
+**TikTok GMV Max view** (`components/views/gmv-max-view.tsx`) is **parked** pending better requirements — the component + route (`/tiktok/gmv-max`) exist but are **not surfaced in the tab bar or the `/tiktok` landing** (re-add its `PLATFORM_TABS.tiktok` slug + the redirect to re-enable). It is dashmet's rendition of the reference dashboard's "TikTok Ads — GMV Max" lens — the **only mode backed by real data** (dashmet integrates the TikTok Business/Marketing API, not the TikTok Shop Open API). It composes existing pieces, all scoped to `PRODUCT_SALES` campaigns so KPIs and table show the same numbers by construction (P-6/P-7): a **`TikTokModeSwitch`** (`components/layout/tiktok-mode-switch.tsx` — segmented **TikTok Ads · TikTok Shop 🔒 · Ads × Shop 🔒**; Shop/Combined render **locked** with a tooltip, never fabricated numbers, since their data — orders, products, LIVE, affiliate, finance, channel attribution — isn't integrated, P-1/P-4), **five KPI tiles** (Cost `spend`, Gross Revenue `web_purchase_value`, Orders `web_purchases`, Cost per Order `cost_per_web_purchase`, ROAS `roas_shop`; each with a cost-inverted `DeltaPill`), the shared `PeriodicView` trends, and a `<TableView platformObjective="PRODUCT_SALES" />` (campaign table filtered to GMV Max — its level tabs hide since a platform objective is a campaign concept). KPIs are fetched via `insightsApi.overview({ platform_objective: "PRODUCT_SALES" })`. The mockup's "Net cost" and a separate "ROI" are **omitted** — dashmet has no refund/adjustment feed to back them, and inventing them would violate P-4.
 
 Auth guard is a proxy (`src/proxy.ts`, Next.js 16's renamed middleware) that checks for a valid JWT cookie. It holds a `PUBLIC_PATHS` allowlist (`/login`, `/signup`, `/verify-email`, `/accept-invite`, `/forgot-password`, `/reset-password`); unauthenticated users hitting anything else are redirected to `/login`, and authenticated users hitting a public path are redirected to `/dashboard`. The proxy does **not** gate by role — members can open the `/settings/*` pages, but owner-only controls there are **disabled** (locked, not hidden) via the `useIsOwner()` hook (`src/hooks/use-role.ts`, reads `GET /auth/me` → `org.role`); a member-access banner (`SettingsReadonlyBanner`) sits under the settings nav. The backend still enforces the boundary with a `403` on the underlying owner-only endpoints, so the lock is UX, not the security control.
 
@@ -293,6 +297,18 @@ On page load, auto-calls `POST /auth/verify-email` with the token from the URL.
 ## 6. Dashboard Views
 
 All four dashboard views share the global layout. They all react to changes in `AccountSwitcher` and `DateRangePicker` — no "Apply" button, changes trigger immediate refetch via TanStack Query.
+
+---
+
+### 6.0 Combined Summary (`/dashboard`)
+
+**Purpose:** Cross-platform, multi-account roll-up — the app's landing page. `usePlatform()` is `null` here (no PlatformTabs, no PPTX export).
+
+**Composition** — aligned to the platform Overview's section structure (shared `SectionHeading` lead + the one `DashCard` primitive + one card header), not a bespoke bento canvas. Every card on the page is a `DashCard` with the shared `CardChipHeader` (colored icon chip + bold title) so it reads identically to the platform `MetricGroupCard` — no card falls back to the legacy small muted-label header, and none has hover motion:
+- **Overview** section — a full-width **Combined spend** area chart (`DashCard` + Recharts, `insightsApi.combinedTimeseries`) styled from the shared chart theme (`seriesColor(0)` solid stroke + single-hue `gradientDef` fill, `gridProps`/`axisProps`, 64px Y-axis, padded body) so it matches the platform trend charts — not the old clipped, rainbow-stroke hero. Then a **Combined KPIs** grouped card (`CombinedKpiCard`, built on `DashCard`): a `Wallet` icon chip + `spend` headline, then the remaining cross-platform-safe KPIs (`impressions, clicks, ctr, cpm` — `getCombinableMetrics().filter(showInKpi)`) as a sub-metric grid. Period-over-period delta badges render **only when the Compare toggle is on** (`?compare=true`, P-2), driven by the combined endpoint's precomputed `vs_previous` percent deltas.
+- **Breakdown** section — a 2-up grid: **Global reach** (`GeoTile`, on `DashCard`) + **By account** (`DashCard` listing each account with its `PlatformBadge` + spend).
+
+**States:** no accounts → connect-account empty state; `accounts=""` → none-selected empty state; **mixed currencies** (`currency_mismatch`) → degrade to per-account cards with a "totals can't be combined" amber banner (P-4, currency is gated never converted). The legacy giant greeting hero and per-KPI sparkline tiles (`GreetingTile`, `MetricTile`) were retired.
 
 ---
 
@@ -744,16 +760,22 @@ Showing 1–20 of 123        ←  1  2  3  …  7  →
 
 ### Design language (single-accent rule)
 
-The UI runs on **one accent family**: the sidebar indigo (`--primary`/`--ring`/`--accent`, hue ~273° in `globals.css`, matching the rail in both light and dark mode). Every interactive-accent surface — primary buttons, active toggles/segments, links, focus rings — resolves to this token; there is no second (blue/orange) accent. Deliberately **exempt** and left brand/semantic-correct: platform **brand** colors (Meta blue, TikTok black, Google multicolor — `platform-badge.tsx`, `settings/connections`), **status** colors (green active / yellow paused / red error — `status-badge.tsx`), and **chart-series / data-encoding** colors (`--chart-*`, `--tint-*`, iris palette). Cards share one surface (`rounded-xl bg-card ring-1 ring-foreground/10` + `--shadow-soft`, lifting to `--shadow-lift` on hover) — the same for platform overview cards **and** dashboard (bento) tiles, which no longer use a bespoke near-black/mono-terminal look.
+The UI runs on **one accent family**: the sidebar indigo (`--primary`/`--ring`/`--accent`, hue ~273° in `globals.css`, matching the rail in both light and dark mode). Every interactive-accent surface — primary buttons, active toggles/segments, links, focus rings — resolves to this token; there is no second (blue/orange) accent. Deliberately **exempt** and left brand/semantic-correct: platform **brand** colors (Meta blue, TikTok black, Google multicolor — `platform-badge.tsx`, `settings/connections`), **status** colors (green active / yellow paused / red error — `status-badge.tsx`), and **chart-series / data-encoding** colors (`--chart-*`, `--tint-*`, iris palette). Every card on every dashboard page renders through **one primitive — `DashCard`** (`components/shared/dash-card.tsx`): one surface (`rounded-xl bg-card ring-1 ring-foreground/10` + `--shadow-soft`), an entrance animation, and **deliberately no hover motion or shadow swap** (the old `hoverLift` / `hover:shadow-lift` bento behavior was removed — it read as noisy). `MetricGroupCard` and `CombinedKpiCard` are built on `DashCard`, and plain content tiles (charts, geo, account lists) use it directly, so surfaces and hover behavior can't drift between pages. The combined summary (`/dashboard`) and the platform Overview share the same page structure — a `SectionHeading` lead per section over the one card surface.
 
 ### `SegmentControl`
 `components/ui/segment-control.tsx` — the single **filled-pill** segmented control used app-wide. Presentational only (owns no state): a muted-bg pill container (`bg-muted rounded-lg p-0.5`); the active segment gets a solid `bg-primary`/`text-primary-foreground` fill with `shadow-sm`, inactive segments are `text-muted-foreground` → `hover:text-foreground`. Props: `items: {value,label,icon?,href?}[]`, `value`, `onValueChange?(value)`, `ariaLabel?`, `className?`, `segmentClassName?`. Interaction is per-item: an item with `href` renders a Next `<Link>` (route-based tabs), otherwise a `<button>` calling `onValueChange` (state-based toggles). Typed generically over the value union (no `any`). Used by the platform tab bar (`PlatformTabs`), settings nav (`SettingsNav`), Periodic (Day/Week/Month + Line/Bar), Ads (Grid/List), Table (Campaigns/Ad Groups/Ads), Breakdown (Age/Country/Platform/Device), and the `/settings/accounts` platform filter — replacing all previously bespoke segment/tab implementations and most in-view shadcn `Tabs` usages.
 
-### `MetricCard`
-KPI display card with value, label, % change badge, and optional sparkline. Used in Overview.
+### `SectionHeading`
+`components/shared/section-heading.tsx` — bold title + optional muted subtitle. The shared typographic lead at the top of every dashboard section, used by both the platform `OverviewView` and the combined summary (`/dashboard`) so the pages read with one consistent structure.
 
-### `SparklineChart`
-Tiny inline Recharts `LineChart` (no axes, no tooltip) for KPI card trends.
+### `CardChipHeader`
+`components/shared/card-chip-header.tsx` — the shared card header: a colored round icon chip + bold title, with an optional right-aligned action. Matches the platform `MetricGroupCard` header 1:1 so every card reads the same. Rendered by `DashCard` whenever `title` + `icon` are set, so all cards get an identical header for free.
+
+### `DashCard`
+`components/shared/dash-card.tsx` — **the one dashboard card**. A single card surface (`bg-card`, hairline ring, `--shadow-soft`) with an entrance animation and **no hover motion** (see Design language). Optional chip header via `title`/`icon`/`accent` (renders `CardChipHeader`) + optional `action`; body via `children` + `bodyClassName`. `MetricGroupCard` and `CombinedKpiCard` are built on it; the combined summary's Combined spend / Global reach / By account tiles and the TikTok engagement trend use it directly. Replaced the retired `BentoTile`.
+
+### `CombinedKpiCard`
+`components/summary/combined-kpi-card.tsx` — the combined summary's grouped KPI card, built on `DashCard`. Same visual language as `MetricGroupCard` (icon chip + title + big headline number, then a sub-metric grid) but driven by the cross-platform combined summary and its precomputed `vs_previous` **percent** deltas (via `formatChange` → `DeltaBadge`) rather than raw previous values. Delta badges stay silent unless the Compare toggle is on (P-2).
 
 ### `DateRangePicker`
 Single popover, two views: preset buttons and a `Custom range…` reveal that swaps in a `react-day-picker` range calendar (future dates disabled). Apply sets `date_start`/`date_end` and clears `date_preset`. Syncs to URL.
@@ -795,7 +817,7 @@ Two modes:
 - `trigger="hover"` (default): **CSS `group-hover` drives the animation**, so the whole containing element (a `<Link>`, `<button>`, row `<div>`, card, etc.) fires it on hover — not just the icon itself. The icon renders as a plain `<span>` carrying `group-hover:` transform classes (`ICON_HOVER_CLASS` in `lib/motion.ts`), so the parent can be any element type without becoming a motion component. **Requirement:** the nearest interactive/hover ancestor of the icon **must carry the Tailwind `group` class**, or the animation is inert. reduce-motion is honored via `motion-reduce:` variant guards on each class. Used for nav/menu/action glyphs (Summary, Settings, Bell, Filter, Trash, Export, Star, "See All"/drill chevrons, external-link/plug).
 - `trigger="state"`: framer-motion (`motion.span`) drives the animation from a boolean `active` — used for expand/collapse chevrons (rotate on open) and for `appear` "pop-in" of state icons (delta trend arrows, active sort arrow, sync CheckCircle2/AlertTriangle, connection-stage checks). This path respects reduce-motion via the global `<MotionConfig reducedMotion="user">` in `components/shared/providers.tsx`.
 
-Animation presets live **only** in `lib/motion.ts` (single source): `ICON_MOTION` (framer-motion variants, used by `trigger="state"`/`appear`) and `ICON_HOVER_CLASS` (Tailwind `group-hover:` class strings, used by `trigger="hover"`). The `wiggle` hover shake uses an `@keyframes icon-wiggle` defined in `app/globals.css`. Do not scatter inline motion objects in components — add a new preset in both maps and reference it by name. Current presets: `spin` (90° tip — settings/sliders), `wiggle` (shake — bell/alert/dismiss), `bounce` (vertical hop — download/export, up-down chevrons), `pop` (scale pop; also the mount `hidden→show` for appearing state icons), `draw` (scale+rotate — external-link/plug), `nudge` (subtle lift — generic nav glyphs), `nudgeRight` (slide right — "go/navigate" chevrons), `flip` (180° — expand/collapse chevrons). Platform-badge letter marks (M/T/G) and chart/data-viz inline SVGs (`bento/geo-tile.tsx`, `bento/gauge-tile.tsx`) are **not** routed through `AnimatedIcon` — they animate on their own terms. Active-op spinners (`Loader2`, `RefreshCw` with `animate-spin`) stay as CSS spins since they only run during a live async op.
+Animation presets live **only** in `lib/motion.ts` (single source): `ICON_MOTION` (framer-motion variants, used by `trigger="state"`/`appear`) and `ICON_HOVER_CLASS` (Tailwind `group-hover:` class strings, used by `trigger="hover"`). The `wiggle` hover shake uses an `@keyframes icon-wiggle` defined in `app/globals.css`. Do not scatter inline motion objects in components — add a new preset in both maps and reference it by name. Current presets: `spin` (90° tip — settings/sliders), `wiggle` (shake — bell/alert/dismiss), `bounce` (vertical hop — download/export, up-down chevrons), `pop` (scale pop; also the mount `hidden→show` for appearing state icons), `draw` (scale+rotate — external-link/plug), `nudge` (subtle lift — generic nav glyphs), `nudgeRight` (slide right — "go/navigate" chevrons), `flip` (180° — expand/collapse chevrons). Platform-badge letter marks (M/T/G) and chart/data-viz inline SVGs (`shared/geo-tile.tsx`) are **not** routed through `AnimatedIcon` — they animate on their own terms. Active-op spinners (`Loader2`, `RefreshCw` with `animate-spin`) stay as CSS spins since they only run during a live async op.
 
 ---
 

@@ -21,14 +21,6 @@ export const staggerContainer: Variants = {
   show: { transition: { staggerChildren: 0.05, delayChildren: 0.02 } },
 };
 
-/** Spread onto a motion element for a playful hover lift.
- *  Pair with `shadow-soft hover:shadow-lift transition-shadow` classes so the
- *  colored shadow swaps on hover alongside the translate. */
-export const hoverLift = {
-  whileHover: { y: -4, transition: SPRING },
-  whileTap: { scale: 0.99 },
-} as const;
-
 /** Standard mount props for a staggered list/grid. */
 export const staggerGrid = {
   variants: staggerContainer,

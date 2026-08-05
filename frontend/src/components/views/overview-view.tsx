@@ -14,6 +14,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { MetricGroupCard, type SubMetric } from "@/components/metrics/metric-group-card";
+import { SectionHeading } from "@/components/shared/section-heading";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
@@ -232,15 +233,6 @@ function EmptyState({ message }: { message: string }) {
   return (
     <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
       {message}
-    </div>
-  );
-}
-
-function SectionHeading({ title, subtitle }: { title: string; subtitle?: string }) {
-  return (
-    <div>
-      <h2 className="text-lg font-bold tracking-tight">{title}</h2>
-      {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
     </div>
   );
 }

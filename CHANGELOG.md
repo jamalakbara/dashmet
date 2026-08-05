@@ -6,6 +6,30 @@ All notable changes to this project are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **TikTok GMV Max (Ads) view — built but PARKED pending requirements.** The view + route
+  (`/tiktok/gmv-max`) exist but are **not surfaced** in the tab bar or the `/tiktok` landing (removed
+  from `PLATFORM_TABS.tiktok`; `/tiktok` redirects to overview) — most ads accounts lack the
+  onsite/shop-conversion data the shop KPIs need, so it waits on real requirements (and likely TikTok
+  Shop Open API integration). Re-enable = re-add the tab slug + redirect.
+  `frontend/src/components/views/gmv-max-view.tsx` composes five KPI tiles (Cost `spend`,
+  Gross Revenue `web_purchase_value`, Orders `web_purchases`, Cost per Order `cost_per_web_purchase`,
+  ROAS `roas_shop`, each with a cost-inverted `DeltaPill`), the shared `PeriodicView` trends, and a
+  `<TableView platformObjective="PRODUCT_SALES" />` campaign table — all scoped to GMV Max campaigns
+  so KPIs and table match by construction (P-6/P-7). A `TikTokModeSwitch`
+  (`frontend/src/components/layout/tiktok-mode-switch.tsx`) shows **TikTok Ads · TikTok Shop 🔒 · Ads ×
+  Shop 🔒** — Shop/Combined render **locked** (their TikTok Shop Open API data isn't integrated;
+  fabricating numbers would violate P-1/P-4). Mockup's "Net cost" / separate "ROI" omitted (no backing
+  data, P-4). Docs: `docs/frontend-spec.md`, `docs/tiktok-api-metrics-reference.md`.
+- **`platform_objective` on the insights table + GMV Max filter.** `GET /insights/table` now returns
+  each campaign row's raw `platform_objective` (e.g. `PRODUCT_SALES`) alongside the normalized
+  `objective`, and accepts an optional `platform_objective` filter (campaign level; neutralized at
+  ad-group/ad). `GET /insights/overview` accepts the same filter so its KPIs scope to the same
+  GMV-Max campaigns (P-6). Backend: `backend/app/schemas/insights.py` (`TableRow.platform_objective`),
+  `backend/app/services/insights.py` (`get_table`, `get_overview`, `_resolve_campaign_ids`),
+  `backend/app/api/v1/endpoints/insights.py`. Frontend: `frontend/src/lib/api/insights.ts`,
+  `frontend/src/lib/query-keys.ts`. Tests: `backend/tests/test_insights_table_gmv_max.py` (filter
+  scoping on table + overview, `platform_objective` surfaced, tenant-isolation 403). Docs:
+  `docs/backend-api-spec.md`.
 - **TikTok engagement / interactive / LIVE metrics synced + surfaced.** The four
   previously-deferred TikTok metrics now land end-to-end. The sync worker stores them in
   `metric_action_stats` under internal `(field_name, action_type)` keys: `engagements` →
@@ -94,7 +118,40 @@ All notable changes to this project are documented here. Format follows
   (manage-access UI + member empty states) handled separately. Docs: `docs/backend-api-spec.md`,
   `docs/internal-schema-spec.md`.
 
+### Changed
+- **Combined summary (`/dashboard`) restyled to match the platform Overview.** Replaced the
+  legacy bento canvas (giant greeting hero + per-KPI sparkline tiles) with the shared section
+  structure: a `SectionHeading` lead per section, a full-width Combined spend chart, and a grouped
+  **Combined KPIs** card. Added `frontend/src/components/shared/section-heading.tsx` (extracted from
+  `overview-view.tsx`) and `frontend/src/components/summary/combined-kpi-card.tsx`. Combined KPI delta
+  badges now gate on the Compare toggle (`?compare=true`, P-2) instead of always showing.
+  Docs: `docs/frontend-spec.md`.
+- **Unified every dashboard card onto one primitive; removed card hover motion.** Added
+  `frontend/src/components/shared/dash-card.tsx` (`DashCard`) and
+  `frontend/src/components/shared/card-chip-header.tsx` (`CardChipHeader`) as the single card surface +
+  header used everywhere. `DashCard` has **no hover lift / shadow swap** (matching the platform cards —
+  the old behavior read as noisy); `MetricGroupCard` and `CombinedKpiCard` are now built on it. Deleted
+  the legacy `BentoTile` (`bento/bento-tile.tsx`), `MetricCard` (`metrics/metric-card.tsx`), and the
+  orphaned `bento/greeting-tile.tsx` + `bento/metric-tile.tsx`; removed the unused `hoverLift` motion
+  (`lib/motion.ts`); moved `geo-tile.tsx` into `components/shared/` (the `bento/` dir is gone). Migrated
+  the TikTok **Engagement** page (`app/(dashboard)/tiktok/engagement/page.tsx`) off `MetricCard` — its 8
+  KPI sparkline tiles are now one grouped `MetricGroupCard` + a `DashCard` trend chart, matching the
+  platform Overview. Docs: `docs/frontend-spec.md`.
+
 ### Fixed
+- **Combined spend chart on `/dashboard` looked broken — clipped Y-axis + rainbow stroke.** The hero
+  chart bled to the card edge (`px-1` body) so its Y-axis tick labels were cut off, used a 3-stop iris
+  rainbow stroke, and a cramped 180px height. Rebuilt it from the shared chart theme to match the
+  platform trend charts: `seriesColor(0)` solid stroke + single-hue `gradientDef` fill, 64px Y-axis,
+  padded body, 300px height (`frontend/src/app/(dashboard)/dashboard/page.tsx`). Docs:
+  `docs/frontend-spec.md`.
+- **TikTok `PRODUCT_SALES` objective mislabeled as `awareness`.** `TIKTOK_OBJECTIVE_MAP`
+  (`backend/workers/tasks/tiktok_structure.py`) had no entry for `PRODUCT_SALES` — the raw
+  objective_type TikTok's Business API returns for the Product GMV Max / Shop-sales family — so it
+  fell through to the `"awareness"` default, normalizing every shop campaign to `awareness`. Added
+  `PRODUCT_SALES` → `sales` (and an explicit `BRAND_CONSIDERATION` → `awareness`). Takes effect on the
+  next structure sync; the raw `platform_objective` (used by the GMV Max view's filter) was already
+  correct.
 - **Table drill-down ignored `campaign_id`/`adgroup_id` — showed the whole account.**
   `get_table` accepted both params but never bound them, and `TABLE_SQL_ADGROUP`/`TABLE_SQL_AD` had
   no campaign/ad-group predicate, so clicking a campaign in Overview drilled into the Ad Groups level
