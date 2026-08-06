@@ -378,7 +378,7 @@ function AdDetailSheet({
     <Sheet open={!!ad} onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent
         side="right"
-        className="flex w-full flex-col overflow-hidden p-0 shadow-xl ring-1 ring-black/5 sm:max-w-2xl !inset-y-3 !right-3 !h-auto !rounded-2xl !border-0"
+        className="flex w-[calc(100%-1.5rem)] flex-col overflow-hidden p-0 shadow-xl ring-1 ring-black/5 sm:w-full sm:max-w-2xl !inset-y-3 !right-3 !h-auto !rounded-2xl !border-0"
       >
         <SheetHeader className="shrink-0 border-b px-6 py-4">
           <SheetTitle className="truncate pr-8">

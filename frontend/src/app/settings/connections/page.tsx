@@ -375,14 +375,14 @@ function ConnectionsSettingsPageInner() {
             return (
               <Card key={platform.key}>
                 <CardHeader className="p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
                       <PlatformIcon platform={platform} />
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-medium">{platform.name}</p>
                         {conn ? (
                           <div className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
-                            <div className="flex items-center gap-1">
+                            <div className="flex flex-wrap items-center gap-x-1">
                               <AnimatedIcon
                                 icon={CheckCircle2}
                                 motionPreset="pop"
@@ -418,7 +418,7 @@ function ConnectionsSettingsPageInner() {
                         size="sm"
                         disabled={!isOwner}
                         title={!isOwner ? "Owner only" : undefined}
-                        className="text-destructive border-destructive/30 hover:bg-destructive/5"
+                        className="shrink-0 text-destructive border-destructive/30 hover:bg-destructive/5"
                         onClick={() => setDisconnectId(conn.id)}
                       >
                         Disconnect
@@ -426,7 +426,7 @@ function ConnectionsSettingsPageInner() {
                     ) : platform.auth_type === "oauth" ? (
                       <Button
                         size="sm"
-                        className="group"
+                        className="group shrink-0"
                         onClick={() => handleOAuthConnect(platform)}
                         disabled={oauthLoading || !isOwner}
                         title={!isOwner ? "Owner only" : undefined}
@@ -437,7 +437,7 @@ function ConnectionsSettingsPageInner() {
                     ) : (
                       <Button
                         size="sm"
-                        className="group"
+                        className="group shrink-0"
                         disabled={!isOwner}
                         title={!isOwner ? "Owner only" : undefined}
                         onClick={() => openConnect(platform)}

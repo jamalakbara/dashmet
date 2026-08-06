@@ -27,8 +27,8 @@ export const queryKeys = {
   accounts: () => ["accounts"] as const,
   accountsSearch: (platform: string | null, search: string) =>
     ["accounts", "search", platform, search] as const,
-  accountsList: (platform: string | null, search: string, page: number) =>
-    ["accounts", "list", platform, search, page] as const,
+  accountsList: (platform: string | null, search: string, page: number, perPage: number) =>
+    ["accounts", "list", platform, search, page, perPage] as const,
   accountsCount: () => ["accounts", "count"] as const,
   account: (id: string) => ["account", id] as const,
   syncStatus: (accountId: string) => ["sync-status", accountId] as const,

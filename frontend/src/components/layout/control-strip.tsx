@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { PlatformTabs } from "@/components/layout/platform-tabs";
 import { FilterPopover } from "@/components/layout/filter-popover";
+import { DateRangePicker } from "@/components/shared/date-range-picker";
 import { useSelectedAccount } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
 import { useOverviewFilter } from "@/hooks/use-overview-filter";
@@ -63,9 +64,16 @@ export function ControlStrip() {
   });
 
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-5 py-3">
-      <div className="hidden items-center sm:flex">
+    <div className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-3 py-3 sm:px-5">
+      {/* View tabs scroll horizontally on narrow screens rather than hiding —
+          they're the only way to reach a platform's Periodic/Table/… views. */}
+      <div className="-mx-3 flex w-full items-center overflow-x-auto px-3 [scrollbar-width:none] sm:mx-0 sm:w-auto sm:px-0">
         <PlatformTabs />
+      </div>
+
+      {/* Date range lives here only on mobile — the top bar hosts it from `sm` up. */}
+      <div className="sm:hidden">
+        <DateRangePicker />
       </div>
 
       <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap text-sm text-muted-foreground">
@@ -76,11 +84,15 @@ export function ControlStrip() {
         Compare prev.
       </label>
 
-      <div className="ml-auto flex items-center gap-3">
+      {/* Below `sm` this is its own full-width block: Filter alone (left), then a
+          correlated Export row — the "Include AI summary" toggle sits with the
+          Export button because it only affects the exported deck. From `sm` up it
+          collapses back to one right-aligned row. */}
+      <div className="flex w-full flex-wrap items-center gap-3 sm:ml-auto sm:w-auto sm:flex-nowrap sm:justify-end">
         <FilterPopover />
 
         {isSingleAccount && (
-          <>
+          <div className="flex w-full items-center gap-3 sm:w-auto">
             <label className="flex cursor-pointer items-center gap-2 whitespace-nowrap text-sm text-muted-foreground">
               <Switch
                 checked={includeAiSummary}
@@ -94,12 +106,12 @@ export function ControlStrip() {
               variant="outline"
               onClick={() => exportPptx.mutate()}
               disabled={!accountId || exportPptx.isPending}
-              className="gap-2"
+              className="ml-auto gap-2 sm:ml-0"
             >
               <FileDown className={cn("size-4", exportPptx.isPending && "animate-pulse")} />
               Export PPTX
             </Button>
-          </>
+          </div>
         )}
       </div>
     </div>

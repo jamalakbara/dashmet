@@ -112,7 +112,7 @@ export function FunnelView() {
                   <div key={step.key}>
                     {/* Conversion connector between this step and the one above */}
                     {prev && (
-                      <div className="flex items-center gap-1.5 pl-36 text-[11px] text-muted-foreground">
+                      <div className="flex flex-wrap items-center gap-1.5 pl-24 text-[11px] text-muted-foreground sm:pl-36">
                         <span aria-hidden>↳</span>
                         <span className="font-medium text-foreground">
                           {formatPercent(stepRate)}
@@ -128,7 +128,7 @@ export function FunnelView() {
 
                     {/* Step row: label · bar · value · share */}
                     <div className="flex items-center gap-3 py-1">
-                      <div className="w-32 shrink-0 truncate text-sm font-medium">
+                      <div className="w-24 shrink-0 truncate text-sm font-medium sm:w-32">
                         {step.label}
                       </div>
                       <div className="h-9 flex-1 overflow-hidden rounded-lg bg-muted/40">
@@ -137,7 +137,7 @@ export function FunnelView() {
                           style={{ width: `${fillPct}%`, backgroundColor: color }}
                         />
                       </div>
-                      <div className="w-44 shrink-0 text-right">
+                      <div className="w-32 shrink-0 text-right sm:w-44">
                         <div className="flex items-center justify-end gap-1.5">
                           <span className="font-display text-sm font-semibold tabular-nums">
                             {formatMetric(step.value, "number", currency)}

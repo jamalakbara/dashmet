@@ -59,7 +59,7 @@ export function FilterPopover() {
   return (
     <Popover>
       <PopoverTrigger
-        className={cn(buttonVariants({ variant: "outline", size: "lg" }), "group ml-auto gap-2")}
+        className={cn(buttonVariants({ variant: "outline", size: "lg" }), "group gap-2")}
       >
         <AnimatedIcon icon={SlidersHorizontal} motionPreset="spin" iconClassName="size-4" />
         Filter

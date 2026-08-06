@@ -28,7 +28,8 @@ interface SegmentControlProps<T extends string> {
   className?: string;
 }
 
-const CONTAINER = "inline-flex items-center gap-0.5 rounded-lg bg-muted p-0.5";
+const CONTAINER =
+  "inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg bg-muted p-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
 const SEGMENT_BASE =
   "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm whitespace-nowrap transition-colors";
 const SEGMENT_ACTIVE = "bg-primary text-primary-foreground shadow-sm";

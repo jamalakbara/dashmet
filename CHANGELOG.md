@@ -119,6 +119,42 @@ All notable changes to this project are documented here. Format follows
   `docs/internal-schema-spec.md`.
 
 ### Changed
+- **Accounts settings paginate on mobile.** Page size is now viewport-aware (8 rows on phones vs 20
+  on desktop) via a new `useIsMobile` hook (`frontend/src/hooks/use-is-mobile.ts`), so the list
+  actually paginates on a narrow screen instead of scrolling one long page; `page` resets on a
+  breakpoint cross. `PaginationBar` also collapses its numbered pages to a compact `page / total` +
+  arrows below `sm`. `frontend/src/app/settings/accounts/page.tsx`,
+  `frontend/src/components/shared/pagination-bar.tsx`, `frontend/src/lib/query-keys.ts`
+  (`accountsList` key now includes `perPage`).
+- **Sync/freshness badge surfaced on mobile.** The top-bar `SyncStatusBadge` is `hidden md:block`, so
+  on phones it vanished entirely — dropping the freshness signal every number must carry (P-1). Added an
+  opt-in `freshness` prop to the shared `SectionHeading` that renders a `md:hidden` `SyncStatusBadge`
+  beneath the subtitle; enabled on `OverviewView`'s primary heading so freshness shows under the page
+  title on mobile. `frontend/src/components/shared/section-heading.tsx`,
+  `frontend/src/components/views/overview-view.tsx`. Docs: `docs/frontend-spec.md`.
+- **Dashboard shell is now responsive on narrow screens.** Below `md` the indigo sidebar rail
+  (previously always in-flow, squeezing the content canvas to a sliver on phones) is `hidden md:flex`
+  and replaced by `MobileSidebar` — an off-canvas drawer (shadcn `Sheet`, `side="left"`, backed by a
+  new ephemeral `mobileNavOpen` UI-store flag) opened from a `md:hidden` hamburger in the top bar and
+  closed on backdrop tap / route change / nav tap. The drawer borrows the ad-detail drawer's
+  detached-card shape (inset + rounded + own close button) while keeping the indigo rail background;
+  both drawers use a near-full-width `w-[calc(100%-1.5rem)]` on mobile. The content column drops its left margin below `md` so it spans full width. Top bar collapses
+  redundant chrome on mobile (platform badge/title, freshness, notification bell hide `<sm`; account
+  switcher `w-40 sm:w-56`); the control-strip view tabs scroll horizontally instead of hiding.
+  The date-range picker moves from the top bar into the control strip below `sm` so the account
+  name no longer collides with it. Overview content de-clipped on narrow screens: `SegmentControl`
+  scrolls horizontally when it overflows (Breakdown tabs), funnel rows use responsive label/value
+  widths + wrapping connectors, KPI sub-metric grid tightens its gap/padding and truncates long
+  currency, and the Trends chart's Y-axis ticks use a new compact currency formatter
+  (`formatMetricCompact` / `formatCurrencyCompact` — "IDR 280K") so long currency labels aren't cut
+  (tooltips keep full precision).
+  `frontend/src/components/layout/{sidebar,top-bar,control-strip}.tsx`,
+  `frontend/src/app/(dashboard)/layout.tsx`, `frontend/src/stores/ui-store.ts`,
+  `frontend/src/components/shared/account-switcher.tsx`,
+  `frontend/src/components/ui/segment-control.tsx`,
+  `frontend/src/components/views/funnel-view.tsx`,
+  `frontend/src/components/metrics/metric-group-card.tsx`,
+  `frontend/src/components/views/periodic-view.tsx`. Docs: `docs/frontend-spec.md`.
 - **Combined summary (`/dashboard`) restyled to match the platform Overview.** Replaced the
   legacy bento canvas (giant greeting hero + per-KPI sparkline tiles) with the shared section
   structure: a `SectionHeading` lead per section, a full-width Combined spend chart, and a grouped

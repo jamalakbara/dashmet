@@ -484,7 +484,11 @@ export function OverviewView() {
   return (
     <motion.div {...staggerGrid} className="space-y-6">
       {/* Section heading */}
-      <SectionHeading title="Overview" subtitle="Delivery and results for the selected period." />
+      <SectionHeading
+        title="Overview"
+        subtitle="Delivery and results for the selected period."
+        freshness
+      />
 
       {/* Grouped metric cards — items-start so expanding one doesn't stretch the
           others. Rendered from the account-type-scoped config so standard and

@@ -19,9 +19,13 @@ import { PaginationBar } from "@/components/shared/pagination-bar";
 import { accountsApi } from "@/lib/api/accounts";
 import { queryKeys } from "@/lib/query-keys";
 import { useDebounced } from "@/hooks/use-account";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { AccountType } from "@/types/enums";
 
-const PAGE_SIZE = 20;
+// Fewer rows per page on phones so the list actually paginates instead of
+// scrolling one long page; the roomier desktop keeps the larger page.
+const PAGE_SIZE_DESKTOP = 20;
+const PAGE_SIZE_MOBILE = 8;
 
 interface Account {
   id: string;
@@ -51,23 +55,26 @@ export default function AccountsSettingsPage() {
   const [platform, setPlatform] = useState("all");
   const [page, setPage] = useState(1);
   const debounced = useDebounced(searchInput.trim(), 250);
+  const isMobile = useIsMobile();
+  const perPage = isMobile ? PAGE_SIZE_MOBILE : PAGE_SIZE_DESKTOP;
 
-  // Any new search/filter restarts paging from the first page.
+  // Any new search/filter — or a page-size change on breakpoint cross — restarts
+  // paging from the first page so the current page can never exceed the new range.
   useEffect(() => {
     setPage(1);
-  }, [debounced, platform]);
+  }, [debounced, platform, perPage]);
 
   const platformParam = platform === "all" ? null : platform;
 
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.accountsList(platformParam, debounced, page),
+    queryKey: queryKeys.accountsList(platformParam, debounced, page, perPage),
     queryFn: async () =>
       (
         await accountsApi.list({
           search: debounced || undefined,
           platform: platformParam ?? undefined,
           page,
-          per_page: PAGE_SIZE,
+          per_page: perPage,
         })
       ).data as AccountsPage,
     placeholderData: (prev) => prev, // avoid list flash while typing / paging
@@ -173,7 +180,7 @@ export default function AccountsSettingsPage() {
           page={page}
           totalPages={pagination.total_pages}
           total={pagination.total}
-          perPage={PAGE_SIZE}
+          perPage={perPage}
           onPage={setPage}
         />
       )}

@@ -8,6 +8,21 @@ export function formatCurrency(value: number | null | undefined, currency = "USD
   }).format(value);
 }
 
+/** Abbreviated currency for tight spots like chart axes: "IDR 280K", "$1.2M".
+ *  Full precision stays in cards/tooltips — this is display-density only. */
+export function formatCurrencyCompact(
+  value: number | null | undefined,
+  currency = "USD"
+): string {
+  if (value == null) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 export function formatNumber(value: number | null | undefined): string {
   if (value == null) return "—";
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -38,6 +53,18 @@ export function formatMetric(
     case "roas":     return formatRoas(value);
     default:         return formatNumber(value);
   }
+}
+
+/** Like {@link formatMetric} but compacts currency ("IDR 280K") — for chart
+ *  axis ticks where full currency strings overflow the plot. */
+export function formatMetricCompact(
+  value: number | null | undefined,
+  type: MetricType,
+  currency = "USD"
+): string {
+  return type === "currency"
+    ? formatCurrencyCompact(value, currency)
+    : formatMetric(value, type, currency);
 }
 
 export function formatChange(pct: number | null | undefined): {

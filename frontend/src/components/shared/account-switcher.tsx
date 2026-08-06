@@ -13,7 +13,7 @@ import { useIsOwner } from "@/hooks/use-role";
 import { cn } from "@/lib/utils";
 
 const TRIGGER_CLASS =
-  "group flex h-8 w-56 items-center gap-2 rounded-lg border border-input bg-transparent px-2.5 text-sm hover:bg-accent";
+  "group flex h-8 w-40 sm:w-56 items-center gap-2 rounded-lg border border-input bg-transparent px-2.5 text-sm hover:bg-accent";
 
 /** Polls the account count briefly after connecting (when none exist yet). */
 function useConnectPolling(): number | null {
@@ -51,7 +51,7 @@ function SingleAccountSwitcher({ platform }: { platform: string }) {
   }, [resolvedId]);
 
   if (count === null && isLoading) {
-    return <div className="h-8 w-56 animate-pulse rounded-lg bg-muted" />;
+    return <div className="h-8 w-40 sm:w-56 animate-pulse rounded-lg bg-muted" />;
   }
   if (firstPage.length === 0 && !isLoading) {
     return (

@@ -36,7 +36,7 @@ import { useOverviewFilter } from "@/hooks/use-overview-filter";
 import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
 import { metricLabel, metricType } from "@/lib/metrics";
 import { CHART_COLORS, gridProps, axisProps, tooltipProps } from "@/lib/chart-theme";
-import { formatMetric } from "@/lib/formatters";
+import { formatMetric, formatMetricCompact } from "@/lib/formatters";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -258,7 +258,7 @@ export function PeriodicView() {
             <Empty height={360} />
           ) : (
             <ResponsiveContainer width="100%" height={360}>
-              <ComposedChart data={chartData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+              <ComposedChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
                 <CartesianGrid {...gridProps} />
                 <XAxis
                   dataKey="date"
@@ -268,7 +268,7 @@ export function PeriodicView() {
                 />
                 <YAxis
                   yAxisId="left"
-                  tickFormatter={(v) => formatMetric(v, metricType(metrics[0]), currency)}
+                  tickFormatter={(v) => formatMetricCompact(v, metricType(metrics[0]), currency)}
                   {...axisProps}
                   width={64}
                 />
@@ -276,7 +276,7 @@ export function PeriodicView() {
                   <YAxis
                     yAxisId="right"
                     orientation="right"
-                    tickFormatter={(v) => formatMetric(v, metricType(metrics[1]), currency)}
+                    tickFormatter={(v) => formatMetricCompact(v, metricType(metrics[1]), currency)}
                     {...axisProps}
                     width={64}
                   />

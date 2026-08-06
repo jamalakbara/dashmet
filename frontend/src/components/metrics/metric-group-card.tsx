@@ -98,7 +98,7 @@ export function MetricGroupCard({
       {/* Headline — omitted entirely for title-only cards so no fake number
           is rendered when a metric family has no single headline. */}
       {headline != null && (
-        <div className="px-5 pb-4 pt-2">
+        <div className="px-4 pb-4 pt-2 sm:px-5">
           {loading ? (
             <div className="h-8 w-40 animate-pulse rounded bg-muted" />
           ) : (
@@ -119,9 +119,9 @@ export function MetricGroupCard({
       )}
 
       {/* Sub-metric grid — no top border when it's the first block (no headline) */}
-      <div className={cn("px-5 py-5", headline != null && "border-t border-border")}>
+      <div className={cn("px-4 py-5 sm:px-5", headline != null && "border-t border-border")}>
         {loading ? (
-          <div className={cn("grid gap-x-6 gap-y-6", gridCols)}>
+          <div className={cn("grid gap-x-4 gap-y-6 sm:gap-x-6", gridCols)}>
             {Array.from({ length: columns === 4 ? 8 : 4 }).map((_, i) => (
               <div key={i} className="space-y-2">
                 <div className="h-3 w-20 animate-pulse rounded bg-muted" />
@@ -132,11 +132,13 @@ export function MetricGroupCard({
         ) : shown.length === 0 ? (
           <p className="text-sm text-muted-foreground">No data for this period.</p>
         ) : (
-          <div className={cn("grid gap-x-6 gap-y-6", gridCols)}>
+          <div className={cn("grid gap-x-4 gap-y-6 sm:gap-x-6", gridCols)}>
             {shown.map((m) => (
               <div key={m.key} className="min-w-0">
                 <p className="truncate text-sm text-muted-foreground">{m.label}</p>
-                <p className="mt-0.5 font-semibold tabular-nums">{m.value}</p>
+                <p className="mt-0.5 truncate text-sm font-semibold tabular-nums sm:text-base">
+                  {m.value}
+                </p>
                 {showDelta && (
                   <div className="mt-0.5">
                     <DeltaPill
