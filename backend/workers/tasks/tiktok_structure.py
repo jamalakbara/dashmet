@@ -425,7 +425,7 @@ def sync_tiktok_structure_for_account(self, account_id: str):
         from workers.tasks.tiktok_insights import sync_tiktok_insights_for_account
         from workers.tasks.tiktok_creatives import sync_tiktok_creatives_for_account
         sync_tiktok_insights_for_account.delay(account_id)
-        sync_tiktok_insights_for_account.delay(account_id, "last_30d", "insights_historical")
+        sync_tiktok_insights_for_account.delay(account_id, "last_90d", "insights_historical")
         sync_tiktok_creatives_for_account.delay(account_id)
 
     except SoftTimeLimitExceeded as exc:

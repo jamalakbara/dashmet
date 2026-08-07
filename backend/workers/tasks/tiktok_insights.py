@@ -85,6 +85,7 @@ def _resolve_dates(date_preset: str) -> tuple[str, str]:
         "last_7d":     (today - timedelta(7), today - timedelta(1)),
         "last_14d":    (today - timedelta(14), today - timedelta(1)),
         "last_30d":    (today - timedelta(30), today - timedelta(1)),
+        "last_90d":    (today - timedelta(90), today - timedelta(1)),
         "this_month":  (today.replace(day=1), today),
         "last_month":  (
             (today.replace(day=1) - timedelta(1)).replace(day=1),
@@ -93,6 +94,26 @@ def _resolve_dates(date_preset: str) -> tuple[str, str]:
     }
     start, end = presets.get(date_preset, (today - timedelta(7), today - timedelta(1)))
     return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+
+
+# TikTok's reporting API rejects any `stat_time_day` request wider than 30 days
+# ("max time span is 30 days when use stat_time_day"). A historical backfill
+# (last_90d) must therefore be split into ≤30-day windows and fetched per chunk.
+TIKTOK_MAX_REPORT_DAYS = 30
+
+
+def _date_chunks(start_date: str, end_date: str, max_days: int = TIKTOK_MAX_REPORT_DAYS) -> list[tuple[str, str]]:
+    """Split an inclusive [start, end] ISO-date range into contiguous windows of
+    at most `max_days` calendar days each (inclusive), oldest first."""
+    start = datetime.strptime(start_date, "%Y-%m-%d").date()
+    end = datetime.strptime(end_date, "%Y-%m-%d").date()
+    chunks: list[tuple[str, str]] = []
+    cur = start
+    while cur <= end:
+        chunk_end = min(cur + timedelta(days=max_days - 1), end)
+        chunks.append((cur.strftime("%Y-%m-%d"), chunk_end.strftime("%Y-%m-%d")))
+        cur = chunk_end + timedelta(days=1)
+    return chunks
 
 
 def _is_stale(db, account_id: uuid.UUID, job_type: str = "insights_daily", ttl: timedelta = STALE_THRESHOLD) -> bool:
@@ -221,33 +242,38 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
                 entity_map = {"campaign_id": camp_map, "adgroup_id": adgroup_map, "ad_id": ad_map}[entity_dim]
                 dimensions = [entity_dim, "stat_time_day"]
 
-                req_metrics = base_metrics + (EVENT_METRICS if event_supported else [])
-                try:
-                    rows = client.get_report(
-                        advertiser_id=advertiser_id,
-                        data_level=data_level,
-                        dimensions=dimensions,
-                        metrics=req_metrics,
-                        start_date=start_date,
-                        end_date=end_date,
-                    )
-                except TikTokAPIError as e:
-                    # Web/app event metrics need a Pixel/app SDK; TikTok 400s the whole
-                    # request otherwise. Drop them and retry core-only (once per run) so
-                    # the rest of the metrics still sync.
-                    if event_supported and "invalid metric" in str(e).lower():
-                        logger.info("[%s] TikTok event metrics unsupported — core only", account_id)
-                        event_supported = False
-                        rows = client.get_report(
+                # TikTok caps a stat_time_day report at 30 days, so a 90-day
+                # historical backfill is fetched as ≤30-day chunks and merged.
+                rows = []
+                for chunk_start, chunk_end in _date_chunks(start_date, end_date):
+                    req_metrics = base_metrics + (EVENT_METRICS if event_supported else [])
+                    try:
+                        chunk_rows = client.get_report(
                             advertiser_id=advertiser_id,
                             data_level=data_level,
                             dimensions=dimensions,
-                            metrics=base_metrics,
-                            start_date=start_date,
-                            end_date=end_date,
+                            metrics=req_metrics,
+                            start_date=chunk_start,
+                            end_date=chunk_end,
                         )
-                    else:
-                        raise
+                    except TikTokAPIError as e:
+                        # Web/app event metrics need a Pixel/app SDK; TikTok 400s the whole
+                        # request otherwise. Drop them and retry core-only (persists for the
+                        # rest of the run) so the other metrics still sync.
+                        if event_supported and "invalid metric" in str(e).lower():
+                            logger.info("[%s] TikTok event metrics unsupported — core only", account_id)
+                            event_supported = False
+                            chunk_rows = client.get_report(
+                                advertiser_id=advertiser_id,
+                                data_level=data_level,
+                                dimensions=dimensions,
+                                metrics=base_metrics,
+                                start_date=chunk_start,
+                                end_date=chunk_end,
+                            )
+                        else:
+                            raise
+                    rows.extend(chunk_rows)
 
                 metric_rows: list[dict] = []
                 action_rows: list[dict] = []

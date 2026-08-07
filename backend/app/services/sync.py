@@ -167,7 +167,7 @@ def _dispatch_tiktok_insights_daily(account_id: str) -> None:
 
 def _dispatch_tiktok_insights_historical(account_id: str) -> None:
     from workers.tasks.tiktok_insights import sync_tiktok_insights_for_account
-    sync_tiktok_insights_for_account.delay(account_id, "last_30d", "insights_historical")
+    sync_tiktok_insights_for_account.delay(account_id, "last_90d", "insights_historical")
 
 
 def _dispatch_tiktok_creatives(account_id: str) -> None:
@@ -231,7 +231,7 @@ DISPATCH_TABLE: dict[str, dict[str, "callable"]] = {
 # entry MUST have a producer in DISPATCH_TABLE for that platform (P-8).
 DEFAULT_JOB_TYPES: dict[str, list[str]] = {
     "meta": ["structure", "insights_daily"],
-    "tiktok": ["structure", "insights_daily", "creatives", "breakdown"],
+    "tiktok": ["structure", "insights_daily", "insights_historical", "creatives", "breakdown"],
     "google_ads": ["structure", "insights_daily", "creatives", "breakdown"],
 }
 

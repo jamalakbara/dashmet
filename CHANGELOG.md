@@ -175,6 +175,21 @@ All notable changes to this project are documented here. Format follows
   platform Overview. Docs: `docs/frontend-spec.md`.
 
 ### Fixed
+- **TikTok "Last month" + compare came back empty while Meta worked — historical backfill only reached 30 days.**
+  The TikTok `insights_historical` job was dispatched `last_30d`, so on any given day the backfill covered
+  ~30 days back. "Last month" plus its prior-period compare (the month before) needs ~2 full months of
+  history — the compare month (e.g. June when viewing July) fell entirely outside the window, so compare
+  data was missing. Meta's 90-day async backfill covered it, hence the platform asymmetry. Added a
+  `last_90d` preset to the TikTok resolver and switched the historical job to it, matching Meta's window.
+  TikTok rejects any `stat_time_day` report wider than 30 days ("max time span is 30 days when use
+  stat_time_day"), so the 90-day backfill is split into contiguous ≤30-day chunks (`_date_chunks`) and
+  fetched per window, merging the rows (`backend/workers/tasks/tiktok_insights.py`,
+  `backend/workers/tasks/tiktok_structure.py`, `backend/app/services/sync.py`). Also added
+  `insights_historical` to `DEFAULT_JOB_TYPES["tiktok"]` so a manual `/sync/trigger` (bare `{account_id}`)
+  backfills history, not just the 7-day daily window.
+  Tests: `backend/tests/test_tiktok_historical_window.py` (window spans compare range; chunks ≤30d,
+  contiguous, full-cover; 30d regression guard).
+  Docs: `docs/sync-worker-spec.md`.
 - **Combined spend chart on `/dashboard` looked broken — clipped Y-axis + rainbow stroke.** The hero
   chart bled to the card edge (`px-1` body) so its Y-axis tick labels were cut off, used a 3-stop iris
   rainbow stroke, and a cramped 180px height. Rebuilt it from the shared chart theme to match the

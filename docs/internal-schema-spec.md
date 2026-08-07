@@ -572,6 +572,8 @@ Common `action_type` values used in `metric_action_stats.action_type`. Grouped b
 
 ## 8. Schema Diagram
 
+> For the full Mermaid ER diagram (all columns, PK/FK/UK markers, cardinalities) see [`docs/erd.md`](./erd.md). This section stays as a quick-reference sketch.
+
 ```
 organizations ──── organization_memberships ──── users
       │

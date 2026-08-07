@@ -858,9 +858,9 @@ These differ because freshness is controlled by Beat schedule intervals, while f
 | Last 14d — Meta | Days 1–7: 15min sync; Days 8–14: async 90d job | Days 8–14: up to 6hr |
 | Last 30d — Meta | Days 1–7: 15min sync; Days 8–30: async 90d job | Days 8–30: up to 6hr |
 | Last 90d — Meta | Days 1–7: 15min sync; Days 8–90: async 90d job | Days 8–90: up to 6hr |
-| Last 14d — TikTok | Days 1–7: 15min sync; Days 8–14: `insights_historical` | Days 8–14: up to 6hr |
-| Last 30d — TikTok | Days 1–7: 15min sync; Days 8–30: `insights_historical` | Days 8–30: up to 6hr |
-| Last 90d — TikTok | Not covered | N/A |
+| Last 14d — TikTok | Days 1–7: 15min sync; Days 8–14: `insights_historical` (90d) | Days 8–14: up to 6hr |
+| Last 30d — TikTok | Days 1–7: 15min sync; Days 8–30: `insights_historical` (90d) | Days 8–30: up to 6hr |
+| Last 90d / Last month + compare — TikTok | Days 1–7: 15min sync; Days 8–90: `insights_historical` (90d) | Days 8–90: up to 6hr |
 
 ### First-connect availability
 
@@ -896,10 +896,11 @@ retry-until-structure-ready guard if it is picked up before structure completes.
 | Breakdowns (age/gender/country/device) | ~2–8 min (was up to 1hr — now eager) |
 | Last 14d / Last 30d / Last 90d — Meta (day 8+ tail) | up to next async cycle |
 | Last 14d / Last 30d — TikTok | ~3–10 min |
-| Last 90d — TikTok | Not covered |
+| Last 90d / Last month + compare — TikTok | ~3–10 min (day 8+ tail up to 6hr) |
 
 ### Implementation notes
 
 - `submit_async_job_for_account` has a 6hr staleness guard. It is **not** triggered on connect — only by its own Beat task.
-- TikTok uses `job_type="insights_historical"` with a 6hr TTL, separate from `"insights_daily"` (15min TTL), so the two do not block each other.
+- TikTok uses `job_type="insights_historical"` with a 6hr TTL, separate from `"insights_daily"` (15min TTL), so the two do not block each other. The historical job runs `last_90d` (was `last_30d`), matching Meta's 90-day backfill so "Last month" **and** its prior-period compare (the month before) are both in range — a 30-day window left the compare month empty.
+- **TikTok reports are chunked to ≤30 days.** TikTok's `stat_time_day` reporting rejects any range wider than 30 days (`"max time span is 30 days when use stat_time_day"`). `sync_tiktok_insights_for_account` splits `[start, end]` into contiguous ≤30-day windows (`_date_chunks`) and calls `get_report` per chunk, merging rows — so `last_90d` becomes three requests. The event-metric fallback (`event_supported` → core-only on `invalid metric`) persists across chunks and data levels.
 - The async job submit fires in parallel with the insights sync, not after. Structure sync completes first (~30s–3min), and Meta async jobs take 1–10min to process — so `camp_map` is always populated before `fetch_async_results` runs.
