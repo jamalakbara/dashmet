@@ -1,4 +1,8 @@
-import type { DatePreset } from "@/types/enums";
+import type { DatePreset, AccountType } from "@/types/enums";
+
+/** Every platform the combined picker fans out over (grouped by these, in order).
+ *  Unconnected platforms return no accounts and their group is dropped. */
+export const SUPPORTED_PLATFORMS = ["meta", "tiktok", "google_ads", "google_analytics"] as const;
 
 export const DATE_PRESETS: { label: string; value: DatePreset }[] = [
   { label: "Today",       value: "today" },
@@ -53,17 +57,20 @@ export const METRIC_TYPES: Record<string, "currency" | "percent" | "number" | "r
   cost_per_outbound_click: "currency",
 };
 
+/** Warm-anchored, multi-hue series palette (Bright Modern SaaS). Reads in both
+ *  light and dark. Led by the coral accent. Shared chart styling lives in
+ *  lib/chart-theme.ts — import series colors from there or here. */
 export const CHART_COLORS = [
-  "#2563eb",
-  "#16a34a",
-  "#dc2626",
-  "#d97706",
-  "#7c3aed",
-  "#0891b2",
-  "#be185d",
-  "#65a30d",
-  "#c2410c",
-  "#1d4ed8",
+  "#F26A4B", // coral (accent)
+  "#F5A623", // amber
+  "#4FB477", // green
+  "#5B8DEF", // blue
+  "#9B6DFF", // violet
+  "#22B8CF", // cyan
+  "#E8619D", // pink
+  "#8CC63F", // lime
+  "#E4572E", // burnt orange
+  "#3AAFA9", // teal
 ];
 
 export const DEFAULT_METRICS = ["spend", "clicks"];
@@ -91,15 +98,84 @@ export interface PlatformTab {
 export const PLATFORM_TABS: Record<string, PlatformTab[]> = {
   meta: [
     { slug: "overview", label: "Overview" },
-    { slug: "periodic", label: "Periodic" },
     { slug: "table",    label: "Table" },
     { slug: "ads",      label: "Ads" },
   ],
   tiktok: [
+    // GMV Max tab parked pending requirements — the view + route
+    // (/tiktok/gmv-max) still exist, just not surfaced in the bar. Re-add
+    // `{ slug: "gmv-max", label: "GMV Max" }` here (and restore the /tiktok
+    // redirect) to re-enable.
     { slug: "overview",   label: "Overview" },
-    { slug: "periodic",   label: "Periodic" },
     { slug: "table",      label: "Table" },
     { slug: "ads",        label: "Ads" },
     { slug: "engagement", label: "Engagement" },
   ],
+  google_ads: [
+    { slug: "overview", label: "Overview" },
+    { slug: "table",    label: "Table" },
+    { slug: "ads",      label: "Ads" },
+  ],
 };
+
+export interface FunnelStep {
+  key: string;
+  label: string;
+}
+
+/**
+ * Ordered funnel steps per platform for the Funnel view. Each key must exist in
+ * the overview summary (METRIC_REGISTRY). Steps with null/0 values are hidden at
+ * render time, so accounts without a Pixel collapse to the steps they do have.
+ *
+ * Meta is account-type-aware and is resolved via `getFunnelSteps` (standard vs
+ * cpas use different, strictly-separated conversion keys) — never read
+ * `FUNNEL_STEPS.meta` directly. tiktok / google_ads are platform-only.
+ */
+export const FUNNEL_STEPS: Record<string, FunnelStep[]> = {
+  // TikTok onsite/shop path: page views → ATC → checkout init → purchase.
+  tiktok: [
+    { key: "page_view_onsite", label: "Page Views (Onsite)" },
+    { key: "web_add_to_cart",  label: "Add to Cart (Shop)" },
+    { key: "web_checkout",     label: "Checkouts Init. (Shop)" },
+    { key: "web_purchases",    label: "Purchases (Shop)" },
+  ],
+  // Google has no ecommerce-pixel funnel — show the search funnel.
+  google_ads: [
+    { key: "impressions", label: "Impressions" },
+    { key: "clicks",      label: "Clicks" },
+    { key: "conversions", label: "Conversions" },
+  ],
+};
+
+/** Meta funnel steps keyed by account type — strictly separated so a standard
+ *  account never renders `*_shared` steps and a cpas account never renders the
+ *  standard pixel steps. */
+export const META_FUNNEL_STEPS: Record<AccountType, FunnelStep[]> = {
+  standard: [
+    { key: "landing_page_views", label: "Landing Page View" },
+    { key: "add_to_cart",        label: "Add to Cart" },
+    { key: "initiate_checkout",  label: "Initiate Checkout" },
+    { key: "purchase",           label: "Purchase" },
+  ],
+  cpas: [
+    { key: "content_view_shared", label: "Content View Shared Item" },
+    { key: "add_to_cart_shared",  label: "Add to Cart Shared Item" },
+    { key: "purchase_shared",     label: "Purchase Shared Item" },
+  ],
+};
+
+/**
+ * Resolve the ordered funnel steps for a platform + account type. Meta branches
+ * on account type (standard vs cpas shared-item); tiktok / google_ads ignore it.
+ * Falls back to Meta standard when platform is unknown.
+ */
+export function getFunnelSteps(
+  platform: string | null | undefined,
+  accountType: AccountType | null,
+): FunnelStep[] {
+  if (!platform || platform === "meta") {
+    return META_FUNNEL_STEPS[accountType ?? "standard"];
+  }
+  return FUNNEL_STEPS[platform] ?? META_FUNNEL_STEPS.standard;
+}

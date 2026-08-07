@@ -15,10 +15,14 @@ export interface AccountSnapshot {
 const RECENT_CAP = 8;
 
 interface UIStore {
-  // Sidebar
+  // Sidebar (desktop rail collapse — persisted)
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebar: () => void;
+
+  // Mobile nav drawer (ephemeral — never persisted)
+  mobileNavOpen: boolean;
+  setMobileNavOpen: (open: boolean) => void;
 
   // Column visibility per table level (persisted to localStorage)
   visibleColumns: Record<string, string[]>;
@@ -39,6 +43,9 @@ export const useUIStore = create<UIStore>()(
       setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
       toggleSidebar: () =>
         set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+
+      mobileNavOpen: false,
+      setMobileNavOpen: (open) => set({ mobileNavOpen: open }),
 
       visibleColumns: {},
       setVisibleColumns: (level, columns) =>

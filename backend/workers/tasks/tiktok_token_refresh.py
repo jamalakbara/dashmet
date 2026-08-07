@@ -21,6 +21,7 @@ def refresh_tiktok_tokens(self):
     from app.models.platform import PlatformConnection
     from app.services.auth import decrypt_token, encrypt_token
     from workers.tiktok_client import TikTokClient, TikTokAPIError
+    from workers.rate_limit import redis_client
     from app.config import settings
 
     cutoff = datetime.now(timezone.utc) + timedelta(hours=2)
@@ -42,7 +43,7 @@ def refresh_tiktok_tokens(self):
     for conn in connections:
         try:
             refresh_token = decrypt_token(conn.refresh_token)
-            client = TikTokClient(access_token="")
+            client = TikTokClient(access_token="", redis_client=redis_client)
             token_data = client.refresh_access_token(
                 settings.TIKTOK_APP_ID, settings.TIKTOK_APP_SECRET, refresh_token
             )

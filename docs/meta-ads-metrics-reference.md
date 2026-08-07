@@ -438,6 +438,50 @@ The `actions` field returns an array. Each item has `action_type` and `value`. T
 | `video_p100_watched` | Watched 100% |
 | `video_thruplay` | ThruPlay (full or 15s+) |
 
+### Storage mapping (dashmet)
+
+How specific action / action-value entries are pivoted into our insights columns
+(see `backend/app/services/insights.py`, `_ACTION_PIVOT_COLS`). The pivot filters on
+both the Meta `field_name` (`actions` vs `action_values`) and the `action_type`.
+
+| Meta source | `field_name` | `action_type` | Our column | Type |
+|---|---|---|---|---|
+| Post reactions | `actions` | `post_reaction` | `post_reactions` | int |
+| Post saves | `actions` | `onsite_conversion.post_save` | `post_saves` | int |
+| Add-to-cart value | `action_values` | `add_to_cart` | `add_to_cart_value` | float |
+
+`avg_basket_price` is **not** a Meta field. It is computed in the read layer after
+aggregation as `conversion_value ÷ purchase` (guarded to `null` when either is 0/absent),
+never stored — same rule as ROAS/CPA.
+
+### CPAS shared-item (catalog-segment) storage mapping
+
+For Collaborative Ads (CPAS) accounts the retailer owns the pixel, so regular
+`actions` / `action_values` / `purchase_roas` come back empty — `catalog_segment_actions`
+and `catalog_segment_value` are the **only** source of CPAS conversions (see
+`docs/meta-ad-account-types.md` §7). The insights worker requests these two fields
+unconditionally for all Meta accounts (they return empty, not an error, for
+non-catalog accounts) and stores each array entry into `metric_action_stats` as a
+`(field_name, action_type, value)` row — `field_name` kept verbatim.
+
+Meta returns catalog-segment `action_type` values in varying pixel-dependent forms
+(`offsite_conversion.fb_pixel_*`, `omni_*`, or bare names). The worker
+(`backend/workers/tasks/insights.py`, `_normalize_catalog_segment_action`) normalizes
+them to a stable canonical set **before** storing, so the read layer has one contract
+to pivot on. Normalization is scoped to the catalog-segment fields only — regular
+`actions` / `action_values` types are stored verbatim.
+
+| Meta `field_name` | Raw `action_type` (any of) | Stored `action_type` |
+|---|---|---|
+| `catalog_segment_actions` | `offsite_conversion.fb_pixel_purchase`, `omni_purchased`, `omni_purchase`, `purchase` | `purchase` |
+| `catalog_segment_actions` | `offsite_conversion.fb_pixel_add_to_cart`, `omni_add_to_cart`, `add_to_cart` | `add_to_cart` |
+| `catalog_segment_actions` | `offsite_conversion.fb_pixel_view_content`, `omni_view_content`, `view_content` | `view_content` |
+| `catalog_segment_value` | (same buckets as above — conversion value instead of count) | `purchase` / `add_to_cart` / `view_content` |
+
+Matching is substring-based (`*purchase*` → `purchase`, etc.). Any catalog-segment
+`action_type` that doesn't match a known bucket is stored **verbatim** — a
+restated/unknown type is still data, not noise to drop.
+
 ---
 
 ## 16. Dashboard Recommended Field Sets

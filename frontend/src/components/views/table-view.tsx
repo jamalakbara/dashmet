@@ -10,7 +10,6 @@ import {
   Search,
   Download,
   ChevronRight,
-  ChevronDown,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,19 +31,28 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { SegmentControl } from "@/components/ui/segment-control";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { insightsApi } from "@/lib/api/insights";
+import { PaginationBar } from "@/components/shared/pagination-bar";
+import { DeltaPill } from "@/components/metrics/delta-pill";
+import { insightsApi, type MetricsPrevious } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useAccountId } from "@/hooks/use-account";
+import { useSyncActive } from "@/hooks/use-sync-jobs";
+import { usePlatform } from "@/hooks/use-platform";
 import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
 import { useDateRange } from "@/hooks/use-date-range";
+import { useSharedFilterQuery } from "@/hooks/use-shared-query";
 import { useUIStore } from "@/stores/ui-store";
 import {
   formatCurrency,
   formatNumber,
   formatPercent,
   formatRoas,
+  type MetricType,
 } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 import type { EntityStatus } from "@/types/enums";
@@ -106,6 +114,7 @@ interface TableRow {
   has_creative?: boolean;
   creative_preview?: CreativePreview;
   metrics?: Metrics;
+  metrics_previous?: MetricsPrevious;
 }
 
 // ─── Column definitions ───────────────────────────────────────────────────────
@@ -130,8 +139,35 @@ function getCellValue(row: TableRow, col: ColDef): unknown {
   return (row as unknown as Record<string, unknown>)[col.key] ?? null;
 }
 
-function renderCell(row: TableRow, col: ColDef, onDrillDown: () => void, currency: string): React.ReactNode {
+function renderCell(
+  row: TableRow,
+  col: ColDef,
+  onDrillDown: () => void,
+  currency: string,
+  compare = false,
+): React.ReactNode {
   const v = getCellValue(row, col);
+
+  // Numeric metric columns get a period-over-period delta pill underneath when
+  // comparing and the row carries a prior-period value for this metric.
+  const isNumeric =
+    col.cell === "currency" ||
+    col.cell === "number" ||
+    col.cell === "percent" ||
+    col.cell === "roas";
+  const deltaPill =
+    compare && isNumeric && col.metricKey && row.metrics_previous ? (
+      <div className="mt-0.5 flex justify-end">
+        <DeltaPill
+          current={v as number | null}
+          previous={row.metrics_previous[col.metricKey]}
+          metricKey={col.metricKey}
+          variant="tooltip"
+          valueType={col.cell as MetricType}
+          currency={currency}
+        />
+      </div>
+    ) : null;
 
   switch (col.cell) {
     case "name":
@@ -165,13 +201,33 @@ function renderCell(row: TableRow, col: ColDef, onDrillDown: () => void, currenc
     case "text":
       return <span className="text-sm">{v != null ? String(v) : "—"}</span>;
     case "currency":
-      return <span className="tabular-nums">{formatCurrency(v as number, currency)}</span>;
+      return (
+        <div>
+          <span className="tabular-nums">{formatCurrency(v as number, currency)}</span>
+          {deltaPill}
+        </div>
+      );
     case "number":
-      return <span className="tabular-nums">{formatNumber(v as number)}</span>;
+      return (
+        <div>
+          <span className="tabular-nums">{formatNumber(v as number)}</span>
+          {deltaPill}
+        </div>
+      );
     case "percent":
-      return <span className="tabular-nums">{formatPercent(v as number)}</span>;
+      return (
+        <div>
+          <span className="tabular-nums">{formatPercent(v as number)}</span>
+          {deltaPill}
+        </div>
+      );
     case "roas":
-      return <span className="tabular-nums">{formatRoas(v as number)}</span>;
+      return (
+        <div>
+          <span className="tabular-nums">{formatRoas(v as number)}</span>
+          {deltaPill}
+        </div>
+      );
     default:
       return "—";
   }
@@ -204,84 +260,50 @@ function SortIcon({ col, sortBy, sortOrder }: {
 }) {
   if (!col.sortable) return null;
   if (sortBy !== col.key) return <ArrowUpDown className="ml-1 inline size-3 opacity-40" />;
-  return sortOrder === "asc"
-    ? <ArrowUp className="ml-1 inline size-3" />
-    : <ArrowDown className="ml-1 inline size-3" />;
-}
-
-// ─── Simple pagination ────────────────────────────────────────────────────────
-
-function TablePagination({
-  page,
-  totalPages,
-  total,
-  perPage,
-  onPage,
-}: {
-  page: number;
-  totalPages: number;
-  total: number;
-  perPage: number;
-  onPage: (p: number) => void;
-}) {
-  const from = (page - 1) * perPage + 1;
-  const to   = Math.min(page * perPage, total);
-
-  const pages: (number | "…")[] = [];
-  if (totalPages <= 7) {
-    for (let i = 1; i <= totalPages; i++) pages.push(i);
-  } else {
-    pages.push(1);
-    if (page > 3) pages.push("…");
-    for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) pages.push(i);
-    if (page < totalPages - 2) pages.push("…");
-    pages.push(totalPages);
-  }
-
-  return (
-    <div className="flex items-center justify-between px-4 py-3 text-sm text-muted-foreground">
-      <span>Showing {from}–{to} of {total}</span>
-      <div className="flex items-center gap-1">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={page <= 1}
-          onClick={() => onPage(page - 1)}
-        >
-          ←
-        </Button>
-        {pages.map((p, i) =>
-          p === "…" ? (
-            <span key={`ellipsis-${i}`} className="px-1">…</span>
-          ) : (
-            <Button
-              key={p}
-              variant={p === page ? "default" : "ghost"}
-              size="sm"
-              onClick={() => onPage(p as number)}
-            >
-              {p}
-            </Button>
-          )
-        )}
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={page >= totalPages}
-          onClick={() => onPage(page + 1)}
-        >
-          →
-        </Button>
-      </div>
-    </div>
+  return sortOrder === "asc" ? (
+    <AnimatedIcon
+      icon={ArrowUp}
+      motionPreset="pop"
+      trigger="state"
+      appear
+      activeVariant="show"
+      className="ml-1 inline-flex"
+      iconClassName="size-3"
+    />
+  ) : (
+    <AnimatedIcon
+      icon={ArrowDown}
+      motionPreset="pop"
+      trigger="state"
+      appear
+      activeVariant="show"
+      className="ml-1 inline-flex"
+      iconClassName="size-3"
+    />
   );
 }
 
 // ─── View ─────────────────────────────────────────────────────────────────────
 
-export function TableView() {
+export function TableView({
+  preview = false,
+  platformObjective,
+}: {
+  preview?: boolean;
+  /**
+   * When set, filters campaigns to this raw platform objective (e.g. TikTok
+   * "PRODUCT_SALES" for the GMV Max view) and locks the table to campaign
+   * level (the level tabs hide — objective is a campaign concept). Passed
+   * straight through to the table endpoint's `platform_objective` param.
+   */
+  platformObjective?: string;
+} = {}) {
   const accountId  = useAccountId();
   const dateRange  = useDateRange();
+  const platform   = usePlatform() ?? "meta";
+  const syncActive = useSyncActive();
+  const withQuery  = useSharedFilterQuery();
+  const router     = useRouter();
   const { tableMetricDefs, currency } = usePlatformMetrics();
   const { visibleColumns, setVisibleColumns } = useUIStore();
 
@@ -329,6 +351,8 @@ export function TableView() {
   const [campaignId, setCampaignId] = useQueryState("campaign_id");
   const [adgroupId,  setAdgroupId]  = useQueryState("adgroup_id");
   const [search,     setSearch]     = useQueryState("search");
+  const [compareStr] = useQueryState("compare");
+  const compare = compareStr === "true";
 
   // Local search input — debounce → URL
   const [searchInput, setSearchInput] = useState(search ?? "");
@@ -356,11 +380,13 @@ export function TableView() {
     queryKey: queryKeys.table(accountId ?? "", dateRange, level, {
       status:   status !== "all" ? status : undefined,
       search:   search ?? undefined,
+      platform_objective: platformObjective ?? undefined,
       sort_by:  sortBy,
       sort_order: sortOrder,
       page,
       campaign_id: campaignId ?? undefined,
       adgroup_id:  adgroupId ?? undefined,
+      compare_previous: compare || undefined,
     }),
     queryFn: () =>
       insightsApi.table({
@@ -369,15 +395,19 @@ export function TableView() {
         level,
         status:      status !== "all" ? status : undefined,
         search:      search ?? undefined,
+        platform_objective: platformObjective ?? undefined,
         sort_by:     sortBy,
         sort_order:  sortOrder,
         page,
         per_page:    PER_PAGE,
         campaign_id: campaignId ?? undefined,
         adgroup_id:  adgroupId ?? undefined,
+        compare_previous: compare || undefined,
       }),
     enabled: !!accountId,
     staleTime: 15 * 60 * 1000,
+    // Poll while a sync is landing so the table fills in without a manual refresh.
+    refetchInterval: syncActive ? 5000 : false,
   });
 
   const rows: TableRow[]  = res?.data?.data ?? [];
@@ -434,16 +464,88 @@ export function TableView() {
     );
   }
 
+  // ── Preview mode: compact, read-only campaign table with a "See All" link ──
+  if (preview) {
+    const previewCols = visibleCols;
+    const previewRows = rows.slice(0, 5);
+    return (
+      <Card className="gap-0 py-0">
+        <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+          <div>
+            <p className="text-base font-semibold">Data Based On</p>
+            <p className="text-sm text-muted-foreground">Top campaigns by spend</p>
+          </div>
+          <Link
+            href={withQuery(`/${platform}/table?level=campaign`)}
+            className="group inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary hover:underline"
+          >
+            See All <AnimatedIcon icon={ChevronRight} motionPreset="nudgeRight" iconClassName="size-4" />
+          </Link>
+        </div>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {previewCols.map((col) => (
+                  <TableHead key={col.key} className={cn(col.align === "right" && "text-right")}>
+                    {col.label}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <TableRow key={i}>
+                    {previewCols.map((col) => (
+                      <TableCell key={col.key}>
+                        <div className="h-4 animate-pulse rounded bg-muted" />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              ) : previewRows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={previewCols.length} className="py-10 text-center text-muted-foreground">
+                    No results
+                  </TableCell>
+                </TableRow>
+              ) : (
+                previewRows.map((row) => (
+                  <TableRow key={row.id}>
+                    {previewCols.map((col) => (
+                      <TableCell key={col.key} className={cn(col.align === "right" && "text-right")}>
+                        {renderCell(
+                          row,
+                          col,
+                          () => router.push(withQuery(`/${platform}/table?level=adgroup&campaign_id=${row.id}`)),
+                          currency,
+                          compare,
+                        )}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      {/* Level tabs */}
-      <Tabs value={level} onValueChange={switchLevel}>
-        <TabsList>
-          {LEVEL_TABS.map((t) => (
-            <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      {/* Level tabs — hidden in GMV Max mode, which is campaign-scoped (a
+          platform objective is a campaign concept, not an ad-group/ad one). */}
+      {!platformObjective && (
+        <SegmentControl
+          items={LEVEL_TABS}
+          value={level}
+          onValueChange={switchLevel}
+          ariaLabel="Entity level"
+        />
+      )}
 
       {/* Drill-down breadcrumb */}
       {(campaignId || adgroupId) && (
@@ -501,6 +603,7 @@ export function TableView() {
 
           {/* Status filter */}
           <Select
+            items={STATUS_OPTIONS}
             value={status}
             onValueChange={(v) => { setStatus(v); setPage(1); }}
           >
@@ -539,10 +642,11 @@ export function TableView() {
           <Button
             variant="outline"
             size="sm"
+            className="group"
             onClick={() => exportCSV(rows, visibleCols)}
             disabled={rows.length === 0}
           >
-            <Download className="size-3.5" />
+            <AnimatedIcon icon={Download} motionPreset="bounce" iconClassName="size-3.5" />
             Export
           </Button>
         </div>
@@ -596,11 +700,15 @@ export function TableView() {
                           setExpandedId(expandedId === row.id ? null : row.id)
                         }
                       >
-                        {/* Expand chevron */}
+                        {/* Expand chevron — right → rotates 90° to point down */}
                         <TableCell className="w-8 text-muted-foreground">
-                          {expandedId === row.id
-                            ? <ChevronDown className="size-3.5" />
-                            : <ChevronRight className="size-3.5" />}
+                          <AnimatedIcon
+                            icon={ChevronRight}
+                            motionPreset="spin"
+                            trigger="state"
+                            active={expandedId === row.id}
+                            iconClassName="size-3.5"
+                          />
                         </TableCell>
 
                         {visibleCols.map((col) => (
@@ -611,7 +719,7 @@ export function TableView() {
                               col.key === "name" && "sticky left-0 bg-card"
                             )}
                           >
-                            {renderCell(row, col, () => drillDown(row), currency)}
+                            {renderCell(row, col, () => drillDown(row), currency, compare)}
                           </TableCell>
                         ))}
                       </TableRow>
@@ -625,17 +733,17 @@ export function TableView() {
                               {level === "campaign" && (
                                 <button
                                   onClick={() => drillDown(row)}
-                                  className="flex items-center gap-1 text-primary hover:underline"
+                                  className="group flex items-center gap-1 text-primary hover:underline"
                                 >
-                                  View ad groups <ChevronRight className="size-3.5" />
+                                  View ad groups <AnimatedIcon icon={ChevronRight} motionPreset="nudgeRight" iconClassName="size-3.5" />
                                 </button>
                               )}
                               {level === "adgroup" && (
                                 <button
                                   onClick={() => drillDown(row)}
-                                  className="flex items-center gap-1 text-primary hover:underline"
+                                  className="group flex items-center gap-1 text-primary hover:underline"
                                 >
-                                  View ads <ChevronRight className="size-3.5" />
+                                  View ads <AnimatedIcon icon={ChevronRight} motionPreset="nudgeRight" iconClassName="size-3.5" />
                                 </button>
                               )}
                               {level === "ad" && row.creative_preview && (
@@ -674,7 +782,7 @@ export function TableView() {
 
         {/* Pagination */}
         {!isLoading && total > 0 && (
-          <TablePagination
+          <PaginationBar
             page={page}
             totalPages={totalPages}
             total={total}

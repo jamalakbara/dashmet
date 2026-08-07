@@ -6,4 +6,5 @@ export const connectionsApi = {
     apiClient.post("/connections", { platform, access_token, token_type }),
   delete: (id: string) => apiClient.delete(`/connections/${id}`),
   initiateTikTokOAuth: () => apiClient.get("/connections/tiktok/oauth/initiate"),
+  initiateGoogleOAuth: () => apiClient.get("/connections/google/oauth/initiate"),
 };

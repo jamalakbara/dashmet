@@ -101,6 +101,7 @@ Available for `BASIC` and `AUDIENCE` report types, at Ad and Ad Group levels.
 
 | API Field Name | Display Name | Description |
 |---|---|---|
+| `engagements` | Paid Engagements | Total paid engagement actions on an ad (aggregate of likes, comments, shares, follows, etc.) |
 | `likes` | Paid Likes | Number of likes on an ad during the impression |
 | `comments` | Paid Comments | Number of comments on an ad |
 | `shares` | Paid Shares | Number of shares on an ad |
@@ -173,6 +174,10 @@ Click-Through Attribution (CTA) and View-Through Attribution (VTA). Available in
 
 Track actions users take on your **website** after clicking an ad. Requires TikTok Pixel. Available in `BASIC` report.
 
+> Note: the sync worker does **not** request these pixel-web `page_event_*` fields.
+> The reporting design's "(Shop)"/"(Onsite)" metrics map to TikTok's ONSITE family —
+> see §15 for the exact fields (`onsite_*`, `total_onsite_*`, `ix_*`) the worker requests.
+
 | API Field Name | Display Name | Description |
 |---|---|---|
 | `page_event_page_view` | Page Views (Website) | Number of page view events |
@@ -188,6 +193,7 @@ Track actions users take on your **website** after clicking an ad. Requires TikT
 | `page_event_add_to_cart` | Add to Cart (Website) | Number of add-to-cart events |
 | `page_event_add_to_cart_value` | Add to Cart Value (Website) | Total value of items added to cart |
 | `page_event_checkout` | Checkout Initiated (Website) | Number of initiated checkouts |
+| `page_event_checkout_value` | Checkout Value (Website) | Total value of initiated checkouts |
 | `page_event_search` | Searches (Website) | Number of search events |
 | `page_event_add_to_wishlist` | Adds to Wishlist (Website) | Number of add-to-wishlist events |
 | `page_event_add_payment_info` | Payment Info Added (Website) | Number of payment info addition events |
@@ -320,6 +326,59 @@ For TikTok Shop and onsite commerce events. Available in `BASIC` report.
 | `onsite_purchase` | Purchases (Onsite) | Number of purchases made onsite |
 | `onsite_purchase_value` | Purchase Value (Onsite) | Total value of onsite purchases |
 
+The following ONSITE-family fields are the ones the sync worker requests as its
+graceful-fallback `EVENT_METRICS` tier (see `docs/sync-worker-spec.md`). These are
+the correct "(Shop)"/"(Onsite)" fields — **not** the pixel-web `page_event_*` family
+in §9:
+
+| API Field Name | Display Name | Stored as `(field_name, action_type)` |
+|---|---|---|
+| `ix_page_view_count` | Page Views (Onsite) | (`page_events`, `page_view`) |
+| `onsite_on_web_cart` | Adds to Cart (Onsite) | (`page_events`, `add_to_cart`) |
+| `total_onsite_on_web_cart_value` | Add to Cart Value (Onsite) | (`page_event_values`, `add_to_cart`) |
+| `onsite_initiate_checkout_count` | Checkout Initiated (Onsite) | (`page_events`, `checkout`) |
+| `total_onsite_initiate_checkout_count_value` | Checkout Value (Onsite) | (`page_event_values`, `checkout`) |
+| `onsite_shopping` | Purchases (Onsite / Shop) | (`page_events`, `purchase`) |
+| `total_onsite_shopping_value` | Purchase Value (Onsite / Shop) | (`page_event_values`, `purchase`) |
+
+### GMV Max view — KPI → metric mapping
+
+The frontend **TikTok GMV Max** view (`/tiktok/gmv-max`, ADS lens of the reference
+dashboard) is scoped to campaigns whose raw `objective_type` is `PRODUCT_SALES`
+(the GMV Max objective; stored as `campaigns.platform_objective` — the normalized
+`objective` collapses it to `sales`, so the raw value is what identifies GMV Max).
+Its headline KPIs map to metrics dashmet already reads:
+
+| GMV Max KPI | dashmet metric key | Source |
+|---|---|---|
+| Cost | `spend` | `metrics_daily.spend` |
+| Gross Revenue | `web_purchase_value` | (`page_event_values`, `purchase`) |
+| Orders | `web_purchases` | (`page_events`, `purchase`) |
+| Cost per Order | `cost_per_web_purchase` | `spend ÷ web_purchases` (derived after aggregation) |
+| ROAS (Shop) | `roas_shop` | `web_purchase_value ÷ spend` (derived after aggregation) |
+
+The reference mockup's **Net cost** and a separate **ROI** are intentionally
+**not** surfaced: TikTok's ads reporting exposes no refund/adjustment feed to back
+a "net" figure, and inventing one would violate P-4 (refuse rather than answer
+wrong). ROAS (Shop) stands in as the return metric. The mockup's **TikTok Shop**
+and **Ads × Shop** modes need the TikTok Shop **Open API** (orders, products,
+LIVE, affiliate, finance, channel attribution), which dashmet does not integrate —
+they render locked in the UI, never as fabricated data.
+
+The sync worker's `EVENT_METRICS` graceful-fallback tier also requests these
+feature-gated interactive-addon (§16) and LIVE (§12) fields. They keep
+`field_name` verbatim and are dropped on the same "invalid metric fields"
+fallback if the advertiser hasn't enabled the feature:
+
+| API Field Name | Display Name | Stored as `(field_name, action_type)` |
+|---|---|---|
+| `ix_product_click_count` | Product Card Clicks (Interactive) | (`ix_product_click_count`, `product_click`) |
+| `live_effective_views` | Effective LIVE Views | (`live_effective_views`, `live_view`) |
+| `live_product_clicks` | LIVE Product Clicks | (`live_product_clicks`, `product_click`) |
+
+The standard `engagements` field (§5) is instead requested in the always-on
+`ACTION_METRICS` tier and stored as (`engagements`, `engagement`).
+
 ---
 
 ## 16. Interactive Add-on Metrics
@@ -333,6 +392,7 @@ For ads using interactive overlays and stickers. Available in `BASIC` report.
 | `interactive_addon_activity_clicks` | Interactive Add-on Activity Clicks | Clicks on interactive activity elements |
 | `interactive_addon_option_a_clicks` | Option A Clicks | Clicks on Option A in a poll/quiz |
 | `interactive_addon_option_b_clicks` | Option B Clicks | Clicks on Option B in a poll/quiz |
+| `ix_product_click_count` | Product Card Clicks (Interactive) | Clicks on the interactive-addon product card |
 | `countdown_sticker_recall_clicks` | Countdown Sticker Recall Clicks | Clicks on countdown sticker recall notifications |
 
 ---
@@ -398,9 +458,9 @@ Ready-to-use metric arrays for common dashboard panels.
 ["conversion", "conversion_rate", "cost_per_conversion", "real_time_conversion", "real_time_cost_per_conversion", "cta_conversion", "cta_purchase", "vta_conversion", "vta_purchase"]
 ```
 
-### E-Commerce / Website Panel
+### E-Commerce / Onsite Panel (ONSITE family — what the sync worker requests)
 ```json
-["spend", "page_event_purchase", "page_event_purchase_value", "cost_per_page_event_purchase", "page_event_add_to_cart", "page_event_checkout", "page_event_landing_page_view"]
+["spend", "onsite_shopping", "total_onsite_shopping_value", "onsite_on_web_cart", "total_onsite_on_web_cart_value", "onsite_initiate_checkout_count", "total_onsite_initiate_checkout_count_value", "ix_page_view_count"]
 ```
 
 ### App Installs Panel

@@ -15,6 +15,7 @@ class OrgUpdateRequest(BaseModel):
 
 
 class MemberResponse(BaseModel):
+    membership_id: str
     id: Optional[str] = None
     name: Optional[str] = None
     email: str
@@ -32,3 +33,7 @@ class AcceptInviteRequest(BaseModel):
     token: str
     name: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=8)
+
+
+class SetMemberAccountsRequest(BaseModel):
+    account_ids: list[str] = Field(default_factory=list)

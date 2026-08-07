@@ -123,6 +123,10 @@ CELERYBEAT_SCHEDULE = {
 }
 ```
 
+### Staggered dispatch (prevents thundering herd)
+
+Each `*_all` dispatcher calls `stagger_dispatch()` (`workers/dispatch.py`) instead of looping `.delay()` directly. It spreads per-account task enqueues across ~600s of the interval, interleaves accounts round-robin by `platform_connection_id` (so one org's accounts don't burst against the same token simultaneously), and skips connections that are currently rate-limit paused. At scale, this prevents all accounts hitting the shared Meta API quota in a single tick.
+
 ### TTL enforcement (don't re-fetch if fresh)
 
 Before each fetch, the worker checks the last `completed_at` for that job type + account + date range against the TTL. If fresh, it skips.
@@ -179,24 +183,88 @@ Call 1 — non-unique scalars:
             video_play_actions,video_p25_watched_actions,
             video_p50_watched_actions,video_p75_watched_actions,
             video_p100_watched_actions,video_thruplay_watched_actions,
-            video_avg_time_watched_actions
+            video_avg_time_watched_actions,
+            catalog_segment_actions,catalog_segment_value   ← CPAS shared-item, see below
     &level=campaign
-    &date_preset=last_7d
+    &time_range={"since":"2026-07-27","until":"2026-08-03"}   ← resolved, see below
     &time_increment=1     ← one row per day
 
 Call 2 — unique metrics (separate call, slower):
   GET /act_{id}/insights
     ?fields=reach,unique_clicks,unique_inline_link_clicks,unique_ctr
     &level=campaign
-    &date_preset=last_7d
+    &time_range={"since":"2026-07-27","until":"2026-08-03"}
     &time_increment=1
 ```
 
+> **`date_preset` is never sent to Meta (PRD §2.3 / P-7).** The task takes a
+> preset (`last_7d`, `last_30d`, …) but resolves it to an explicit `time_range`
+> in the account's timezone via `workers.date_range.meta_time_range`, which wraps
+> the same `app.services.insights.resolve_date_range` the read/API path uses.
+> This guarantees synced days == queried days by construction. Enforced by
+> `tests/test_date_range_parity.py`.
+
 Both calls write to the same `metrics_daily` rows via upsert — they merge, not overwrite.
+
+> **CPAS shared-item (catalog-segment) conversions.** `catalog_segment_actions`
+> and `catalog_segment_value` are requested in Call 1 for **all** Meta accounts
+> (campaign / adset / ad non-unique fetches). For Collaborative Ads accounts the
+> retailer owns the pixel, so regular `actions` / `action_values` / `purchase_roas`
+> come back empty and `catalog_segment_*` is the only conversion source (see
+> `docs/meta-ad-account-types.md` §7). These fields return empty (not an error) for
+> non-catalog accounts, so requesting them unconditionally is safe; they are **not**
+> added to the unique-metrics call or the breakdown fetch. Each array entry is
+> stored into `metric_action_stats` keeping `field_name` verbatim, with the
+> `action_type` normalized to a canonical bucket (`purchase` / `add_to_cart` /
+> `view_content`) by `_normalize_catalog_segment_action` — unknown types stored
+> as-is. See `docs/meta-ads-metrics-reference.md` §15 for the full normalization
+> table.
+
+> **TikTok insights metric tiers (`workers/tasks/tiktok_insights.py`).** TikTok's
+> integrated reporting request is built from three lists:
+> - `SCALAR_METRICS` — core spend/impression/rate fields, written to `metrics_daily`.
+> - `ACTION_METRICS` — video/engagement/result fields, requested on **every** call
+>   (part of `base_metrics`); each maps through `TIKTOK_ACTION_MAP` into a
+>   `metric_action_stats` row. Includes `average_video_play` and
+>   `average_video_play_per_user` (both stored as `field_name = "average_video_play*"`,
+>   `action_type = "video_view"`, average values — never summed across rows, P-4).
+>   Also includes `engagements` (standard aggregate engagement metric, not Pixel /
+>   feature-gated → stays in the always-requested tier), stored as
+>   `field_name = "engagements"`, `action_type = "engagement"`.
+> - `EVENT_METRICS` — website/app page-event fields that require a Pixel / app SDK.
+>   TikTok rejects the **whole** request with "invalid metric fields" if these are
+>   requested for an advertiser without a Pixel configured, so they are in a
+>   **graceful-fallback tier**: on the first such error the worker sets
+>   `event_supported = False` and retries once with `base_metrics` only, so core
+>   metrics still sync (this is a distinguishable degraded state, not a fake zero, P-4).
+>   Onsite/shop fields currently requested (TikTok's ONSITE family, not the
+>   pixel-web `page_event_*` family): `onsite_shopping`,
+>   `total_onsite_shopping_value`, `onsite_on_web_cart`,
+>   `total_onsite_on_web_cart_value`, `onsite_initiate_checkout_count`,
+>   `total_onsite_initiate_checkout_count_value`, `ix_page_view_count`, and
+>   `app_event_install`. Also in this graceful-fallback tier: the interactive-addon
+>   field `ix_product_click_count` and the LIVE fields `live_effective_views` and
+>   `live_product_clicks` — all three are feature-gated and dropped on the same
+>   "invalid metric fields" fallback if the advertiser hasn't enabled them.
+>
+> Each `EVENT_METRICS` field maps through `TIKTOK_ACTION_MAP` into `metric_action_stats`:
+> counts land under `field_name = "page_events"` (action_types `purchase`,
+> `add_to_cart`, `checkout`, `page_view`) and monetary values under
+> `field_name = "page_event_values"` (action_types `purchase`, `add_to_cart`,
+> `checkout`). App installs land under `field_name = "app_events"`, `action_type = "install"`.
+> The three added feature-gated fields keep `field_name` verbatim:
+> `ix_product_click_count` → (`ix_product_click_count`, `product_click`),
+> `live_effective_views` → (`live_effective_views`, `live_view`),
+> `live_product_clicks` → (`live_product_clicks`, `product_click`).
+> No DB migration is needed — `metric_action_stats` is a generic
+> `(field_name, action_type, value)` store. See `docs/tiktok-api-metrics-reference.md`
+> §5, §12, §16 for the upstream field definitions.
 
 ### Breakdown fetches (hourly beat)
 
 Breakdowns are synced hourly via the `sync_breakdowns_all` beat task → `sync_breakdowns_for_account` per account. Each run fetches `last_30d` of data, covering the default UI date range. Results are stored in `metric_breakdowns` and queried directly by the breakdown API.
+
+Each run records a `sync_jobs` row with `job_type = "breakdown"` (singular, matching `JOB_TTLS` and the `/sync/status` envelope) — committed running before the first API call, finalized on every exit path (P-8). This is what lets the freshness badge / breakdown section tell "syncing" from "done"; without it the badge is stuck on "partially synced". All platforms use the singular `"breakdown"` string (Meta, TikTok, Google).
 
 Supported breakdown dimensions:
 - `age,gender` (always fetched together as a compound)
@@ -248,30 +316,44 @@ class RateLimitState:
 
 | Metric | Threshold | Action |
 |---|---|---|
-| `insights_app_pct` | > 80% | Sleep 30s before next insights call |
-| `insights_app_pct` | > 95% | Sleep 300s — hard pause |
-| `insights_acc_pct` | > 80% | Sleep 30s |
-| `structure_acc_pct` | > 80% | Sleep 30s before next structure call |
-| `app_call_count` | > 80 | Sleep 60s |
+| `insights_app_pct` | > 80% | Reschedule task 30s later (account scope) |
+| `insights_app_pct` | > 95% | Pause entire connection 300s + reschedule |
+| `insights_acc_pct` | > 80% | Reschedule task 30s later |
+| `structure_acc_pct` | > 80% | Reschedule task 30s later |
+| `app_call_count` | > 80 | Reschedule task 60s later |
 
 ```python
-def apply_backoff(account_id):
-    state = RateLimitState.load(account_id)
+def apply_backoff(account_id: str, connection_id: str | None = None) -> None:
+    """Raises RateLimitBackoff. Does NOT sleep — task reschedules itself on catch."""
+    state = RateLimitState(account_id, connection_id)
 
-    if state.insights_app_pct > 95:
-        logger.warning(f"[{account_id}] Hard rate limit pause (5 min)")
-        time.sleep(300)
-        return
+    if state.insights_app_pct > 95:             # HARD — shared app quota
+        countdown = int(state.quota_reset_seconds) or 300
+        if connection_id:
+            pause_connection(connection_id, countdown)  # pauses ALL accounts on this token
+        raise RateLimitBackoff(countdown, scope="connection")
 
-    if state.insights_app_pct > 80 or state.insights_acc_pct > 80:
-        logger.info(f"[{account_id}] Soft rate limit back-off (30s)")
-        time.sleep(30)
-
-    if state.structure_acc_pct > 80:
-        time.sleep(30)
+    soft = 0
+    if state.insights_app_pct > 80 or state.insights_acc_pct > 80: soft = 30
+    if state.structure_acc_pct > 80:  soft = max(soft, 30)
+    if state.app_call_count > 80:     soft = max(soft, 60)
+    if soft:
+        raise RateLimitBackoff(soft, scope="account")
 ```
 
-**This function is called before every API call, not just on error.** Proactive throttling prevents hitting hard limits.
+**Backoff is non-blocking.** `apply_backoff` raises `RateLimitBackoff` instead of calling `time.sleep`. The task catches it and calls `self.apply_async(countdown=N)`, freeing the worker slot immediately. Rate-limit reschedules are kept off the error-retry budget (`max_retries` stays reserved for genuine API errors).
+
+**Called at task entry** (once, before the first API call), not before every individual request.
+
+### Connection-scoped pause (shared-token gate)
+
+One `platform_connections.access_token` is shared by all accounts in an org. Meta's app-level throttle (`app_id_util_pct`) is shared across that whole token — so when one account hits the hard limit (>95%), all sibling accounts must also back off, not just one.
+
+When `apply_backoff` detects `app_id_util_pct > 95%` **or** a hard Meta error code (4/17/32/613/80000–80004) is caught mid-task, it calls `pause_connection(connection_id, seconds)` — which sets a Redis key `rate_limit:conn:{id}:paused` with TTL. Every per-account task checks `connection_paused_remaining(connection_id)` at entry before touching the API; if the key is live, it calls `self.apply_async(countdown=remaining)` and returns. The staggered dispatcher also skips paused connections entirely, so tasks aren't re-enqueued during the pause window.
+
+### Overlap lock (per-account, per-job-type)
+
+A single account should not have two concurrent runs of the same sync job. A Redis `SET NX EX` lock (`rate_limit:lock:{job_type}:{account_id}`, TTL = task hard time limit + 120s) is acquired at task entry after the connection-pause check. If another run holds the lock, the task returns immediately without creating a `sync_jobs` row. Released via atomic Lua check-and-delete in a `finally` block. Works correctly with `task_acks_late=True`: a crashed worker's lock expires via TTL, after which the redelivered message re-acquires cleanly.
 
 ### Development tier awareness
 
@@ -317,13 +399,17 @@ def sync_insights_daily(self, account_id, ...):
 |---|---|---|---|
 | `190` | any | Invalid / expired token | Alert operator — do not retry automatically. Token must be re-generated. |
 | `200` | any | Insufficient permissions | Alert operator — token missing `ads_read` or `read_insights`. |
-| `4` | `1504022` | App-level insights rate limit | Exponential back-off. Retry after `2^attempt × 10s`. |
-| `4` | `1504039` | Too many app calls | Same as above. |
-| `4` | *(none)* | Generic app limit | Back-off 60s, retry. |
-| `17` | — | User rate limit | Back-off 60s, retry. |
+| `4` | `1504022` | App-level insights rate limit | Pause connection 300s, reschedule. |
+| `4` | `1504039` | Too many app calls | Pause connection 300s, reschedule. |
+| `4` | *(none)* | Generic app limit | Pause connection 300s, reschedule. |
+| `17` | — | User rate limit | Pause connection 300s, reschedule. |
+| `32` | — | Page rate limit | Pause connection 300s, reschedule. |
+| `613` | — | Custom rate limit | Pause connection 300s, reschedule. |
+| `80000`–`80004` | — | Ads/insights rate limit codes | Pause connection 300s, reschedule. |
 | `100` | `1487534` | Too much data per call | Narrow the date range (split into two calls), or switch to async. Do not retry as-is. |
 | `1` | — | Timeout (sync) | Switch to async job automatically. |
-| `613` | — | Custom rate limit | Back-off 120s, retry. |
+
+All rate-limit codes (4, 17, 32, 613, 80000–80004) are caught by `is_meta_rate_limit_error(code)` in `workers/rate_limit.py` and trigger `pause_connection(connection_id)` — the same hard-pause path as the >95% header threshold. This is important because Meta can return code 4 while `app_id_util_pct` still reads near zero.
 
 ```python
 def handle_api_error(self, response_json, account_id):
@@ -381,7 +467,7 @@ Step 1: Submit
   POST /v25.0/act_{id}/insights
     ?level=ad
     &fields=...
-    &date_preset=last_90d
+    &time_range={"since":...,"until":...}   ← preset resolved in account tz (§2.3)
     → { "report_run_id": "6023920149050" }
   
   → Store report_run_id in sync_jobs.platform_job_id
@@ -496,6 +582,8 @@ ACTION_STAT_FIELDS = {
     "video_p25_watched_actions", "video_p50_watched_actions",
     "video_p75_watched_actions", "video_p100_watched_actions",
     "results", "cost_per_result",
+    # CPAS shared-item conversions (Collaborative Ads — retailer owns the pixel)
+    "catalog_segment_actions", "catalog_segment_value",
 }
 
 def parse_insight_row(entity_type, entity_id, date, raw_row):
@@ -506,12 +594,19 @@ def parse_insight_row(entity_type, entity_id, date, raw_row):
         if field in ACTION_STAT_FIELDS:
             # value is a list: [{"action_type": "purchase", "value": "12"}, ...]
             for item in (value or []):
+                action_type = item["action_type"]
+                # CPAS shared-item: Meta returns varying pixel-dependent action
+                # types; normalize to purchase / add_to_cart / view_content so the
+                # read layer has a stable contract. Scoped to catalog_segment_*
+                # only — regular actions/action_values kept verbatim.
+                if field in ("catalog_segment_actions", "catalog_segment_value"):
+                    action_type = _normalize_catalog_segment_action(action_type)
                 action_stats.append({
                     "entity_type":  entity_type,
                     "entity_id":    entity_id,
                     "date":         date,
                     "field_name":   field,
-                    "action_type":  item["action_type"],
+                    "action_type":  action_type,
                     "value":        float(item["value"]),
                 })
         else:
@@ -597,7 +692,7 @@ for each active account:
         account_id,
         fields=NON_UNIQUE_FIELDS,
         level='campaign',
-        date_preset=date_preset,
+        time_range=meta_time_range(date_preset, account.timezone),  # §2.3
         time_increment=1
     )
     check_api_error(response)
@@ -614,7 +709,7 @@ for each active account:
         account_id,
         fields=UNIQUE_FIELDS,  # reach, unique_clicks, unique_ctr, ...
         level='campaign',
-        date_preset=date_preset,
+        time_range=meta_time_range(date_preset, account.timezone),  # §2.3
         time_increment=1
     )
     check_api_error(response)
@@ -638,7 +733,7 @@ for each active account:
         account_id,
         fields=FULL_AD_LEVEL_FIELDS,
         level='ad',
-        date_preset='last_90d'
+        time_range=meta_time_range('last_90d', account.timezone)  # §2.3
     )
     check_api_error(response)
 
@@ -690,8 +785,14 @@ Each `sync_job` row moves through these states:
                                   │                    
                                   │ max retries hit    
                                   ▼                    
-                               failed (final)          
+                               failed (final)
+
+                                  │ rate limit mid-run
+                                  ▼
+                               skipped ──> task rescheduled (countdown)
 ```
+
+`skipped` means the task hit a hard rate limit during execution (connection paused), marked the job `skipped`, and rescheduled itself. It is not a permanent failure — the task will retry automatically once the connection pause expires.
 
 For async jobs specifically:
 
@@ -757,33 +858,49 @@ These differ because freshness is controlled by Beat schedule intervals, while f
 | Last 14d — Meta | Days 1–7: 15min sync; Days 8–14: async 90d job | Days 8–14: up to 6hr |
 | Last 30d — Meta | Days 1–7: 15min sync; Days 8–30: async 90d job | Days 8–30: up to 6hr |
 | Last 90d — Meta | Days 1–7: 15min sync; Days 8–90: async 90d job | Days 8–90: up to 6hr |
-| Last 14d — TikTok | Days 1–7: 15min sync; Days 8–14: `insights_historical` | Days 8–14: up to 6hr |
-| Last 30d — TikTok | Days 1–7: 15min sync; Days 8–30: `insights_historical` | Days 8–30: up to 6hr |
-| Last 90d — TikTok | Not covered | N/A |
+| Last 14d — TikTok | Days 1–7: 15min sync; Days 8–14: `insights_historical` (90d) | Days 8–14: up to 6hr |
+| Last 30d — TikTok | Days 1–7: 15min sync; Days 8–30: `insights_historical` (90d) | Days 8–30: up to 6hr |
+| Last 90d / Last month + compare — TikTok | Days 1–7: 15min sync; Days 8–90: `insights_historical` (90d) | Days 8–90: up to 6hr |
 
 ### First-connect availability
 
-When an account is first connected the following chain fires immediately — no waiting for Beat:
+When an account is first connected, `sync_accounts_for_connection` imports the
+ad accounts and then eagerly enqueues the first sync — no waiting for Beat:
 
 ```
-sync_accounts_for_connection          → accounts imported         (~10–30s)
-  └─ sync_structure_for_account       → campaigns / adsets / ads  (~30s–3min)
-       ├─ sync_insights_for_account   → last 7d metrics            (~2–8min total)
-       ├─ submit_async_job_for_account → Meta: 90d async submitted  (parallel)
-       └─ sync_tiktok_insights...     → TikTok: last 30d sync      (parallel)
-            └─ sync_breakdowns_for_account → breakdowns            (~30s)
+sync_accounts_for_connection             → accounts imported            (~10–30s)
+  ├─ sync_structure_all                  → structure, all accounts       (staggered, skips-fresh)
+  ├─ stagger_dispatch(insights_daily)    → THIS connection's accounts, last_7d
+  └─ stagger_dispatch(breakdowns)        → THIS connection's accounts, last_30d
 ```
+
+Insights and breakdowns are enqueued via `stagger_dispatch` (spread over the
+window, paused connections skipped) rather than raw `.delay` per account, so a
+multi-account connection does not burst the shared token. They are **scoped to
+the just-connected connection**, not fanned out globally — `insights_daily`
+skips-fresh so a global fan-out would be cheap, but `sync_breakdowns_for_account`
+has **no staleness guard**, so a global breakdown fan-out on every connect would
+re-fetch every account's breakdowns. `sync_insights_for_account` runs its
+retry-until-structure-ready guard if it is picked up before structure completes.
+
+> **Not eager on connect: `submit_async_job_for_account` (Meta 90d async).** It
+> is driven only by its 6-hourly Beat task + 6hr staleness guard. So for a fresh
+> account, the day-8+ tail of `last_14d`/`last_30d`/`last_90d` waits up to one
+> async cycle; days 1–7 are covered immediately by the eager `insights_daily`.
+> (Previous versions of this doc drew async into the connect chain — that was
+> never wired; documented here rather than silently reconciled.)
 
 | Date range | First data after connect |
 |---|---|
 | Today / Yesterday / Last 7d | ~2–8 min |
-| Last 14d / Last 30d — Meta | ~3–15 min |
-| Last 90d — Meta | ~3–15 min |
+| Breakdowns (age/gender/country/device) | ~2–8 min (was up to 1hr — now eager) |
+| Last 14d / Last 30d / Last 90d — Meta (day 8+ tail) | up to next async cycle |
 | Last 14d / Last 30d — TikTok | ~3–10 min |
-| Last 90d — TikTok | Not covered |
+| Last 90d / Last month + compare — TikTok | ~3–10 min (day 8+ tail up to 6hr) |
 
 ### Implementation notes
 
-- `submit_async_job_for_account` has a 6hr staleness guard — safe to call on every structure sync without spamming Meta.
-- TikTok uses `job_type="insights_historical"` with a 6hr TTL, separate from `"insights_daily"` (15min TTL), so the two do not block each other.
+- `submit_async_job_for_account` has a 6hr staleness guard. It is **not** triggered on connect — only by its own Beat task.
+- TikTok uses `job_type="insights_historical"` with a 6hr TTL, separate from `"insights_daily"` (15min TTL), so the two do not block each other. The historical job runs `last_90d` (was `last_30d`), matching Meta's 90-day backfill so "Last month" **and** its prior-period compare (the month before) are both in range — a 30-day window left the compare month empty.
+- **TikTok reports are chunked to ≤30 days.** TikTok's `stat_time_day` reporting rejects any range wider than 30 days (`"max time span is 30 days when use stat_time_day"`). `sync_tiktok_insights_for_account` splits `[start, end]` into contiguous ≤30-day windows (`_date_chunks`) and calls `get_report` per chunk, merging rows — so `last_90d` becomes three requests. The event-metric fallback (`event_supported` → core-only on `invalid metric`) persists across chunks and data levels.
 - The async job submit fires in parallel with the insights sync, not after. Structure sync completes first (~30s–3min), and Meta async jobs take 1–10min to process — so `camp_map` is always populated before `fetch_async_results` runs.

@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from workers.celery_app import celery_app
+from workers.celery_app import celery_app, HEAVY_SOFT_TIME_LIMIT, HEAVY_TIME_LIMIT, LOCK_TTL
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,11 @@ TIKTOK_OBJECTIVE_MAP = {
     "CATALOG_SALES": "sales",
     "AWARENESS": "awareness",
     "SHOP_PURCHASES": "sales",
+    # Product GMV Max / TikTok Shop sales objective — the raw objective_type the
+    # Business API actually returns for shop-sales campaigns. Without this it fell
+    # through to the "awareness" default, mislabeling every shop campaign.
+    "PRODUCT_SALES": "sales",
+    "BRAND_CONSIDERATION": "awareness",
 }
 
 STALE_THRESHOLD = timedelta(minutes=30)
@@ -75,6 +80,7 @@ def sync_tiktok_accounts_for_connection(
     from app.models.platform import Account, AccountConfig, PlatformConnection
     from app.services.auth import decrypt_token
     from workers.tiktok_client import TikTokClient, TikTokAPIError
+    from workers.rate_limit import redis_client
 
     try:
         with get_worker_db() as db:
@@ -83,7 +89,7 @@ def sync_tiktok_accounts_for_connection(
                 return
             access_token = decrypt_token(conn.access_token)
 
-        with TikTokClient(access_token) as client:
+        with TikTokClient(access_token, redis_client=redis_client) as client:
             advertiser_infos = client.get_advertiser_info(advertiser_ids)
 
         info_map = {str(a["advertiser_id"]): a for a in advertiser_infos}
@@ -158,20 +164,18 @@ def sync_tiktok_accounts_for_connection(
 )
 def sync_tiktok_structure_all(self):
     from workers.db_helpers import get_worker_db
+    from workers.dispatch import stagger_dispatch
     from app.models.platform import Account
 
     with get_worker_db() as db:
-        accounts = (
-            db.query(Account)
-            .filter(
-                Account.account_status == "active",
-                Account.platform_id == "tiktok",
-            )
+        pairs = [
+            (str(aid), str(cid) if cid else None)
+            for aid, cid in db.query(Account.id, Account.platform_connection_id)
+            .filter(Account.account_status == "active", Account.platform_id == "tiktok")
             .all()
-        )
-        for account in accounts:
-            sync_tiktok_structure_for_account.delay(str(account.id))
-        logger.info("Enqueued TikTok structure sync for %s accounts", len(accounts))
+        ]
+    count = stagger_dispatch(sync_tiktok_structure_for_account, pairs)
+    logger.info("Enqueued TikTok structure sync for %s accounts", count)
 
 
 @celery_app.task(
@@ -180,15 +184,26 @@ def sync_tiktok_structure_all(self):
     max_retries=3,
     default_retry_delay=60,
     retry_backoff=True,
+    soft_time_limit=HEAVY_SOFT_TIME_LIMIT,
+    time_limit=HEAVY_TIME_LIMIT,
 )
 def sync_tiktok_structure_for_account(self, account_id: str):
+    from celery.exceptions import SoftTimeLimitExceeded
     from workers.db_helpers import get_worker_db, create_sync_job, finalize_sync_job
+    from workers.rate_limit import acquire_lock, release_lock
     from app.models.platform import Account, PlatformConnection
     from app.models.structure import Campaign, AdGroup, Ad, Creative
     from app.services.auth import decrypt_token
     from workers.tiktok_client import TikTokClient, TikTokAPIError
+    from workers.rate_limit import redis_client
 
     account_uuid = uuid.UUID(account_id)
+
+    lock_token = acquire_lock("tiktok_structure", account_id, LOCK_TTL)
+    if not lock_token:
+        logger.info("TikTok structure already running for %s — skip", account_id)
+        return
+
     job_id = create_sync_job(account_uuid, "tiktok", "structure")
 
     try:
@@ -206,7 +221,7 @@ def sync_tiktok_structure_for_account(self, account_id: str):
             access_token = decrypt_token(conn.access_token)
             advertiser_id = account.external_id
 
-        with TikTokClient(access_token) as client:
+        with TikTokClient(access_token, redis_client=redis_client) as client:
             campaigns_raw = client.get_campaigns(advertiser_id)
             adgroups_raw = client.get_adgroups(advertiser_id)
             ads_raw = client.get_ads(advertiser_id)
@@ -410,9 +425,13 @@ def sync_tiktok_structure_for_account(self, account_id: str):
         from workers.tasks.tiktok_insights import sync_tiktok_insights_for_account
         from workers.tasks.tiktok_creatives import sync_tiktok_creatives_for_account
         sync_tiktok_insights_for_account.delay(account_id)
-        sync_tiktok_insights_for_account.delay(account_id, "last_30d", "insights_historical")
+        sync_tiktok_insights_for_account.delay(account_id, "last_90d", "insights_historical")
         sync_tiktok_creatives_for_account.delay(account_id)
 
+    except SoftTimeLimitExceeded as exc:
+        logger.error("TikTok structure sync for %s exceeded soft time limit", account_id)
+        finalize_sync_job(job_id, "failed", error=exc)
+        return
     except TikTokAPIError as exc:
         logger.error("TikTok API error for account %s: %s", account_id, exc)
         finalize_sync_job(job_id, "failed", error=exc)
@@ -421,3 +440,5 @@ def sync_tiktok_structure_for_account(self, account_id: str):
         logger.exception("Unexpected error in TikTok structure sync for %s", account_id)
         finalize_sync_job(job_id, "failed", error=exc)
         raise self.retry(exc=exc)
+    finally:
+        release_lock("tiktok_structure", account_id, lock_token)

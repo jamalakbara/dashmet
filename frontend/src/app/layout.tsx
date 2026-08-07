@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import { Inter, Geist } from "next/font/google";
+import { Rubik, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/shared/providers";
 import { cn } from "@/lib/utils";
 
-const geist = Geist({subsets:['latin'],variable:'--font-sans'});
+const rubik = Rubik({ subsets: ["latin"], variable: "--font-sans" });
 
-const inter = Inter({ subsets: ["latin"] });
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" });
 
 export const metadata: Metadata = {
   title: "DashMet — Marketing Dashboard",
@@ -19,8 +19,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning className={cn("font-sans", geist.variable)}>
-      <body className={inter.className}>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={cn("font-sans", rubik.variable, geistMono.variable)}
+    >
+      <body className="font-sans">
         <Providers>{children}</Providers>
       </body>
     </html>

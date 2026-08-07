@@ -32,6 +32,7 @@ def sync_tiktok_creative(self, ad_id: str):
     from app.models.structure import Ad, Creative
     from app.services.auth import decrypt_token
     from workers.tiktok_client import TikTokClient, TikTokAPIError
+    from workers.rate_limit import redis_client
 
     ad_uuid = uuid.UUID(ad_id)
 
@@ -69,7 +70,7 @@ def sync_tiktok_creative(self, ad_id: str):
         video_name = None
 
         if video_id:
-            with TikTokClient(access_token) as client:
+            with TikTokClient(access_token, redis_client=redis_client) as client:
                 video_infos = client.get_video_info(advertiser_id, [video_id])
             if video_infos:
                 video = video_infos[0]

@@ -165,6 +165,100 @@ def tiktok_oauth_callback(
     )
 
 
+@router.get("/google/oauth/initiate")
+def google_oauth_initiate(current_user: OwnerUser):
+    from urllib.parse import urlencode
+    from app.api.deps import redis_client
+    if not settings.GOOGLE_ADS_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="Google Ads integration not configured")
+
+    state = secrets.token_urlsafe(32)
+    redis_client.setex(
+        f"google_oauth_state:{state}",
+        600,
+        f"{current_user['org_id']}:{current_user['user_id']}",
+    )
+
+    params = {
+        "client_id": settings.GOOGLE_ADS_CLIENT_ID,
+        "redirect_uri": settings.GOOGLE_ADS_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "https://www.googleapis.com/auth/adwords",
+        "access_type": "offline",   # ask for a refresh token
+        "prompt": "consent",        # force refresh_token even on reconnect
+        "include_granted_scopes": "true",
+        "state": state,
+    }
+    auth_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
+    return DataResponse(data={"auth_url": auth_url})
+
+
+@router.get("/google/oauth/callback")
+def google_oauth_callback(
+    db: DbSession,
+    code: str = Query(...),
+    state: str = Query(...),
+):
+    import httpx
+    from app.api.deps import redis_client
+
+    error_url = f"{settings.FRONTEND_URL}/settings/connections?google=error"
+
+    redis_key = f"google_oauth_state:{state}"
+    stored = redis_client.get(redis_key)
+    if not stored:
+        logger.error("Google OAuth: state not found in Redis: %s", state)
+        return RedirectResponse(url=error_url)
+    redis_client.delete(redis_key)
+
+    org_id, user_id = stored.split(":", 1)
+
+    try:
+        resp = httpx.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": settings.GOOGLE_ADS_CLIENT_ID,
+                "client_secret": settings.GOOGLE_ADS_CLIENT_SECRET,
+                "redirect_uri": settings.GOOGLE_ADS_REDIRECT_URI,
+                "grant_type": "authorization_code",
+            },
+            timeout=20.0,
+        )
+        token_data = resp.json()
+    except Exception as e:
+        logger.error("Google token exchange failed: %s", e, exc_info=True)
+        return RedirectResponse(url=error_url)
+
+    refresh_token = token_data.get("refresh_token")
+    access_token = token_data.get("access_token")
+    # refresh_token is only returned with access_type=offline + prompt=consent.
+    if not refresh_token or not access_token:
+        logger.error("Google OAuth: missing tokens in response: %s", token_data)
+        return RedirectResponse(url=error_url)
+
+    expires_in = token_data.get("expires_in", 3600)
+    token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+
+    conn = acc_svc.create_google_connection(
+        db,
+        org_id=org_id,
+        user_id=user_id,
+        refresh_token=refresh_token,
+        access_token=access_token,
+        token_expires_at=token_expires_at,
+    )
+    db.commit()
+    db.refresh(conn)
+
+    from workers.tasks.google_structure import sync_google_accounts_for_connection
+    sync_google_accounts_for_connection.delay(str(conn.id), org_id)
+
+    return RedirectResponse(
+        url=f"{settings.FRONTEND_URL}/settings/connections?google=connected"
+    )
+
+
 @router.delete("/{connection_id}", status_code=204)
 def delete_connection(connection_id: str, current_user: OwnerUser, db: DbSession):
     try:

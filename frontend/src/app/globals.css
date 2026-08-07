@@ -27,6 +27,20 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-tint-mint: var(--tint-mint);
+  --color-tint-mint-fg: var(--tint-mint-fg);
+  --color-tint-lilac: var(--tint-lilac);
+  --color-tint-lilac-fg: var(--tint-lilac-fg);
+  --color-tint-peach: var(--tint-peach);
+  --color-tint-peach-fg: var(--tint-peach-fg);
+  --color-tint-sky: var(--tint-sky);
+  --color-tint-sky-fg: var(--tint-sky-fg);
+  --color-tint-butter: var(--tint-butter);
+  --color-tint-butter-fg: var(--tint-butter-fg);
+  --color-tint-blush: var(--tint-blush);
+  --color-tint-blush-fg: var(--tint-blush-fg);
+  --font-display: var(--font-sans);
+  --font-mono: var(--font-mono);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -43,74 +57,156 @@
 
 @layer base {
   :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
+    /* Base Data — bright SaaS, cool blue accent on a light-gray canvas.
+       App bg sits slightly below pure-white cards so surfaces float (figure/ground). */
+    --background: oklch(0.968 0.003 264);
+    --foreground: oklch(0.27 0.03 264);
     --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
+    --card-foreground: oklch(0.27 0.03 264);
     --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
-    --destructive-foreground: oklch(0.985 0 0);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --radius: 0.625rem;
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --popover-foreground: oklch(0.27 0.03 264);
+    /* Accent = sidebar indigo (~273°). Single accent family app-wide:
+       buttons, active toggles, links, focus rings all match the rail. */
+    --primary: oklch(0.5 0.2 273);
+    --primary-foreground: oklch(0.99 0.005 274);
+    --secondary: oklch(0.965 0.004 264);
+    --secondary-foreground: oklch(0.32 0.03 264);
+    --muted: oklch(0.965 0.004 264);
+    --muted-foreground: oklch(0.55 0.02 264);
+    --accent: oklch(0.95 0.03 273);
+    --accent-foreground: oklch(0.45 0.15 273);
+    --destructive: oklch(0.6 0.22 25);
+    --destructive-foreground: oklch(0.99 0.01 80);
+    --border: oklch(0.92 0.004 264);
+    --input: oklch(0.92 0.004 264);
+    --ring: oklch(0.5 0.2 273);
+    --radius: 0.875rem;
+    --chart-1: oklch(0.55 0.21 262);
+    --chart-2: oklch(0.66 0.14 165);
+    --chart-3: oklch(0.75 0.15 75);
+    --chart-4: oklch(0.6 0.2 315);
+    --chart-5: oklch(0.68 0.16 30);
+
+    /* Metric-card pastel tints (bg + deeper same-hue fg) */
+    --tint-mint: oklch(0.95 0.05 165);
+    --tint-mint-fg: oklch(0.5 0.12 165);
+    --tint-lilac: oklch(0.95 0.05 300);
+    --tint-lilac-fg: oklch(0.52 0.14 300);
+    --tint-peach: oklch(0.95 0.05 45);
+    --tint-peach-fg: oklch(0.55 0.16 45);
+    --tint-sky: oklch(0.95 0.045 240);
+    --tint-sky-fg: oklch(0.52 0.13 240);
+    --tint-butter: oklch(0.96 0.06 95);
+    --tint-butter-fg: oklch(0.53 0.13 95);
+    --tint-blush: oklch(0.95 0.05 10);
+    --tint-blush-fg: oklch(0.55 0.17 10);
+
+    /* Soft neutral shadows for floating white cards */
+    --shadow-soft: 0 1px 3px oklch(0.3 0.02 264 / 0.08), 0 1px 2px oklch(0.3 0.02 264 / 0.04);
+    --shadow-lift: 0 8px 24px oklch(0.3 0.03 264 / 0.12);
+
+    /* Iridescent signature gradients (shared with .dark) */
+    --gradient-iris: linear-gradient(
+      90deg,
+      #f6d365 0%,
+      #4fb477 20%,
+      #22b8cf 40%,
+      #5b8def 58%,
+      #9b6dff 74%,
+      #e8619d 88%,
+      #f26a4b 100%
+    );
+    --iris-1: #f6d365;
+    --iris-2: #4fb477;
+    --iris-3: #22b8cf;
+    --iris-4: #5b8def;
+    --iris-5: #9b6dff;
+    --iris-6: #e8619d;
+    --iris-7: #f26a4b;
+
+    /* Indigo-blue sidebar rail (dark surface, near-white text) */
+    --sidebar: oklch(0.5 0.2 273);
+    --sidebar-foreground: oklch(0.97 0.01 274);
+    --sidebar-primary: oklch(1 0 0 / 0.16);
+    --sidebar-primary-foreground: oklch(1 0 0);
+    --sidebar-accent: oklch(1 0 0 / 0.1);
+    --sidebar-accent-foreground: oklch(1 0 0);
+    --sidebar-border: oklch(1 0 0 / 0.14);
+    --sidebar-ring: oklch(1 0 0 / 0.5);
   }
 
   .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --destructive-foreground: oklch(0.985 0 0);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    /* Bento OS — near-black base, hairline tiles, iridescent accents */
+    --background: oklch(0.145 0.004 260);
+    --foreground: oklch(0.96 0.003 250);
+    --card: oklch(0.185 0.005 255);
+    --card-foreground: oklch(0.96 0.003 250);
+    --popover: oklch(0.185 0.005 255);
+    --popover-foreground: oklch(0.96 0.003 250);
+    /* Same indigo family as light mode, lifted for the dark canvas. */
+    --primary: oklch(0.68 0.18 273);
+    --primary-foreground: oklch(0.99 0.005 274);
+    --secondary: oklch(0.24 0.005 255);
+    --secondary-foreground: oklch(0.96 0.003 250);
+    --muted: oklch(0.24 0.005 255);
+    --muted-foreground: oklch(0.62 0.006 255);
+    --accent: oklch(0.27 0.006 255);
+    --accent-foreground: oklch(0.96 0.003 250);
+    --destructive: oklch(0.7 0.19 25);
+    --destructive-foreground: oklch(0.98 0.01 80);
+    --border: oklch(1 0 0 / 8%);
+    --input: oklch(1 0 0 / 12%);
+    --ring: oklch(0.68 0.18 273);
+    --chart-1: oklch(0.78 0.16 45);
+    --chart-2: oklch(0.85 0.15 95);
+    --chart-3: oklch(0.76 0.14 165);
+    --chart-4: oklch(0.72 0.15 250);
+    --chart-5: oklch(0.7 0.19 320);
+
+    /* Iridescent signature gradients (histogram / gauge / hero fills) */
+    --gradient-iris: linear-gradient(
+      90deg,
+      #f6d365 0%,
+      #4fb477 20%,
+      #22b8cf 40%,
+      #5b8def 58%,
+      #9b6dff 74%,
+      #e8619d 88%,
+      #f26a4b 100%
+    );
+    --iris-1: #f6d365;
+    --iris-2: #4fb477;
+    --iris-3: #22b8cf;
+    --iris-4: #5b8def;
+    --iris-5: #9b6dff;
+    --iris-6: #e8619d;
+    --iris-7: #f26a4b;
+
+    /* Deep muted color washes for tints */
+    --tint-mint: oklch(0.29 0.035 165);
+    --tint-mint-fg: oklch(0.8 0.11 165);
+    --tint-lilac: oklch(0.29 0.04 300);
+    --tint-lilac-fg: oklch(0.82 0.11 300);
+    --tint-peach: oklch(0.3 0.045 45);
+    --tint-peach-fg: oklch(0.83 0.13 45);
+    --tint-sky: oklch(0.29 0.04 240);
+    --tint-sky-fg: oklch(0.82 0.11 240);
+    --tint-butter: oklch(0.3 0.045 95);
+    --tint-butter-fg: oklch(0.85 0.12 95);
+    --tint-blush: oklch(0.3 0.045 10);
+    --tint-blush-fg: oklch(0.83 0.13 10);
+
+    --shadow-soft: 0 2px 10px oklch(0 0 0 / 0.35);
+    --shadow-lift: 0 8px 24px oklch(0 0 0 / 0.5);
+
+    --sidebar: oklch(0.22 0.012 60);
+    --sidebar-foreground: oklch(0.97 0.005 80);
+    --sidebar-primary: oklch(0.68 0.18 273);
+    --sidebar-primary-foreground: oklch(0.99 0.005 274);
+    --sidebar-accent: oklch(0.32 0.04 273);
+    --sidebar-accent-foreground: oklch(0.95 0.02 274);
+    --sidebar-border: oklch(1 0 0 / 8%);
+    --sidebar-ring: oklch(0.68 0.18 273);
   }
 
   * {
@@ -120,4 +216,27 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Shake keyframe for <AnimatedIcon motionPreset="wiggle" trigger="hover">.
+   Driven via group-hover:animate-[icon-wiggle_...] (see lib/motion.ts
+   ICON_HOVER_CLASS). Small rotate back-and-forth; suppressed under
+   motion-reduce by the accompanying motion-reduce:group-hover:animate-none. */
+@keyframes icon-wiggle {
+  0% { transform: rotate(0deg); }
+  25% { transform: rotate(-12deg); }
+  50% { transform: rotate(10deg); }
+  75% { transform: rotate(-6deg); }
+  100% { transform: rotate(0deg); }
+}
+
+/* Crossfade for the sidebar's inner content on collapse/expand. The rail width
+   animates (200ms) but its content (labels vs icon-only layout) swaps discretely;
+   fading the new layout in from 0 masks the frames where content geometry doesn't
+   yet match the animating width. Keyed wrapper in components/layout/sidebar.tsx
+   replays this on every toggle. Applied via motion-safe: so reduced-motion users
+   get an instant swap. */
+@keyframes sidebar-swap-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

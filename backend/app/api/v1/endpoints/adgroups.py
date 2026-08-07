@@ -7,7 +7,10 @@ from app.exceptions import ForbiddenError, NotFoundError
 from app.models.structure import AdGroup
 from app.schemas.campaigns import AdGroupResponse
 from app.schemas.common import PaginatedResponse, build_pagination, calculate_offset
-from app.services.accounts import assert_account_belongs_to_org
+from app.services.accounts import (
+    assert_account_belongs_to_org,
+    get_accessible_account_ids,
+)
 
 router = APIRouter()
 
@@ -25,7 +28,10 @@ def list_adgroups(
     per_page: int = Query(25, ge=1, le=200),
 ):
     try:
-        account = assert_account_belongs_to_org(db, account_id, current_user["org_id"])
+        allowed = get_accessible_account_ids(db, current_user)
+        account = assert_account_belongs_to_org(
+            db, account_id, current_user["org_id"], allowed_ids=allowed
+        )
     except (NotFoundError, ForbiddenError) as e:
         raise HTTPException(status_code=403, detail=str(e))
 

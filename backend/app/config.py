@@ -24,6 +24,34 @@ class Settings(BaseSettings):
     TIKTOK_REDIRECT_URI: str = "http://localhost:8000/api/v1/connections/tiktok/oauth/callback"
     FRONTEND_URL: str = "http://localhost:3000"
 
+    # Google Ads OAuth + API
+    # developer_token + an MCC login_customer_id are required in addition to the
+    # OAuth client — see docs/google-ads-api-v24.1-comprehensive-links.md (auth).
+    GOOGLE_ADS_DEVELOPER_TOKEN: str = ""
+    GOOGLE_ADS_CLIENT_ID: str = ""
+    GOOGLE_ADS_CLIENT_SECRET: str = ""
+    GOOGLE_ADS_LOGIN_CUSTOMER_ID: str = ""  # MCC/manager customer id, digits only
+    GOOGLE_ADS_REDIRECT_URI: str = "http://localhost:8000/api/v1/connections/google/oauth/callback"
+
+    # OpenAI (on-demand AI narrative summary — see services/ai_summary.py)
+    # Safe defaults so the app boots without a key; the summary endpoint returns
+    # a distinguishable 502 (never a fake summary) when the key is empty.
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4o-mini"
+
+    # SMTP (member invite emails). If SMTP_HOST is empty the invite link is
+    # logged instead of emailed (dev fallback) — the invite row is still
+    # created either way. STARTTLS on 587 (default); for implicit SSL use
+    # port 465 with SMTP_USE_SSL=true.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""  # sender address; falls back to SMTP_USER when empty
+    SMTP_FROM_NAME: str = "DashMet"
+    SMTP_USE_TLS: bool = True   # STARTTLS (port 587)
+    SMTP_USE_SSL: bool = False  # implicit SSL (port 465)
+
     # CORS
     CORS_ORIGINS: str = "http://localhost:3000"
 

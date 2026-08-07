@@ -3,15 +3,17 @@
 import { useEffect, useState } from "react";
 import { useQueryState } from "nuqs";
 import { ChevronsUpDown } from "lucide-react";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PlatformBadge } from "@/components/shared/platform-badge";
 import { AccountCommandList } from "@/components/shared/account-command-list";
 import { useAccountSearch, useAccountsCount, useSelectedAccount } from "@/hooks/use-account";
 import { usePlatform } from "@/hooks/use-platform";
+import { useIsOwner } from "@/hooks/use-role";
 import { cn } from "@/lib/utils";
 
 const TRIGGER_CLASS =
-  "flex h-8 w-56 items-center gap-2 rounded-lg border border-input bg-transparent px-2.5 text-sm hover:bg-accent";
+  "group flex h-8 w-40 sm:w-56 items-center gap-2 rounded-lg border border-input bg-transparent px-2.5 text-sm hover:bg-accent";
 
 /** Polls the account count briefly after connecting (when none exist yet). */
 function useConnectPolling(): number | null {
@@ -36,6 +38,7 @@ export function AccountSwitcher() {
 // ── Platform route: single account, scoped to the platform ──
 function SingleAccountSwitcher({ platform }: { platform: string }) {
   const [open, setOpen] = useState(false);
+  const isOwner = useIsOwner();
   const [, setAccountId] = useQueryState("account_id");
   const { accountId: resolvedId, account } = useSelectedAccount();
   const { accounts: firstPage, isLoading } = useAccountSearch(platform, "");
@@ -48,18 +51,25 @@ function SingleAccountSwitcher({ platform }: { platform: string }) {
   }, [resolvedId]);
 
   if (count === null && isLoading) {
-    return <div className="h-8 w-56 animate-pulse rounded-lg bg-muted" />;
+    return <div className="h-8 w-40 sm:w-56 animate-pulse rounded-lg bg-muted" />;
   }
   if (firstPage.length === 0 && !isLoading) {
     return (
-      <span className="text-sm text-muted-foreground">No {platform} accounts connected</span>
+      <span className="text-sm text-muted-foreground">
+        {isOwner ? `No ${platform} accounts connected` : "No accounts assigned to you"}
+      </span>
     );
   }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger className={TRIGGER_CLASS}>
-        <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+        <AnimatedIcon
+          icon={ChevronsUpDown}
+          motionPreset="bounce"
+          className="shrink-0"
+          iconClassName="size-3.5 text-muted-foreground"
+        />
         {account && <PlatformBadge platform={account.platform} size="sm" />}
         <span className="truncate text-sm">{account?.name ?? "Select account"}</span>
       </PopoverTrigger>
@@ -82,9 +92,14 @@ function SingleAccountSwitcher({ platform }: { platform: string }) {
 function MultiAccountSwitcher() {
   const [accountsParam, setAccountsParam] = useQueryState("accounts");
   const count = useConnectPolling();
+  const isOwner = useIsOwner();
 
   if (count === 0) {
-    return <span className="text-sm text-muted-foreground">No accounts connected</span>;
+    return (
+      <span className="text-sm text-muted-foreground">
+        {isOwner ? "No accounts connected" : "No accounts assigned to you"}
+      </span>
+    );
   }
 
   const isAll = accountsParam == null;
@@ -108,7 +123,12 @@ function MultiAccountSwitcher() {
   return (
     <Popover>
       <PopoverTrigger className={TRIGGER_CLASS}>
-        <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+        <AnimatedIcon
+          icon={ChevronsUpDown}
+          motionPreset="bounce"
+          className="shrink-0"
+          iconClassName="size-3.5 text-muted-foreground"
+        />
         <span className="truncate">{label}</span>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-0">

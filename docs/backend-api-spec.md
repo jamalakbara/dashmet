@@ -383,6 +383,7 @@ List all members of the current org.
 {
   "data": [
     {
+      "membership_id": "uuid",
       "id":          "uuid",
       "name":        "Akbar",
       "email":       "akbar@example.com",
@@ -390,7 +391,8 @@ List all members of the current org.
       "joined_at":   "2026-01-15T09:00:00Z"
     },
     {
-      "id":          "uuid",
+      "membership_id": "uuid",
+      "id":          null,
       "name":        null,
       "email":       "teammate@example.com",
       "role":        "member",
@@ -401,9 +403,26 @@ List all members of the current org.
 }
 ```
 
+`membership_id` is the stable per-row identifier (the membership PK) and is
+always present — use it for the `DELETE` call below. `id` is the **user** id
+and is `null` for a pending invite (no user account exists until the invite is
+accepted). For a pending invite, `email` is the invited address (stored on the
+membership), not a user record.
+
 #### `POST /api/v1/org/members/invite`
 
-Invite a new member by email. **Owner only.** Sends an invite email with a link to accept.
+Invite a new member by email. **Owner only.** The invited email is stored on the
+membership; re-inviting the same still-pending email reuses the existing row and
+rotates its token (no duplicate pending rows).
+
+After the row is committed, an invite email is sent via SMTP with a link to
+`{FRONTEND_URL}/accept-invite?token=…` (services/email.py). Delivery never gates
+the invite: if SMTP is unconfigured (`SMTP_HOST` empty) the link is logged
+instead (dev fallback) and `email_sent` is `false`; if a configured server
+fails, the invite is still created, the error is logged, and `email_sent` is
+`false`. SMTP config env: `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_USER`,
+`SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_FROM_NAME`, `SMTP_USE_TLS` (STARTTLS),
+`SMTP_USE_SSL` (implicit SSL on 465).
 
 **Request body**
 ```json
@@ -417,14 +436,25 @@ Invite a new member by email. **Owner only.** Sends an invite email with a link 
 ```json
 {
   "data": {
-    "message": "Invite sent to teammate@example.com"
+    "message": "Invite sent to teammate@example.com",
+    "email_sent": true
   }
 }
 ```
 
+`email_sent` is `false` when SMTP is unconfigured or the send failed — the
+message text reflects this ("Invite created … but the email could not be sent").
+
 #### `POST /api/v1/org/members/accept-invite`
 
-Accept an invite token (called when the invitee clicks the email link). Creates user account if new, adds to org.
+Accept an invite token (called from the `/accept-invite` page when the invitee
+clicks the email link). Creates the user account using the **invited email**
+(`invite_email` on the membership; a legacy synthetic `pending_*@pending.dashmet`
+address is used only for pre-`invite_email` invites), adds them to the org, and
+returns an access token (invitee is logged in immediately — same shape as login).
+If an account with the invited email already exists (e.g. the person was invited
+to a second org), the membership attaches to that existing account instead of
+creating a duplicate — the existing name/password are left untouched.
 
 **Request body**
 ```json
@@ -437,11 +467,50 @@ Accept an invite token (called when the invitee clicks the email link). Creates 
 
 **Response `200`** — returns access token (user is logged in immediately).
 
-#### `DELETE /api/v1/org/members/:user_id`
+#### `DELETE /api/v1/org/members/:membership_id`
 
-Remove a member from the org. **Owner only.** Cannot remove yourself.
+Remove a member (or cancel a pending invite) from the org. **Owner only.**
+Cannot remove yourself. The path segment is the `membership_id` from
+`GET /org/members`, not the user id — pending invites have no user id, so keying
+on the membership PK is what lets them be cancelled.
 
 **Response `204`** — no body.
+**`404`** — no such membership in this org (also returned for a malformed id).
+**`403`** — attempting to remove your own membership.
+
+#### `GET /api/v1/org/members/:membership_id/accounts`
+
+List the account ids a member is granted access to. **Owner only.**
+
+**Response `200`**
+```json
+{ "data": { "account_ids": ["uuid", "uuid"] } }
+```
+
+An owner membership returns whatever grants exist (normally empty — owners are
+unrestricted and don't need grants).
+
+#### `PUT /api/v1/org/members/:membership_id/accounts`
+
+Replace a member's account grant set (the per-member allowlist). **Owner only.**
+Idempotent — sends the full desired set, not a delta.
+
+**Request body**
+```json
+{ "account_ids": ["uuid", "uuid"] }
+```
+
+**Response `200`** — `{ "data": { "account_ids": [...] } }` (the stored set).
+**`409`** — target membership is an owner (owners already have all accounts).
+**`403`** — one or more `account_ids` don't belong to this org.
+**`404`** — no such membership in this org.
+
+> **Access model:** owners have implicit access to every org account; members
+> see only accounts granted here (**no grant = no access**). This scopes
+> `GET /accounts` (the switcher), the combined dashboard's "all accounts"
+> default, and every account-scoped read (`/insights/*`, `/ads`, `/adgroups`,
+> `/campaigns`, `GET /accounts/:id`) — an ungranted account returns `403`.
+> Editing account config (`PATCH /accounts/:id/config`) is **owner only**.
 
 ---
 
@@ -541,6 +610,7 @@ Disabled accounts (`account_status = "disabled"`) are always excluded.
       "currency": "USD",
       "timezone": "America/Los_Angeles",
       "account_status": "active",
+      "account_type": "standard",
       "business_name": "My Business",
       "last_synced_at": "2026-05-30T11:45:00Z"
     }
@@ -552,6 +622,8 @@ Disabled accounts (`account_status = "disabled"`) are always excluded.
 #### `GET /api/v1/accounts/:id`
 
 Single account detail.
+
+Disabled accounts (`account_status = "disabled"`) read as **`404`**, mirroring `GET /accounts` — a stale client selection (an `account_id` kept from before a disconnect+reconnect) resolves to gone so the UI falls back to a live account. Cross-org access is still `403` (checked before the status filter, so status never leaks).
 
 **Response `200`** — same shape as single item above, plus:
 ```json
@@ -569,18 +641,34 @@ Single account detail.
 
 #### `PATCH /api/v1/accounts/:id/config`
 
-Update per-account configuration.
+Update per-account configuration. All fields optional; only provided fields change.
 
 **Request body**
 ```json
 {
   "primary_conversion_action": "lead",
   "attribution_window": "1d_click",
-  "roas_action_type": "purchase"
+  "roas_action_type": "purchase",
+  "account_type": "standard"
 }
 ```
 
+| Field | Type | Notes |
+|---|---|---|
+| `primary_conversion_action` | string | Conversion action used for CPA/conversions |
+| `attribution_window` | string | e.g. `7d_click_1d_view` |
+| `roas_action_type` | string | Action type ROAS is computed from |
+| `account_type` | `"standard"` \| `"cpas"` | **Meta-only.** `cpas` (Collaborative Ads) is rejected for non-Meta accounts |
+
 **Response `200`** — returns updated account object.
+
+**Errors**
+
+| Status | Code | When |
+|---|---|---|
+| `409` | `CONFLICT` | `account_type` = `cpas` on a non-Meta account (`platform != "meta"`) |
+| `404` | `NOT_FOUND` | Account not found |
+| `403` | `FORBIDDEN` | Account belongs to another org |
 
 ---
 
@@ -727,7 +815,17 @@ The main summary panel — aggregated metrics for an account over a period, with
 
 #### `GET /api/v1/insights/overview`
 
-**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`
+**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `status`, `search`, `platform_objective`
+
+**Campaign filter** (shared with `timeseries` and the Table/Ads tabs — driven by the Control-strip Filter popover):
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `status` | string | — | Restrict to campaigns with this status (`active` \| `paused` \| `archived`). Omitted = all. |
+| `search` | string | — | Restrict to campaigns whose name matches (`ILIKE '%search%'`). |
+| `platform_objective` | string | — | Restrict to campaigns with this **raw platform objective** (e.g. TikTok `PRODUCT_SALES`). Used by the TikTok **GMV Max** view so its KPI cards aggregate the same GMV-Max-scoped campaigns as its table (P-6 parity). |
+
+When any is set, the summary, `vs_previous`, and `top_campaigns` aggregate only the matching campaigns' rows. A filter that matches no campaign yields empty/`null` metrics (not a silent all-rows fallback). Resolved once via `_resolve_campaign_ids` → `entity_id = ANY(...)` predicate in `app/services/insights.py`.
 
 **Response `200`**
 ```json
@@ -754,6 +852,22 @@ The main summary panel — aggregated metrics for an account over a period, with
       "roas":             6.39,
       "cpa":              5.27
     },
+    "previous": {
+      "spend":            1099.10,
+      "impressions":      465000,
+      "reach":            205000,
+      "frequency":        2.27,
+      "clicks":           8190,
+      "inline_link_clicks": 6800,
+      "ctr":              1.762,
+      "cpm":              2.36,
+      "cpc":              0.13,
+      "cpp":              5.36,
+      "conversions":      191,
+      "conversion_value": 7010.00,
+      "roas":             6.38,
+      "cpa":              5.75
+    },
     "vs_previous": {
       "spend":       12.3,
       "impressions": -3.1,
@@ -779,9 +893,119 @@ The main summary panel — aggregated metrics for an account over a period, with
 }
 ```
 
-**`vs_previous` values:** percentage change vs the equivalent prior period (e.g. for `last_7d`, the prior 7 days). Positive = improved, negative = declined. `null` if no prior data.
+**Freshness marker:** `get_overview` now returns a `cached_at` = `MAX(md.fetched_at)` over the same rows the current-window rollup aggregates (or `null` when the period has no rows). It is a freshness token, not a metric — it is pulled out before the `_safe_float` coercion and surfaces on the read path as a real `data_as_of`. A re-sync bumps `fetched_at`, so `cached_at` moves; the on-demand AI summary keys its cache on this token (see below) so a re-sync self-invalidates a stale narrative (P-1).
+
+**`previous`:** the full prior-period summary — the exact same key set as `summary`, aggregated over the prior period (see *Prior-period resolution* below). Always present (not gated behind a query param); the frontend uses it to render period-over-period delta pills. Same one-writer/aggregate-then-ratio path as `summary` (ratios computed after aggregation, never average-of-averages).
+
+**`vs_previous` values:** percentage change vs the **prior period** (see *Prior-period resolution* below). Positive = improved, negative = declined. `null` if no prior data.
+
+**Prior-period resolution** — shared by `overview`, `timeseries`, and `combined` (implemented once in `resolve_prior_period`, `app/services/insights.py`):
+
+- If the selected range is **exactly one full calendar month** (the 1st through the last day of the same month), the prior period is the **previous calendar month** — e.g. `May 1–31` → `Apr 1–30`, `Mar 1–31` → `Feb 1–28/29`, `Jan 1–31` → `Dec 1–31` of the prior year. The day is clamped to the shorter month.
+- Otherwise — rolling presets (`last_7d`, `last_30d`, …) or custom multi-month spans — the prior period is the **equal-length window immediately before** the range (e.g. a 7-day range → the preceding 7 days).
 
 **`roas` and `cpa`** are computed from `account_configs.roas_action_type` and `primary_conversion_action` respectively.
+
+---
+
+#### `POST /api/v1/insights/overview/summary`
+
+On-demand **AI diagnosis** of a single-account overview. `POST` (not `GET`) because generating the summary spends OpenAI tokens: the intent must be explicit and the call must stay off the cacheable read path. Same query params and date/tenant resolution as `GET /insights/overview`.
+
+**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `status`, `search`, `force` (body is empty).
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `force` | bool | `false` | Bypass the cache and regenerate. Without it, a cache hit is replayed verbatim (`cached=true`) with **zero token spend** and no `get_table`/`get_timeseries`/OpenAI work. With `force=true` the diagnosis is regenerated and overwrites the cached entry. |
+
+**Redis cache (P-1 freshness token):** the narrative is cached in Redis (`app.api.deps.redis_client`), keyed on `aisum:v1:{account_id}:{period}:{filter_hash}:{cached_at|"nodata"}`, TTL **24h**:
+- `period` = `date_preset` if given, else `{date_start}_{date_end}`.
+- `filter_hash` = first 12 chars of `sha1` of canonical JSON `{status, search}` (sorted keys) — filters vary the key without leaking free text into it.
+- the final segment is `get_overview`'s freshness token (`cached_at` = `MAX(fetched_at)`) as an ISO string, or the literal `nodata` for an empty period. Because the token is **in the key**, a re-sync moves it → key miss → regenerate, so a stale narrative is never served (P-1). The 24h TTL is only a backstop for keys that never get re-synced.
+
+`get_overview` runs up front (it also does the tenant check), so a cache hit short-circuits before any `get_table`/`get_timeseries`/OpenAI work. A freshly generated diagnosis is stored with `cached=false`; `cached=true` is set only on the replayed read side. AI failures are **never cached** (a `502` never poisons future hits — P-4). The `nodata` key is cached too, so an empty-period request doesn't re-spend on every call.
+
+**Parity (P-6/P-7):** the endpoint gathers a richer already-computed bundle via the same shared read functions behind `GET /overview` / `GET /table` / `GET /timeseries` — no second query path against the metrics tables:
+- `get_overview` — account-level rollup (tenant check + identical numbers by construction).
+- `get_table` (`level="campaign"`, `compare_previous=True`, top 10 by spend, each row carrying its campaign `objective`) — per-campaign period-over-period rows.
+- `get_timeseries` (`level="account"`, `time_increment="day"`, `compare_previous=True`) — current + previous daily trajectory.
+
+Those three dicts are handed to `app/services/ai_summary.py:generate_overview_diagnosis(overview, account, *, campaigns, timeseries)`. The AI service **diagnoses only** — it computes nothing (every % change is service-pre-formatted for it to quote, never recomputed), states no figure not present in the input, judges each metric against the campaign objective, and **selects** (does not rank/compute) the driver campaign from the pre-computed deltas. It imports no repository and runs no SQL (P-7). See `app/api/v1/endpoints/insights.py:overview_summary`.
+
+**Response `200`** — returned at the **top level**, *not* wrapped in the standard `{ data }` / `{ meta }` envelope. The summary is structured into four required diagnostic strings — a headline finding, its likely driver, a secondary watch signal, and a recommended next step — rather than a single prose blob:
+```json
+{
+  "headline": "Conversions down 86% on flat spend — an efficiency problem, not a budget one.",
+  "driver": "The likely driver is 'Retargeting — Q2 Sale' (SALES objective), whose ROAS fell 71% while the awareness campaigns held steady.",
+  "watch": "CTR slipped from mid-month onward in the daily trajectory — worth watching for creative fatigue.",
+  "next_step": "Audit the 'Retargeting — Q2 Sale' creative and audience overlap before restoring budget.",
+  "period": {
+    "date_start": "2026-05-23",
+    "date_stop": "2026-05-30",
+    "preset": "last_7d"
+  },
+  "model": "gpt-4o-mini",
+  "generated_at": "2026-05-30T11:45:00Z",
+  "data_as_of": "2026-05-30T11:45:00Z",
+  "cached": false
+}
+```
+
+`headline` / `driver` / `watch` / `next_step` are each a required non-blank diagnostic string. `period` carries the same window as the numbers being narrated (P-1 envelope). `model` echoes `settings.OPENAI_MODEL`; `generated_at` is the UTC generation timestamp. `data_as_of` is the freshness token the diagnosis was generated against (`get_overview`'s `cached_at` = `MAX(fetched_at)`, or `null` for an empty period) — a re-sync moves it, invalidating the cache (P-1). `cached` is `true` when this response was replayed from the Redis cache (no token spend) and `false` when freshly generated.
+
+**Errors**
+
+| Status | When |
+|---|---|
+| `400` | Neither `date_preset` nor `date_start`+`date_end` supplied (shared `_resolve_dates`). |
+| `403` | `account_id` belongs to another org (tenant isolation via `get_overview`). |
+| `502` | Any AI failure — missing/empty `OPENAI_API_KEY`, network/timeout, OpenAI API error, or an empty/unparseable completion or one missing/blanking any of the four required fields. Body is `{ "detail": "<reason>" }`. Never a `200` with empty or fabricated text (P-4). |
+
+**Config:** requires `OPENAI_API_KEY` and `OPENAI_MODEL` (default `gpt-4o-mini`) in the backend environment — see `backend/.env.example` / `app/config.py`. With no key configured the endpoint returns the `502` above (the app still boots).
+
+---
+
+#### `GET /api/v1/insights/overview/summary/peek`
+
+**Cache-only** lookup of a previously generated overview diagnosis — it **NEVER** generates or spends OpenAI tokens and never touches `get_table`/`get_timeseries`/OpenAI. Safe to auto-run on mount so a client can hydrate an existing summary or render an idle state token-free (P-5). It resolves the same numbers + freshness token via `get_overview` (which also does the tenant check), rebuilds the same `aisum:v1:…` key as `POST /overview/summary`, and either replays the cached diagnosis or reports a miss.
+
+**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `status`, `search` (no `force`).
+
+**Responses**
+
+| Status | When | Body |
+|---|---|---|
+| `200` | Cache hit — a diagnosis exists for this account/period/filter/data-version. | `OverviewSummaryResponse` (top level, same shape as `POST`), with `cached=true`. |
+| `204` | Cache miss — no cached diagnosis. | Empty (No Content). Client renders the idle/Generate state. |
+| `400` | Neither `date_preset` nor `date_start`+`date_end` supplied. | `{ "detail": … }` |
+| `403` | `account_id` belongs to another org (tenant isolation via `get_overview`). | `{ "detail": … }` |
+
+See `app/api/v1/endpoints/insights.py:overview_summary_peek`.
+
+---
+
+#### `GET /api/v1/insights/overview/export.pptx`
+
+Server-rendered PowerPoint (.pptx) export of a single-account overview. Same query params and date/tenant resolution as `GET /insights/overview`.
+
+**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `status`, `search`, `include_ai_summary`
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `include_ai_summary` | bool | `false` | When `true`, fills the deck's insight boxes with AI narrative (sections `performance` / `trend` / `campaigns`) via `ai_summary.generate_narrative`, fed the same enriched bundle as the on-screen diagnosis — per-campaign period-over-period rows (`get_table`, with objectives) and the current+previous daily trajectory (`get_timeseries`) — so the `trend` slide is grounded in real day-by-day data rather than inferred from current-vs-previous aggregates. Gated so the default export spends no tokens and renders the original placeholders unchanged. An AI failure raises `502 { "detail": … }` (the user asked for the summary; the deck is not silently exported without it — P-4). |
+
+**Response `200`** — binary PPTX (not JSON):
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `application/vnd.openxmlformats-officedocument.presentationml.presentation` |
+| `Content-Disposition` | `attachment; filename="<Account> - Monthly Report - <Month Year>.pptx"; filename*=UTF-8''…` (e.g. `Polki Indonesia - Monthly Report - July 2026.pptx`) |
+
+The download name is `"<Account name> - Monthly Report - <period-start Month Year>.pptx"` (`_report_filename` in `app/api/v1/endpoints/insights.py`). The header carries both an ASCII-stripped `filename` fallback and an RFC 5987 `filename*=UTF-8''…` for spaces/non-ASCII account names (`_content_disposition`). CORS exposes `Content-Disposition` (`app/main.py`) so the browser can read the name cross-origin; the frontend parses it (`parseContentDispositionFilename` in `lib/api/insights.ts`) for the download. Body is a `StreamingResponse` over the raw `.pptx` bytes built by `app/services/export.py:generate_overview_pptx`.
+
+**Parity (P-6/P-7):** the endpoint reuses the shared read functions `get_overview` / `get_timeseries` (called with `compare_previous=True` for the trend overlay) / `get_table` (the same functions behind `GET /overview`, `GET /timeseries`, `GET /table`) — no second query path against the metrics tables. Deck = **6 slides**, a branded monthly-report template (neutral dashmet branding, no third-party logos): (1) dark gradient-blob **cover** with account/period; (2) **Monthly Performance** — a Current-vs-Previous spend hero plus metric cards (impressions, clicks, CTR, CPM, conversions, ROAS) showing coloured period-over-period deltas and prior values; (3) **daily spend trend** — a native pptx line chart overlaying current vs previous period with a thinned date axis; (4) **Top Campaigns** — styled table; (5) **Top Ads** — top-6 (`level="ad"`, spend-desc) with 4:5 letterboxed creative thumbnails; (6) **closing** slide. Content slides carry an editable purple "insight" box that shows a "Click to add your insight…" placeholder by default, or the AI narrative when `include_ai_summary=true` (`generate_overview_pptx(insights={section: text})`; `None` → the placeholder, no layout change). A missing/failed thumbnail degrades to a neutral placeholder, never a fake image.
+
+> **Note (P-1):** `get_overview()` now returns a `cached_at` freshness token (`MAX(fetched_at)` over the period). The export's cover still stamps "Data as of `<date_stop>`" derived from the period rather than this token — wiring the real marker into the cover (and adding a `coverage` marker) remains a follow-up; the AI-summary card is the first consumer of `cached_at`.
 
 ---
 
@@ -791,7 +1015,7 @@ Daily metric trend data — powers line/bar charts in the Periodic view.
 
 #### `GET /api/v1/insights/timeseries`
 
-**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `level`, `campaign_id`, `adgroup_id`, `metrics` (comma-separated list), `time_increment`
+**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `level`, `campaign_id`, `adgroup_id`, `metrics` (comma-separated list), `time_increment`, `status`, `search`
 
 **Additional params:**
 
@@ -801,6 +1025,8 @@ Daily metric trend data — powers line/bar charts in the Periodic view.
 | `metrics` | string | `spend,impressions,clicks,ctr` | Comma-separated metric names to include |
 | `time_increment` | string | `day` | `day` \| `week` \| `month` |
 | `compare_previous` | boolean | `false` | Include previous period data for overlay comparison |
+| `status` | string | — | Campaign filter — same semantics as `overview`. Applied to the `account`-level series and to the `campaign`-level breakdown; ignored for `adgroup`/`ad` breakdowns (campaign ids don't match those grains). |
+| `search` | string | — | Campaign-name filter — same semantics as `overview`. |
 
 **Response `200`**
 ```json
@@ -834,7 +1060,7 @@ Daily metric trend data — powers line/bar charts in the Periodic view.
 }
 ```
 
-When `compare_previous=true`, `previous_series` has the same shape as `series` — aligned by relative position (day 1 of current vs day 1 of prior period), so the frontend can overlay them directly.
+When `compare_previous=true`, `previous_series` has the same shape as `series` — aligned by relative position (point 1 of current vs point 1 of prior period), so the frontend can overlay them directly. The prior period follows the *Prior-period resolution* rule in §6.8 (full calendar month → previous calendar month; otherwise equal-length preceding window). At non-account levels, each entry in `series_by_entity` also carries its own `previous_series` (same alignment, per entity); it is `[]` for entities with no data in the prior period.
 
 **Campaign-level breakdown** (when `level=campaign`, response includes a group per campaign):
 ```json
@@ -849,6 +1075,9 @@ When `compare_previous=true`, `previous_series` has the same shape as `series` �
         },
         "series": [
           { "date": "2026-05-01", "spend": 30.10, "impressions": 12000 }
+        ],
+        "previous_series": [
+          { "date": "2026-04-01", "spend": 27.40, "impressions": 10800 }
         ]
       },
       {
@@ -858,7 +1087,8 @@ When `compare_previous=true`, `previous_series` has the same shape as `series` �
         },
         "series": [
           { "date": "2026-05-01", "spend": 15.10, "impressions": 6500 }
-        ]
+        ],
+        "previous_series": []
       }
     ]
   }
@@ -866,6 +1096,7 @@ When `compare_previous=true`, `previous_series` has the same shape as `series` �
 ```
 
 > The frontend decides whether to render this as stacked bars or individual lines.
+> `previous_series` per entity is present only when `compare_previous=true`; it is `[]` for entities with no prior-period data (e.g. campaigns that launched after the prior window).
 
 ---
 
@@ -875,7 +1106,7 @@ Tabular view of campaigns / ad groups / ads with their performance metrics. Powe
 
 #### `GET /api/v1/insights/table`
 
-**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `level`, `campaign_id`, `adgroup_id`, `status`, `search`, `sort_by`, `sort_order`, `page`, `per_page`
+**Query params:** `account_id` (required), `date_preset` or `date_start`+`date_end`, `level`, `campaign_id`, `adgroup_id`, `status`, `search`, `platform_objective`, `sort_by`, `sort_order`, `page`, `per_page`
 
 **Additional params:**
 
@@ -883,6 +1114,10 @@ Tabular view of campaigns / ad groups / ads with their performance metrics. Powe
 |---|---|---|---|
 | `level` | string | `campaign` | `campaign` \| `adgroup` \| `ad` |
 | `search` | string | — | Filter rows by name (case-insensitive substring) |
+| `platform_objective` | string | — | Filter campaigns by **raw platform objective** (e.g. TikTok `PRODUCT_SALES`). Campaign level only — neutralized at ad-group/ad level (those entities have no objective). Drives the TikTok **GMV Max** view's campaign table. |
+| `compare_previous` | boolean | `false` | When `true`, each row also carries `metrics_previous` (prior-period values, same key set as `metrics`) for period-over-period delta pills |
+
+Each campaign row also carries `platform_objective` — the raw upstream objective (e.g. `PRODUCT_SALES`, `CONVERSIONS`) — alongside the normalized `objective`. Both `PRODUCT_SALES` and `CONVERSIONS` normalize to `"sales"`, so the raw value is what distinguishes GMV Max campaigns.
 
 **Response `200`**
 ```json
@@ -894,6 +1129,7 @@ Tabular view of campaigns / ad groups / ads with their performance metrics. Powe
       "status":           "active",
       "effective_status": "active",
       "objective":        "sales",
+      "platform_objective": "CONVERSIONS",
       "platform":         "meta",
       "daily_budget":     50.00,
       "metrics": {
@@ -944,6 +1180,16 @@ Tabular view of campaigns / ad groups / ads with their performance metrics. Powe
     "cta_type":      "shop_now"
   },
   "metrics": { "..." : "..." }
+}
+```
+
+**`compare_previous=true`** — each row additionally carries `metrics_previous`, the same key set as `metrics` aggregated over the prior period (see *Prior-period resolution* in §6.8). Entities absent from the prior window (e.g. launched after it) get a `metrics_previous` dict of nulls rather than being omitted. Prior-period metrics reuse the same aggregate-then-ratio SQL/finalize path as the current period (ratios computed after aggregation). The Ads dashboard view drives its per-ad-card delta pills off this via `level=ad`:
+```json
+{
+  "id": "uuid",
+  "name": "Summer Sale Campaign",
+  "metrics":          { "spend": 780.00, "roas": 7.00, "..." : "..." },
+  "metrics_previous": { "spend": 690.00, "roas": 6.80, "..." : "..." }
 }
 ```
 
@@ -1120,6 +1366,8 @@ When `account_ids` is empty the backend resolves the org's account ids via `get_
 }
 ```
 
+`vs_previous` percentage changes follow the *Prior-period resolution* rule in §6.8.
+
 `meta.cached_at` = the latest `fetched_at` across all included accounts. Never `now()`.
 
 ---
@@ -1255,6 +1503,30 @@ Manually trigger a sync for an account. Useful for "Refresh" button in the UI.
 }
 ```
 
+`job_types` is **optional**. When omitted (or `null`), the server picks a
+platform-appropriate default set for the account:
+
+| Platform (`platform_id`) | Default `job_types` |
+|---|---|
+| `meta` | `structure`, `insights_daily` |
+| `tiktok` | `structure`, `insights_daily`, `creatives`, `breakdown` |
+| `google_ads` | `structure`, `insights_daily`, `creatives`, `breakdown` |
+
+Dispatch is **platform-aware**: each requested `job_type` is routed to that
+platform's own worker task. A `job_type` that has no producer for the account's
+platform (e.g. `insights_async` on TikTok/Google) is **silently skipped** — no
+`SyncJob` row is created for it, so no job sits stuck as `pending` with nothing
+to run it (PRD P-8). The producer matrix:
+
+| `job_type` | meta | tiktok | google_ads |
+|---|---|---|---|
+| `structure` | ✓ | ✓ | ✓ |
+| `insights_daily` | ✓ | ✓ | ✓ |
+| `insights_historical` | — | ✓ | ✓ |
+| `insights_async` | ✓ | — | — |
+| `creatives` | — | ✓ | ✓ |
+| `breakdown` | — | ✓ | ✓ |
+
 **Response `202`**
 ```json
 {
@@ -1264,6 +1536,9 @@ Manually trigger a sync for an account. Useful for "Refresh" button in the UI.
   }
 }
 ```
+
+`job_ids` contains one id per job_type that was actually dispatched — skipped
+(no-producer) job_types do not appear.
 
 > This endpoint enqueues Celery tasks and returns immediately — it does not wait for completion. The frontend should poll `GET /sync/status` to track progress.
 
@@ -1298,6 +1573,48 @@ Standard metric keys used in `metrics` objects across all endpoints.
 | `video_p100` | Completed video |
 | `video_thruplay` | ThruPlay completions |
 | `video_avg_watch_time_ms` | Average watch time in milliseconds |
+| `post_reactions` | Post reactions (Meta `post_reaction` action) |
+| `post_saves` | Post saves (Meta `onsite_conversion.post_save` action) |
+| `add_to_cart_value` | Monetary value of add-to-cart events (Meta `add_to_cart` in `action_values`) |
+| `avg_basket_price` | Average basket price — computed ratio `conversion_value ÷ purchase`, never stored; `null` when either is 0/absent |
+
+**CPAS "Shared Item" (catalog-segment) keys.** Sourced from the catalog-segment stores `catalog_segment_actions` (counts) and `catalog_segment_value` (revenue), which are the only source of conversions for Collaborative Ads (CPAS) accounts (see `docs/meta-ads-metrics-reference.md` §15). These stores are **empty for standard (non-catalog) accounts**, so all keys below are `null`/`0` there. Meta-only.
+
+| Key | Description |
+|---|---|
+| `purchase_shared` | CPAS catalog-segment purchases (count) |
+| `add_to_cart_shared` | CPAS catalog-segment add-to-cart events (count) |
+| `content_view_shared` | CPAS catalog-segment content views (count) |
+| `purchase_value_shared` | CPAS catalog-segment purchase revenue |
+| `add_to_cart_value_shared` | CPAS catalog-segment add-to-cart value |
+| `cost_per_purchase_shared` | Computed ratio `spend ÷ purchase_shared`, never stored; `null` when either is 0/absent |
+| `cost_per_add_to_cart_shared` | Computed ratio `spend ÷ add_to_cart_shared`, never stored; `null` when either is 0/absent |
+| `cost_per_content_view_shared` | Computed ratio `spend ÷ content_view_shared`, never stored; `null` when either is 0/absent |
+| `roas_shared` | Computed ratio `purchase_value_shared ÷ spend`, never stored; `null` when either is 0/absent |
+
+The four `*_shared` cost-per / ROAS ratios are derived after aggregation (P-7), never stored — same rule as `roas`/`cpa`/`avg_basket_price`.
+
+**TikTok onsite / shop keys.** Sourced from TikTok page-event and video metrics (see `docs/tiktok-api-metrics-reference.md`): onsite page-event counts/values land in `metric_action_stats` under `field_name = "page_events"` / `"page_event_values"`, and the watch-time average under `field_name = "average_video_play*"`. TikTok-relevant; `null`/`0` for platforms that don't emit these.
+
+| Key | Description |
+|---|---|
+| `page_view_onsite` | TikTok onsite page views (`page_events` / `page_view`, count) |
+| `web_add_to_cart_value` | TikTok Shop add-to-cart value (`page_event_values` / `add_to_cart`) |
+| `web_checkout_value` | TikTok Shop checkout-initiation value (`page_event_values` / `checkout`) |
+| `avg_watch_time_per_user` | Average watch time per person — an **average** (`average_video_play_per_user`), never summed across rows (P-4) |
+| `roas_shop` | Computed ratio `web_purchase_value ÷ spend`, computed after aggregation, never stored; `null` when either is 0/absent |
+| `cost_per_web_checkout` | Computed ratio `spend ÷ web_checkout`, computed after aggregation, never stored; `null` when either is 0/absent |
+
+`roas_shop` and `cost_per_web_checkout` are derived after aggregation (P-7), never stored — same rule as `roas`/`cpa`/the `*_shared` ratios.
+
+**TikTok engagement / interactive / LIVE counts.** Sourced from TikTok engagement and feature-gated interactive-addon / LIVE metrics (see `docs/tiktok-api-metrics-reference.md` §5, §12, §16), stored in `metric_action_stats` under their verbatim `field_name`. `total_engagement` comes from the standard aggregate `engagements` field (always requested); the interactive/LIVE keys are **feature-gated** — the worker drops them on TikTok's "invalid metric fields" fallback for accounts without those features, so they are `null`/`0` there and for non-TikTok platforms.
+
+| Key | Description |
+|---|---|
+| `total_engagement` | TikTok total paid engagement / all interactions (`engagements`, count) |
+| `product_clicks_ix` | Product Card Clicks — Interactive add-on; feature-gated (`ix_product_click_count`, count) |
+| `live_views_10s` | 10-second effective LIVE views; feature-gated (`live_effective_views`, count) |
+| `live_product_clicks` | LIVE Product Clicks; feature-gated (`live_product_clicks`, count) |
 
 ---
 
@@ -1332,3 +1649,5 @@ Standard metric keys used in `metrics` objects across all endpoints.
 
 ### `job_status` (sync)
 `pending` · `running` · `completed` · `failed` · `skipped`
+
+`skipped` — task hit a hard rate limit mid-execution; job is marked skipped, connection paused, task rescheduled automatically. Distinct from `failed` (which is a permanent or max-retry-exhausted error). A skipped job will retry once the connection pause expires.

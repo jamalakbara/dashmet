@@ -56,6 +56,7 @@ src/
 │   │   ├── login/page.tsx
 │   │   ├── signup/page.tsx
 │   │   ├── verify-email/page.tsx
+│   │   ├── accept-invite/page.tsx   # Accept org invite (name+password → join+login)
 │   │   ├── forgot-password/page.tsx
 │   │   └── reset-password/page.tsx
 │   │
@@ -70,6 +71,7 @@ src/
 │   │   │   └── ads/page.tsx
 │   │   └── tiktok/               # TikTok section — views render as tabs
 │   │       ├── page.tsx          #   bare /tiktok → redirect to overview
+│   │       ├── gmv-max/page.tsx  #   GMV Max (Ads) view — PARKED (route exists, not in tab bar)
 │   │       ├── overview/page.tsx
 │   │       ├── periodic/page.tsx
 │   │       ├── table/page.tsx
@@ -88,7 +90,7 @@ src/
 │   ├── layout/                   # Sidebar, Header, PlatformTabs
 │   ├── views/                    # Per-platform view bodies (Overview/Periodic/Table/Ads)
 │   ├── charts/                   # Recharts wrappers
-│   ├── metrics/                  # MetricCard, MetricTable, BreakdownSection, etc.
+│   ├── metrics/                  # MetricGroupCard, MetricTable, BreakdownSection, etc.
 │   ├── ads/                      # AdCard, CreativePreview, etc.
 │   └── shared/                   # AccountSwitcher, AccountCommandList, DateRangePicker, StatusBadge, etc.
 │
@@ -135,10 +137,12 @@ src/
 | `/login` | Login | ❌ | — |
 | `/signup` | Signup | ❌ | — |
 | `/verify-email` | Email verification | ❌ | — |
+| `/accept-invite` | Accept org invite (`?token=`) → join + login | ❌ | — |
 | `/forgot-password` | Request reset | ❌ | — |
 | `/reset-password` | Set new password | ❌ | — |
 | `/dashboard` | Combined cross-platform summary | ✅ | any |
 | `/meta`, `/tiktok` | Redirect → `…/overview` | ✅ | any |
+| `/tiktok/gmv-max` | TikTok **GMV Max** (Ads) — **parked** (route lives, not in tab bar) | ✅ | any |
 | `/{platform}/overview` | Platform overview (summary) | ✅ | any |
 | `/{platform}/periodic` | Time series **+ breakdowns** | ✅ | any |
 | `/{platform}/table` | Metrics table | ✅ | any |
@@ -148,43 +152,44 @@ src/
 | `/settings/members` | Member management | ✅ | owner |
 | `/settings/connections` | Platform connections | ✅ | owner |
 
-The per-platform views (Overview · Periodic · Table · Ads, plus TikTok's Engagement) render as a **route-based tab bar** — each tab is its own route, so deep links stay shareable. Tab config is `PLATFORM_TABS` in `lib/constants.ts`. **Breakdowns are part of the Periodic view, not a separate route** (`BreakdownSection` renders at the bottom of `periodic-view.tsx`).
+The per-platform tab bar is **Overview · Table · Ads** (plus TikTok's Engagement) — `PLATFORM_TABS` in `lib/constants.ts`. Each tab is its own route so deep links stay shareable. **Overview is a composed scroll** (Base Data reference style): grouped metric cards → `PeriodicView` (trends) → `FunnelView` → a **Table preview** (`<TableView preview />`) → an **Ads preview** (`<AdsView preview />`). Periodic and Funnel therefore no longer have their own tabs; their routes (`/periodic`, `/funnel`) still exist for deep-links but aren't surfaced in the bar. Table and Ads keep full tabs — their previews on Overview show the top rows/creatives with a **See All →** link to the full view. **Breakdowns are part of the Periodic view** (`BreakdownSection` at the bottom of `periodic-view.tsx`).
 
-Auth guard is a middleware (`middleware.ts`) that checks for a valid JWT cookie. Unauthenticated users are redirected to `/login`. Members trying to access owner-only settings pages see a `403` page.
+**TikTok GMV Max view** (`components/views/gmv-max-view.tsx`) is **parked** pending better requirements — the component + route (`/tiktok/gmv-max`) exist but are **not surfaced in the tab bar or the `/tiktok` landing** (re-add its `PLATFORM_TABS.tiktok` slug + the redirect to re-enable). It is dashmet's rendition of the reference dashboard's "TikTok Ads — GMV Max" lens — the **only mode backed by real data** (dashmet integrates the TikTok Business/Marketing API, not the TikTok Shop Open API). It composes existing pieces, all scoped to `PRODUCT_SALES` campaigns so KPIs and table show the same numbers by construction (P-6/P-7): a **`TikTokModeSwitch`** (`components/layout/tiktok-mode-switch.tsx` — segmented **TikTok Ads · TikTok Shop 🔒 · Ads × Shop 🔒**; Shop/Combined render **locked** with a tooltip, never fabricated numbers, since their data — orders, products, LIVE, affiliate, finance, channel attribution — isn't integrated, P-1/P-4), **five KPI tiles** (Cost `spend`, Gross Revenue `web_purchase_value`, Orders `web_purchases`, Cost per Order `cost_per_web_purchase`, ROAS `roas_shop`; each with a cost-inverted `DeltaPill`), the shared `PeriodicView` trends, and a `<TableView platformObjective="PRODUCT_SALES" />` (campaign table filtered to GMV Max — its level tabs hide since a platform objective is a campaign concept). KPIs are fetched via `insightsApi.overview({ platform_objective: "PRODUCT_SALES" })`. The mockup's "Net cost" and a separate "ROI" are **omitted** — dashmet has no refund/adjustment feed to back them, and inventing them would violate P-4.
+
+Auth guard is a proxy (`src/proxy.ts`, Next.js 16's renamed middleware) that checks for a valid JWT cookie. It holds a `PUBLIC_PATHS` allowlist (`/login`, `/signup`, `/verify-email`, `/accept-invite`, `/forgot-password`, `/reset-password`); unauthenticated users hitting anything else are redirected to `/login`, and authenticated users hitting a public path are redirected to `/dashboard`. The proxy does **not** gate by role — members can open the `/settings/*` pages, but owner-only controls there are **disabled** (locked, not hidden) via the `useIsOwner()` hook (`src/hooks/use-role.ts`, reads `GET /auth/me` → `org.role`); a member-access banner (`SettingsReadonlyBanner`) sits under the settings nav. The backend still enforces the boundary with a `403` on the underlying owner-only endpoints, so the lock is UX, not the security control.
 
 ---
 
 ## 4. Global Layout
 
-The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed sidebar on the left, a top header, and — on platform pages — a `PlatformTabs` bar below the header. Main content scrolls independently.
+The dashboard layout (`(dashboard)/layout.tsx`) renders two inset floating panels (both `m-3 rounded-2xl shadow-xl ring-1 ring-black/5`): the indigo **sidebar rail** on the left, and a right **content panel** holding a light **top bar** (`TopBar`) that carries the platform identity + freshness chip + account picker (left) and DateRange / notifications / user (right), a **control strip** (`ControlStrip`) that carries `PlatformTabs` + Compare toggle + Filter + Export, and the scrollable content canvas. There is **no permanent "Sync Data" button** — manual sync is a recovery path surfaced contextually inside the freshness chip (P-5). Base Data light-SaaS theme (white cards floating on a light-gray canvas); the near-black bento "OS-window" chrome was retired.
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│  HEADER                                                       │
-│  [AccountSwitcher]     [DateRangePicker]    [SyncStatus] [👤] │
-├───────────┬──────────────────────────────────────────────────┤
-│           │  [Overview] [Periodic] [Table] [Ads]  ← tab bar   │
-│  SIDEBAR  ├──────────────────────────────────────────────────┤
-│           │                                                   │
-│  Dashboard│   PAGE CONTENT (active tab)                       │
-│  Meta     │                                                   │
-│  TikTok   │                                                   │
-│           │                                                   │
-│  ───────  │                                                   │
+┌───────────┬──────────────────────────────────────────────────┐
+│  DASH·MET │  TOP BAR                                          │
+│ (indigo)  │ [MetaAds·fresh·Account▾]   [DateRange][🔔][👤]    │
+│           ├──────────────────────────────────────────────────┤
+│ DATA      │  CONTROL STRIP                                    │
+│  Summary  │  [Overview…Ads] [Compare◑]      [Filter][Export] │
+│  Platform ├──────────────────────────────────────────────────┤
+│   Meta    │                                                   │
+│   TikTok  │   PAGE CONTENT (active tab)                       │
+│   Google  │                                                   │
+│ USER      │                                                   │
+│  Binding  │                                                   │
 │  Settings │                                                   │
-│           │                                                   │
-└───────────┴───────────────────────────────────────────────────┘
-  (tab bar self-hides on the combined /dashboard)
+└───────────┴──────────────────────────────────────────────────┘
+  (PlatformTabs self-hides on the combined /dashboard)
 ```
 
-### Header — components
+### Top bar — components
 
 **`AccountSwitcher`**
 - shadcn `Popover` + `Command` (cmdk combobox), **server-side searched** — never loads the whole org (200–1000+ accounts). Search hits `GET /accounts?search=&platform=`; the picker sets `shouldFilter={false}` (the server is the filter).
 - Two modes via a shared `AccountCommandList` (`components/shared/`):
   - **Platform route** (`/meta`, `/tiktok`) → single-select, scoped to that platform. Updates `account_id`.
   - **Combined dashboard** (`/dashboard`) → multi-select, results grouped by platform. Updates `accounts` (comma-separated). `null` param = **All accounts**, `""` = none.
-- **Pinned + Recent** groups at the top, persisted in `ui-store` (localStorage) as denormalized `accountSnapshots` so they render without re-fetching. Star icon toggles pin.
+- **Pinned + Recent** groups at the top, persisted in `ui-store` (localStorage) as denormalized `accountSnapshots` so they render without re-fetching. Star icon toggles pin. Stale snapshots (accounts the API no longer returns after a disconnect/reconnect, e.g. `account_status="disabled"`) are pruned against the live list — but only when absence is conclusive (idle, non-truncated page); a capped or still-loading page never drops an account that merely sits beyond the first page.
 - Rows: platform badge, **account name (primary)**, business name / external id (secondary muted line), currency, star. Name always takes priority width (`flex-1` + truncate) so long ids never squeeze it out.
 - "No accounts connected" empty state (via `useAccountsCount`); brief on-connect polling.
 
@@ -196,14 +201,22 @@ The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed sidebar on the l
 - A 30-day note appears in the custom view **only when** the chosen range reaches back past 30 days (breakdowns cover ~30d; see breakdown sync).
 - Selection stored in URL: `?date_preset=last_30d` or `?date_start=2026-05-01&date_end=2026-05-30`. Default: `last_30d`. Survives nav via `useSharedFilterQuery`.
 
+**Compare-previous toggle** — shadcn `Switch` labeled "Compare prev.", lives in the **control strip** next to `PlatformTabs` (it's a view control, so it sits with the tabs rather than in the top bar).
+- **Global** period-over-period switch driven by URL state `?compare=true` (via `useQueryState("compare")`); absence = off (no `compare=false` in the URL).
+- Drives every Overview section at once: the Trends prior-period overlay plus the period-over-period **delta pills** on KPI cards, funnel stages, table cells, and ad cards/rows. Trends no longer owns its own compare switch — it reads the same URL param read-only (see §6.2).
+- Delta pills stay **silent** when a comparison can't be made (missing current/previous or a zero baseline) per P-2 — no permanently-lit neutral badge.
+- Delta pills also surface the **previous absolute value** (formatted per metric type via `formatMetric`): KPI cards and funnel stages show it inline as `vs <prev>` next to the `%` pill (`variant="inline"`); table cells and ad cards/rows keep the compact pill and reveal `prev <prev>` on hover (`variant="tooltip"`).
+
 **`SyncStatusBadge`**
-- Small indicator in the top-right area
-- Green dot: all syncs current
-- Yellow dot + "Syncing…" spinner: a job is currently running
-- Red dot: a sync has failed — click to see detail modal
-- "Last updated X min ago" tooltip on hover
-- "Refresh" button triggers `POST /sync/trigger` (owner only)
-- Polls `GET /sync/status` every 60 seconds
+- The **single** sync indicator, rendered as a labeled pill in the `TopBar` (the old full-width `SyncStatusBar` freshness banner was removed to avoid a redundant second indicator; its per-preset job-resolution logic was folded into this badge).
+- Resolves the jobs relevant to the active `date_preset` + platform (`RANGE_JOBS` / `insights_historical_or_async` → `insights_historical` for TikTok else `insights_async`) and reports inline, color-coded:
+  - **fresh** (neutral grey — same treatment as idle): `Updated Xm ago` — stays visible so the navbar always reports freshness, but reads as calm rather than lit-green (P-2)
+  - **syncing** (amber, spinner): `Syncing last 30d — ready in ~2–8 min` (or account/structure ETA)
+  - **stale** (amber): `last 30d may be outdated · synced Xh ago`
+  - **failed** (red): `Sync failed · last 30d`
+  - **idle** (gray): `Last updated —` / `No account`
+- **Contextual manual sync (P-5):** on the **stale** and **failed** variants only — where there's a real reason — the pill renders an inline `Sync now` action (`RefreshCw` icon, spinner while pending) that fires `POST /sync/trigger` for the resolved account, toasts on success/error, and invalidates `queryKeys.syncStatus`. Fresh / syncing / idle show no sync action. This replaces the old permanent "Sync Data" button. The action is **owner-only**: for members it renders disabled ("Owner only" title) since `POST /sync/trigger` is owner-gated (`useIsOwner()`).
+- Polls `GET /sync/status` every 30 seconds.
 
 **User menu** — shadcn `DropdownMenu`
 - Shows user name + email
@@ -212,21 +225,33 @@ The dashboard layout (`(dashboard)/layout.tsx`) renders a fixed sidebar on the l
 ### Sidebar — items
 
 ```
-[Logo / DashMet wordmark]
+[✦ Base Data Dashboard]
 
-  📊  Dashboard          (combined cross-platform)
-  ⬛  Meta               → /meta/overview
-  ⬛  TikTok             → /tiktok/overview
+DATA
+  ▦  Summary              → /dashboard (combined cross-platform)
+  ▦  Platform Data ▾      (expandable group)
+       Meta Ads           → /meta/overview
+       TikTok Ads         → /tiktok/overview
+       Google Ads         → /google_ads/overview
 
-─────────────
-  ⚙️  Settings
+  ⚙️  Settings            → /settings/org   (pinned to rail bottom)
 ```
 
-Sidebar is **4 items** — the per-platform views are reached through the `PlatformTabs` bar, not the sidebar. Clicking a platform lands on its first tab (`PLATFORM_TABS[platform][0]`, i.e. Overview). The active platform item is highlighted whenever any of its tabs is active (`pathname.startsWith('/{platform}')`). Filter params (account_id, date range) are carried across both sidebar and tab navigation by `useSharedFilterQuery()`. Collapses to icon-only at medium viewports (still desktop-first — no hamburger menu).
+Sidebar (`components/layout/sidebar.tsx`) is an **indigo rail** with a single `DATA` section. `Platform Data` is a collapsible group (open by default); each platform lands on its first tab (`PLATFORM_TABS[platform][0]`, i.e. Overview) and is highlighted whenever any of its tabs is active (`pathname.startsWith('/{platform}')`). **Settings** sits in a bottom-pinned footer (top divider), below the scrollable nav, in both expanded and collapsed states. There is no standalone `Account Binding` rail link — account connection is reached via **Settings → Connections** tab (route `/settings/connections` still exists). Filter params (account_id, date range) are carried across sidebar + tab navigation by `useSharedFilterQuery()`. The rail renders as a **detached floating card** (`m-3 rounded-2xl shadow-xl`), sitting inset from the viewport edges rather than flush. It is an **absolute overlay** (`absolute inset-y-0 left-0`) paired with an in-flow **spacer** (`w-[264px]` expanded / `w-[92px]` collapsed, no transition) that reserves its column: the content panel sizes off the spacer, so it reflows **once** per toggle instead of every frame, while only the rail's own (`[contain:layout_paint]`) subtree reflows during the 200ms width animation. The rail's inner content is **keyed on `collapsed`** so it remounts and replays a `sidebar-swap-in` opacity fade (`globals.css`, `motion-safe:` only) on every toggle: the collapsed/expanded layout is discrete but the width is animated, so the new layout fades in from 0 while the width settles — masking the frames where content geometry doesn't yet match the animating width (otherwise labels clip in the narrow rail / icons float in the wide one). It collapses to an icon-only strip (`w-[68px]`) and expands back to full width (`w-60`) via a chevron toggle in the brand block next to the logo (ChatGPT-style): expanded, it's a ghost button right-aligned in the brand row; collapsed, the logo alone shows and hovering it swaps the logo for the expand button. The choice lives in the persisted UI store (`ui-store.ts` → `sidebarCollapsed`, key `dashmet-ui`). Collapsed, labels/section headers/chevrons hide, each row centers its icon with a native `title` tooltip, and the `Platform Data` group flattens to its three platform icons (no toggle). **Responsive:** the rail (and its spacer) are `hidden md:flex` / `hidden md:block` — below `md` the persistent rail is replaced by `MobileSidebar`, an off-canvas drawer (shadcn `Sheet`, `side="left"`, backed by `mobileNavOpen` in the UI store) opened from a `md:hidden` hamburger in the top bar. The drawer borrows the ad-detail drawer's **detached-card shape** (inset `!inset-y-3 !left-3`, `!rounded-2xl`, own close button, near-full width `w-[calc(100%-1.5rem)]`) while keeping the indigo rail background (`bg-sidebar`) — only the container style is borrowed, not the color. It reuses `SidebarInner` at `collapsed={false}` with no collapse toggle, and closes on backdrop tap, route change, or any nav link tap. The content column drops its left margin below `md` (`m-3 md:ml-0`) so it spans the full narrow-screen width.
+
+### Control strip — `ControlStrip`
+
+`components/layout/control-strip.tsx` — sits directly under the top bar. Holds the view controls left→right: the `PlatformTabs`, the **Compare prev.** toggle, then a right-aligned group with the **Filter** popover (`FilterPopover`) and — on single-account views only — the **Export PPTX** button. It carries **no Sync Data button** (removed): manual sync is a recovery path surfaced contextually in the freshness chip (`SyncStatusBadge`) per P-5, not a permanent strip fixture. The `AccountSwitcher` moved up to the `TopBar`.
+
+**Export PPTX** — an outline button (`FileDown` icon) shown only on **single-account** (platform-scoped) views, hidden on the combined `/dashboard` where `usePlatform()` is `null` (there's no single-account overview to render). Calls `insightsApi.exportOverviewPptx({ account_id, ...dateRange, ...filter, include_ai_summary })` — same params as the overview read plus the toggle below — then downloads the returned `Blob` client-side (creates an object URL + a temporary `<a download="overview.pptx">`). Pending state pulses the icon; a failure toasts and downloads nothing. Backend endpoint: `GET /insights/overview/export.pptx` (see `docs/backend-api-spec.md`).
+
+**Include AI summary** — a `Switch` (default **off**, local `useState`) shown next to Export PPTX on single-account views. When on, sets `include_ai_summary: true` on the export call so the deck's insight boxes are auto-filled with AI narrative; default-off keeps the standard export token-free (P-5: gated, not automatic).
+
+**Filter popover** — `components/layout/filter-popover.tsx`. A campaign filter (status dropdown + campaign-name search, debounced 300ms) that writes the shared `status` + `search` URL params. Read back by `useOverviewFilter()` (status `"all"` → omitted) and threaded into the Overview cards, funnel (`insightsApi.overview`), trends (`insightsApi.timeseries`), and the Table/Ads tabs — one filter scopes every view. Trigger shows an active-count badge; a Clear action resets both params. Backend enforces it via `status`/`search` on `GET /insights/overview` + `/insights/timeseries`.
 
 ### Platform tab bar — `PlatformTabs`
 
-`components/layout/platform-tabs.tsx` — a `<Link>`-based (route-driven, not the shadcn `Tabs` primitive) tab bar mounted once in the dashboard layout. Reads the active platform via `usePlatform()`, looks up `PLATFORM_TABS[platform]`, and renders one tab per view. Returns `null` on `/dashboard` (no platform). Active tab = exact `pathname` match.
+`components/layout/platform-tabs.tsx` — a route-driven (not shadcn `Tabs`) tab bar mounted in the control strip, rendered via the shared `SegmentControl` in route-based mode (each item carries an `href`, so tabs are real `<Link>`s). Reads the active platform via `usePlatform()`, looks up `PLATFORM_TABS[platform]`, and renders one filled-pill segment per view. Returns `null` on `/dashboard` (no platform). Active tab = exact `pathname` match.
 
 ---
 
@@ -275,61 +300,99 @@ All four dashboard views share the global layout. They all react to changes in `
 
 ---
 
+### 6.0 Combined Summary (`/dashboard`)
+
+**Purpose:** Cross-platform, multi-account roll-up — the app's landing page. `usePlatform()` is `null` here (no PlatformTabs, no PPTX export).
+
+**Composition** — aligned to the platform Overview's section structure (shared `SectionHeading` lead + the one `DashCard` primitive + one card header), not a bespoke bento canvas. Every card on the page is a `DashCard` with the shared `CardChipHeader` (colored icon chip + bold title) so it reads identically to the platform `MetricGroupCard` — no card falls back to the legacy small muted-label header, and none has hover motion:
+- **Overview** section — a full-width **Combined spend** area chart (`DashCard` + Recharts, `insightsApi.combinedTimeseries`) styled from the shared chart theme (`seriesColor(0)` solid stroke + single-hue `gradientDef` fill, `gridProps`/`axisProps`, 64px Y-axis, padded body) so it matches the platform trend charts — not the old clipped, rainbow-stroke hero. Then a **Combined KPIs** grouped card (`CombinedKpiCard`, built on `DashCard`): a `Wallet` icon chip + `spend` headline, then the remaining cross-platform-safe KPIs (`impressions, clicks, ctr, cpm` — `getCombinableMetrics().filter(showInKpi)`) as a sub-metric grid. Period-over-period delta badges render **only when the Compare toggle is on** (`?compare=true`, P-2), driven by the combined endpoint's precomputed `vs_previous` percent deltas.
+- **Breakdown** section — a 2-up grid: **Global reach** (`GeoTile`, on `DashCard`) + **By account** (`DashCard` listing each account with its `PlatformBadge` + spend).
+
+**States:** no accounts → connect-account empty state; `accounts=""` → none-selected empty state; **mixed currencies** (`currency_mismatch`) → degrade to per-account cards with a "totals can't be combined" amber banner (P-4, currency is gated never converted). The legacy giant greeting hero and per-KPI sparkline tiles (`GreetingTile`, `MetricTile`) were retired.
+
+---
+
 ### 6.1 Overview
 
 **Purpose:** At-a-glance account health for the selected period. The "homepage" of the dashboard.
 
+**Composed scroll** — Overview stacks the platform's whole story on one page (Base Data reference), rather than splitting it across tabs:
+
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  KPI CARDS (2 rows × 4 cards)                                │
-│  [Spend] [Impressions] [Reach]  [Clicks]                     │
-│  [CTR]   [CPM]         [Conv.]  [ROAS]                       │
-├──────────────────────────────┬───────────────────────────────┤
-│  SPEND TREND (line chart)    │  CONVERSIONS TREND (line)     │
-│  Last 30 days, daily         │  Last 30 days, daily          │
-├──────────────────────────────┴───────────────────────────────┤
-│  TOP CAMPAIGNS TABLE                                          │
-│  Name | Spend | Impressions | CTR | Conversions | ROAS       │
-│  (5 rows, no pagination — link to /table for full view)      │
+│  GROUPED METRIC CARDS (Base Data style)                      │
+│  ┌ 🟠 Spend  IDR 6.0M ── See Detail ┐ ┌ 🟢 ROAS 23.08 ─────┐ │
+│  │ Reach     Impressions            │ │ Purchase  Purch.Val │ │
+│  │        [ See More ▾ ]            │ │    [ See More ▾ ]   │ │
+│  └──────────────────────────────────┘ └─────────────────────┘ │
+├──────────────────────────────────────────────────────────────┤
+│  TRENDS   → <PeriodicView />  (metric-tab charts + breakdowns)│
+├──────────────────────────────────────────────────────────────┤
+│  FUNNEL   → <FunnelView />    (bar chart + step table)        │
+├──────────────────────────────────────────────────────────────┤
+│  DATA BASED ON  → <TableView preview />   [ See All → /table ]│
+├──────────────────────────────────────────────────────────────┤
+│  ADS      → <AdsView preview />           [ See All → /ads ]  │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-#### `MetricCard` component
+The embedded sub-views are self-contained (own data hooks off the shared URL params). The Table/Ads **previews** are read-only (no toolbar, pagination, or param writes) — they show the top rows/creatives with a **See All →** link into the full tab.
+
+#### `MetricGroupCard` component
+
+`components/metrics/metric-group-card.tsx` — one card per metric family. A colored icon chip + title + big headline number, an optional **See Detail** link, then a two-column grid of sub-metrics with a **See More/See Less** expander for the overflow (default `previewCount = 4`).
 
 ```
-┌─────────────────────────┐
-│  Spend                  │
-│  $1,234.56              │
-│  ▲ 12.3%  vs prev. period│
-│  ▁▂▃▄▅▆ (sparkline)    │
-└─────────────────────────┘
+┌──────────────────────────────────────┐
+│ 🟠 Spend            [↗ See Detail]   │
+│ IDR 6.026.558,00                     │
+│ ───────────────────────────────────  │
+│ Reach       Impressions              │
+│ 191.534     872.666                  │
+│ Frequency   CTR                      │
+│ 4,56        2,03%                     │
+│            [ See More ▾ ]            │
+└──────────────────────────────────────┘
 ```
 
-Props:
-- `label` — metric display name
-- `value` — formatted value (currency, %, number)
-- `change` — % change vs previous period (null if unavailable)
-- `sparkline` — array of daily values for the mini chart
-- `trend` — `up` | `down` | `neutral` — controls arrow color (green/red/gray)
-- `loading` — shows skeleton
+Props: `title`, `headline?` (formatted — **omit for a title-only card**, which drops the big-number block and its top border so a metric family with no single headline never shows a fake number), `icon` (Lucide), `accent` (chip bg class), `subMetrics` (`{key,label,value,raw?}[]`), `previewCount?`, `detailHref?`, `loading?`, plus period-over-period props `compare?`, `previous?` (raw prior values keyed by metric), `headlineKey?`, `headlineValue?`, `currency?`. When `compare` is on and `previous` is present, an inline `DeltaPill` renders next to the headline and each sub-metric (using each `SubMetric.raw` vs `previous[key]`), including a muted `vs <prev>` absolute value; `currency` is threaded through so currency metrics format correctly.
 
-KPI cards in order: Spend, Impressions, Reach, Clicks, CTR, CPM, Conversions, ROAS. Cards for Conversions and ROAS only render if the account has `primary_conversion_action` configured — otherwise show a "Set up conversion tracking" prompt card in their place.
+`overview-view.tsx` renders a **platform- and account-type-scoped** card set from a `Record<string, Record<AccountType, CardSpec[]>>` config (`OVERVIEW_CARDS`), keyed first on the active `platform` (`usePlatform`) then the selected account's `accountType` (`useSelectedAccount`), resolved via `getOverviewCards(platform, accountType)`. The resolver falls back to Meta's set when a platform has no bespoke design (`OVERVIEW_CARDS[platform] ?? OVERVIEW_CARDS.meta`) and to `standard` when the account type isn't resolved — so google_ads renders today's Meta cards (no regression) and unknown/null inputs are safe. Standard and CPAS remain **strictly separated** — a standard Meta account renders zero `*_shared` metrics and a CPAS account renders none of the standard ROAS / Post & Media set.
 
-#### Spend & Conversions trend charts
+- **meta / standard → three cards:**
+  - **Spend** (headline `spend`): `reach, impressions, frequency, ctr, cpm, inline_link_clicks, clicks, cpc, landing_page_views, cost_per_landing_page_view`.
+  - **ROAS** (headline `roas`): `purchase, conversion_value, cost_per_purchase, add_to_cart, add_to_cart_value, cost_per_add_to_cart, conversion_rate, avg_basket_price`.
+  - **Post & Media** (title-only, no headline; **full-width**): `inline_post_engagement, post_saves, post_reactions, comments, video_thruplays, video_views, video_p100, video_avg_time`. Spans both columns of the outer grid on `lg` (`CardSpec.span: 2` → `lg:col-span-2`) so the odd third card fills the row left empty by Spend + ROAS, and lays its 8 sub-metrics as a **4-column** inner grid (`CardSpec.cols: 4` → `MetricGroupCard columns=4` → `grid-cols-2 lg:grid-cols-4`): two rows of four on desktop, 2-up on small screens. `span`/`cols` default to `1`/`2` so Spend, ROAS, and both CPAS cards stay 2-up with a 2-column inner grid, unchanged.
+- **meta / cpas → two cards:**
+  - **Spend** (headline `spend`): `reach, impressions, ctr, cpm, inline_link_clicks, clicks, cpc`.
+  - **ROAS Shared Item** (headline `roas_shared`): `purchase_shared, purchase_value_shared, cost_per_purchase_shared, add_to_cart_shared, add_to_cart_value_shared, cost_per_add_to_cart_shared, content_view_shared, cost_per_content_view_shared`.
+- **tiktok → two cards** (same set for standard and cpas; TikTok has no Post & Media / full-width card):
+  - **Cost** (headline `spend`; reuses the Spend icon/accent): `impressions, reach, frequency, clicks, cpc, cpm, cpp, ctr, video_views, avg_watch_time, avg_watch_time_per_user, total_engagement, follows, profile_visits`.
+  - **ROAS (Shop)** (headline `roas_shop`; reuses the ROAS icon/accent): `page_view_onsite, web_add_to_cart, web_add_to_cart_value, cost_per_web_add_to_cart, web_checkout, cost_per_web_checkout, web_checkout_value, web_purchases, web_purchase_value, cost_per_web_purchase, product_clicks_ix, live_views_10s, live_product_clicks`.
 
-- Recharts `LineChart` with `ResponsiveContainer`
-- X-axis: date labels (abbreviated: "May 1", "May 15", "May 30")
-- Y-axis: formatted values (currency for spend, integer for conversions)
-- Tooltip: formatted date + value
-- No legend (single series each)
-- Height: `240px`
+  Both TikTok cards carry a `CardSpec.labels` map (see below) so they render the **reference dashboard's exact wording** — e.g. "Clicks (destination)", "CPC (destination)", "Cost per 1000 People Reached", "Paid follows"/"Paid profile visits" on Cost, and "(Shop)"-qualified conversion labels on ROAS (Shop). Keys shared with Meta/Google (`impressions`/`reach`/`frequency`/`cpm`) intentionally keep their generic registry labels — no override.
 
-#### Top Campaigns table
+Sub-metrics are filtered (`buildSubMetrics`) to keys present (non-null) in the overview `summary` — absent metrics are dropped silently, no forced zeros (P-1/P-2); the `headlineKey` is excluded from its card's grid so it isn't duplicated. **Opt-in exception:** a card may set `CardSpec.fillAbsent?: boolean` to render its **full** metric grid even when values are absent — an absent key is emitted with `0` formatted per metric type (`IDR 0` / `0` / `0%` / `0.00x`, `raw: 0`) instead of being dropped. This is a **deliberate per-card deviation from P-2** used only by the two TikTok cards (Cost + ROAS (Shop)) to match the reference dashboard's completeness — Meta/CPAS cards leave `fillAbsent` unset and keep hiding absent metrics. Labels/format come from `METRIC_REGISTRY` (`metricLabel`/`metricType`), **except** a card may override any sub-metric label via an optional `CardSpec.labels?: Record<string, string>` map — `buildSubMetrics` uses `labels?.[k] ?? metricLabel(k)`, so an override is scoped to that one card and the shared global registry label stays generic for other platforms. `See Detail` links to the platform's Table view. Every card receives the global `compare` flag (from `?compare`) plus the overview response's `previous` summary, so the headline and sub-metric delta pills light up when compare is on.
 
-- shadcn `Table` — 5 rows, no pagination
-- Columns: Campaign name, Status badge, Spend, Impressions, CTR, Conversions, ROAS
-- "View all campaigns →" link routes to `/table?level=campaign`
-- Shows skeleton rows while loading
+Adding a metric to a card is a two-step edit: add the key to the relevant `CardSpec.keys` in `OVERVIEW_CARDS` and (if not already present) a matching `METRIC_REGISTRY` row with the right platform/account-type flags and a backend field of the same key. The Meta CPAS "Shared Item" family (`*_shared`) is empty for standard accounts (retailer-owned pixel, see `docs/meta-ad-account-types.md`).
+
+**AI Summary card** — `AiSummaryCard` (in `overview-view.tsx`), rendered between the metric-group cards and Trends. An on-demand grounded diagnosis of the overview, generation is **opt-in** so token spend is always intentional (P-5). On mount the card **peeks** the cache — a token-free `GET /insights/overview/summary/peek` (`insightsApi.peekSummary`, `useQuery`) — so an already-generated diagnosis renders instantly; it only falls to Idle when there's no cached summary. Display precedence is freshest-first: a just-generated mutation result wins over the peeked cache, both fall back to Idle. States:
+
+- **Idle** — a "Generate AI summary" button (`Sparkles`) with a "Uses AI · counts toward token usage" hint. Shown only when the peek returned no cached summary.
+- **Loading** — animated skeleton lines (mutation pending, or the peek still loading with no mutation result yet).
+- **Success** — the structured diagnosis rendered as four labeled sections: the **headline** as a bold lead paragraph, then **Likely driver** (`driver`), **Watch** (`watch`), and **Next** (`next_step`) each under a small uppercase label — plus a footnote showing `period.date_start – date_stop · model` and, when present, `· Data as of <relative time>` derived from `data_as_of` (`formatDistanceToNow`) as a freshness marker (P-1) — and a **Regenerate** action.
+- **Error** — a destructive `Alert` showing the backend's `detail` verbatim (falling back to a generic message) plus a **Retry** button — never a silent/empty card or fabricated text (P-4).
+
+Generate/Regenerate/Retry call `insightsApi.generateSummary({ account_id, ...dateRange, ...filter, force })` → `POST /insights/overview/summary` (top-level response, not `{ data }`-wrapped; typed `OverviewSummary` with the four `headline`/`driver`/`watch`/`next_step` fields plus `data_as_of` and `cached`). Idle **Generate** sends the default (no `force`) so a cached result is replayed token-free; **Regenerate** sends `force=true` to bypass the cache and spend tokens for a fresh diagnosis, then writes the result back into the peek query cache (`queryClient.setQueryData`) so a remount stays consistent. A failure surfaces as a `502` whose `detail` is shown to the user.
+
+The card is **keyed on account + period + filter**, so changing any of them remounts it back to the Idle state rather than leaving a previous period's diagnosis displayed against the new numbers (P-1: a summary is only ever shown against the numbers it was generated for). Regeneration stays an explicit click — the reset never auto-spends tokens.
+
+#### Embedded sub-views
+
+- **Trends** — `<PeriodicView />` (see §6.2): metric-tab time-series charts + `BreakdownSection`.
+- **Funnel** — `<FunnelView />`: step bar chart + conversion-rate table. Steps are resolved by `getFunnelSteps(platform, accountType)` (`lib/constants.ts`), which is **account-type-aware for Meta**: standard uses `landing_page_views → add_to_cart → initiate_checkout → purchase`; CPAS uses the shared-item steps `content_view_shared → add_to_cart_shared → purchase_shared`. TikTok is platform-only and follows the **onsite/shop path** `page_view_onsite → web_add_to_cart → web_checkout → web_purchases` (labels "Page Views (Onsite)", "Add to Cart (Shop)", "Checkouts Init. (Shop)", "Purchases (Shop)"); google_ads is the platform-only search funnel (unchanged). **Every configured step renders**, even when its value is absent/zero — an absent step becomes a labeled zero-height bar (0 value), matching the reference dashboard's zero-state funnel rather than a "No data" message (step-to-step conversion % guards divide-by-zero → `—`, never NaN). The only genuine empty state is a platform with **no step definitions at all**. When the global `?compare` toggle is on, each step shows an inline `DeltaPill` (step value vs the overview response's `previous[step.key]`) with a muted `vs <prev>` absolute value.
+- **Table preview** — `<TableView preview />`: a "Data Based On" card with the top campaigns by spend (visible columns only, no expand/pagination) + **See All →** `/table`.
+- **Ads preview** — `<AdsView preview />`: top 3 creatives as `AdCard`s (click opens the shared `AdDetailSheet`) + **See All →** `/ads`.
 
 #### Data fetching
 
@@ -351,7 +414,7 @@ const { data, isLoading } = useQuery({
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  CONTROLS BAR                                                 │
-│  [Level ▾] [Metrics ▾] [Time ▾ Day/Week/Month] [Compare ○]  │
+│  [Level ▾] [Metrics ▾] [Time ▾ Day/Week/Month]              │
 ├──────────────────────────────────────────────────────────────┤
 │                                                               │
 │  MAIN CHART (line or bar, switchable)                         │
@@ -379,12 +442,12 @@ const { data, isLoading } = useQuery({
 - Default selection: Spend + Clicks
 - Selected metrics shown as chips next to the button
 
-**Time increment** — segmented control (shadcn `ToggleGroup`)
+**Time increment** — filled-pill `SegmentControl` (state-based), alongside a matching Line/Bar chart-type toggle
 - Options: Day · Week · Month
 - Default: Day
 
-**Compare previous period** — shadcn `Switch`
-- When on: overlays the prior period as a dashed line on the same chart
+**Compare previous period** — no longer a Trends-local control. The toggle moved to a **global** `Switch` in the `ControlStrip` (see §4), driven by `?compare=true`. Trends reads that URL param **read-only** (`useQueryState("compare")` without a setter) and still renders the prior-period dashed-line overlay when it's on:
+- When on: overlays the prior period as a dashed line on the same chart (fetched via `compare_previous=true` on `timeseries`)
 - Period label shown in the chart legend (e.g. "May 2026" vs "Apr 2026")
 
 #### Main chart
@@ -486,6 +549,8 @@ shadcn `Tabs` — Campaigns · Ad Groups · Ads. Switching resets sort, keeps da
 
 **Ads level:** same as campaigns, plus a **Creative preview** column (thumbnail + headline, leftmost after Name), minus Budget columns.
 
+**Compare deltas:** when the global `?compare` toggle is on, `TableView` sends `compare_previous=true` and every numeric metric cell (currency/number/percent/roas) renders a `DeltaPill` beneath the value using `row.metrics_previous[col.metricKey]` — cost metrics color-inverted per `metricDelta`, with the previous absolute value shown on hover (`variant="tooltip"`). The `compare` flag is part of the query key so cached results split by compare on/off.
+
 #### Row interactions
 
 - Click row → expand inline detail panel (not a new page) showing:
@@ -536,7 +601,7 @@ Server-side. 25 rows per page default. shadcn `Pagination` component at the bott
 ```
 ┌────────────────────────┐
 │  [Creative image/video │
-│   thumbnail 16:9]      │
+│   thumbnail 4:5]       │
 │                        │
 │  Format badge (video)  │
 ├────────────────────────┤
@@ -553,11 +618,13 @@ Server-side. 25 rows per page default. shadcn `Pagination` component at the bott
 └────────────────────────┘
 ```
 
+- Creative thumbnails use a 4:5 portrait frame with `object-contain` (zero crop) — full asset shown, letterboxed on a muted background rather than cropped to fill
 - Image ads: show `image_url` directly
 - Video ads: show `thumbnail_url` with a play icon overlay
 - Carousel ads: show first image with a carousel indicator badge
 - Missing creative (not yet fetched): show gray placeholder with animated pulse
 - Clicking any card opens the `AdDetailSheet`
+- **Compare deltas:** when the global `?compare` toggle is on, `AdsView` requests `compare_previous=true` (via `level=ad` on `/insights/table`); `AdCard` and `AdRow` render a `DeltaPill` next to Spend/CTR/Conv./ROAS using `ad.metrics_previous`, with the previous absolute value shown on hover (`variant="tooltip"`). The `compare` flag is part of the infinite-query key.
 
 #### `AdDetailSheet` (shadcn `Sheet` — slides in from right)
 
@@ -569,7 +636,7 @@ Full-width side panel showing:
 - Format, platform
 
 **Right panel (metrics):**
-- Full metrics for the selected date range
+- Full metrics for the selected date range — the row list is **registry-driven and account-type aware**: rows come from `usePlatformMetrics().tableMetricDefs` (the account-type-filtered `METRIC_REGISTRY` ad-level set), not a hardcoded list, and are presence-filtered to the keys actually present (non-null) in the ad's `metrics` so absent metrics are dropped rather than shown as zero (P-1/P-2). A standard account renders standard metrics (incl. add-to-cart value, avg. basket price, post reactions/saves, comments); a CPAS account renders the `*_shared` set — no cross-leak between account types. Labels/formatting flow through the shared `metricLabel`/`metricType`/`formatMetric` (currency-aware)
 - Video retention funnel (if video ad) — horizontal bar chart: plays → 25% → 50% → 75% → 100%
 - Placement breakdown (facebook feed vs instagram story, etc.)
 - Campaign and ad group hierarchy breadcrumb
@@ -589,20 +656,25 @@ Creatives are loaded lazily. The page first loads ad metadata + metrics from `GE
 
 ## 7. Settings & Org Pages
 
+> **Role note:** all `/settings/*` pages are viewable by members; **owner-only
+> controls are disabled (locked, not hidden)** for members via `useIsOwner()`,
+> with a `SettingsReadonlyBanner` under the nav. The backend enforces the real
+> boundary (`403`). "Owner action" below means the control is locked for members.
+
 ### `/settings/org`
 
-Simple form page. **Owner only.**
+Simple form page.
 
 - Org name (text input, editable)
 - Org slug (read-only display)
-- "Save changes" button → `PATCH /org`
-- Danger zone: "Delete organization" (confirmation dialog — owner must type org name to confirm)
+- "Save changes" button → `PATCH /org` (owner action)
+
+There is no "Delete organization" action — the feature/endpoint isn't built, so
+the stub Danger-zone UI was removed rather than left as a no-op.
 
 ### `/settings/members`
 
-**Owner only.**
-
-Layout: header with "Invite member" button → opens shadcn `Dialog`.
+Layout: header with "Invite member" button (owner action) → opens shadcn `Dialog`.
 
 **Invite dialog:**
 - Email input + Role selector (Member only — role is always member in current model)
@@ -617,11 +689,19 @@ Layout: header with "Invite member" button → opens shadcn `Dialog`.
 | Role | Badge: Owner / Member |
 | Status | Joined / Pending invite |
 | Joined | Date |
-| Actions | Remove button (owner can't remove themselves) |
+| Access | Owner rows show "All accounts"; member rows show a **Manage access** action (owner-only) + Remove button (owner can't remove themselves) |
+
+**Manage access dialog** (`components/settings/manage-access-dialog.tsx`, owner action):
+per-member modal listing all org accounts grouped by platform with checkboxes,
+pre-seeded from `GET /org/members/:membership_id/accounts`; Save → `PUT` the full
+selected set. This is the per-member account allowlist — a member sees only the
+accounts checked here. Members with no grants get "No accounts assigned to you"
+empty states in the account switcher and dashboard/overview (role-aware copy via
+`useIsOwner()`), instead of the owner's "connect an account" prompt.
 
 ### `/settings/connections`
 
-**Owner only.**
+Connect / Disconnect are owner actions (locked for members).
 
 List of platform connections. One card per platform.
 
@@ -648,30 +728,75 @@ Clicking "Connect" for Meta opens a dialog with:
 - Submit → `POST /connections` (validates token server-side before saving)
 - On success: "Connection verified. Importing ad accounts…" → closes dialog, page refreshes
 
+### `/settings/accounts`
+
+Per-account configuration list. Orgs can have 200–1000+ accounts, so the list is **server-paginated** — never the full org at once.
+
+```
+Account Type
+CPAS (Collaborative Ads) accounts show traffic metrics only — ROAS/conversions
+owned by the retailer. CPAS applies to Meta accounts only.
+
+[ 🔍 Search accounts… ]            [ All | Meta | TikTok ]
+┌──────────────────────────────────────────────────────┐
+│  ▣ Meta   Acme Ads      USD          [ Standard ▾ ]  │
+│  ▣ TikTok Beta Co       EUR                    —     │
+└──────────────────────────────────────────────────────┘
+Showing 1–20 of 123        ←  1  2  3  …  7  →
+```
+
+- **Data:** `useQuery` on `accountsApi.list({ search, platform, page, per_page: 20 })`, keyed by `queryKeys.accountsList(platform, search, page)`. `placeholderData:(prev)=>prev` keeps the list stable while typing/paging. `PAGE_SIZE = 20`.
+- **Search:** local input → `useDebounced(…, 250)` (from `hooks/use-account.ts`) → server `search` param.
+- **Platform filter:** `Tabs` (All / Meta / TikTok), single-select, value `all`/`meta`/`tiktok` → server `platform` param. `all` sends no filter.
+- Changing search or platform resets `page` to 1.
+- **Account type control is Meta-only:** Meta rows render the Standard/CPAS `Select`; non-Meta (TikTok) rows render a muted `—` (CPAS is a Meta concept; backend rejects `cpas` on non-Meta with `409`).
+- **Mutation:** `accountsApi.updateConfig(id, { account_type })`; on success invalidates the `["accounts"]` prefix (refreshes this list, picker search, and count together).
+- Footer: `PaginationBar` (shown only when `total_pages > 1`).
+- Empty state reflects filters: "No accounts match your filters." vs "No ad accounts connected yet."
+
 ---
 
 ## 8. Shared Components
 
-### `MetricCard`
-KPI display card with value, label, % change badge, and optional sparkline. Used in Overview.
+### Design language (single-accent rule)
 
-### `SparklineChart`
-Tiny inline Recharts `LineChart` (no axes, no tooltip) for KPI card trends.
+The UI runs on **one accent family**: the sidebar indigo (`--primary`/`--ring`/`--accent`, hue ~273° in `globals.css`, matching the rail in both light and dark mode). Every interactive-accent surface — primary buttons, active toggles/segments, links, focus rings — resolves to this token; there is no second (blue/orange) accent. Deliberately **exempt** and left brand/semantic-correct: platform **brand** colors (Meta blue, TikTok black, Google multicolor — `platform-badge.tsx`, `settings/connections`), **status** colors (green active / yellow paused / red error — `status-badge.tsx`), and **chart-series / data-encoding** colors (`--chart-*`, `--tint-*`, iris palette). Every card on every dashboard page renders through **one primitive — `DashCard`** (`components/shared/dash-card.tsx`): one surface (`rounded-xl bg-card ring-1 ring-foreground/10` + `--shadow-soft`), an entrance animation, and **deliberately no hover motion or shadow swap** (the old `hoverLift` / `hover:shadow-lift` bento behavior was removed — it read as noisy). `MetricGroupCard` and `CombinedKpiCard` are built on `DashCard`, and plain content tiles (charts, geo, account lists) use it directly, so surfaces and hover behavior can't drift between pages. The combined summary (`/dashboard`) and the platform Overview share the same page structure — a `SectionHeading` lead per section over the one card surface.
+
+### `SegmentControl`
+`components/ui/segment-control.tsx` — the single **filled-pill** segmented control used app-wide. Presentational only (owns no state): a muted-bg pill container (`bg-muted rounded-lg p-0.5`); the active segment gets a solid `bg-primary`/`text-primary-foreground` fill with `shadow-sm`, inactive segments are `text-muted-foreground` → `hover:text-foreground`. Props: `items: {value,label,icon?,href?}[]`, `value`, `onValueChange?(value)`, `ariaLabel?`, `className?`, `segmentClassName?`. Interaction is per-item: an item with `href` renders a Next `<Link>` (route-based tabs), otherwise a `<button>` calling `onValueChange` (state-based toggles). Typed generically over the value union (no `any`). Used by the platform tab bar (`PlatformTabs`), settings nav (`SettingsNav`), Periodic (Day/Week/Month + Line/Bar), Ads (Grid/List), Table (Campaigns/Ad Groups/Ads), Breakdown (Age/Country/Platform/Device), and the `/settings/accounts` platform filter — replacing all previously bespoke segment/tab implementations and most in-view shadcn `Tabs` usages.
+
+### `SectionHeading`
+`components/shared/section-heading.tsx` — bold title + optional muted subtitle. The shared typographic lead at the top of every dashboard section, used by both the platform `OverviewView` and the combined summary (`/dashboard`) so the pages read with one consistent structure. An optional `freshness` prop renders a **mobile-only** (`md:hidden`) `SyncStatusBadge` beneath the subtitle — set on a view's primary heading (currently `OverviewView`'s "Overview") so freshness stays visible on phones, where the top-bar chip is hidden below `md` (P-1). Desktop keeps the badge in the top bar only.
+
+### `CardChipHeader`
+`components/shared/card-chip-header.tsx` — the shared card header: a colored round icon chip + bold title, with an optional right-aligned action. Matches the platform `MetricGroupCard` header 1:1 so every card reads the same. Rendered by `DashCard` whenever `title` + `icon` are set, so all cards get an identical header for free.
+
+### `DashCard`
+`components/shared/dash-card.tsx` — **the one dashboard card**. A single card surface (`bg-card`, hairline ring, `--shadow-soft`) with an entrance animation and **no hover motion** (see Design language). Optional chip header via `title`/`icon`/`accent` (renders `CardChipHeader`) + optional `action`; body via `children` + `bodyClassName`. `MetricGroupCard` and `CombinedKpiCard` are built on it; the combined summary's Combined spend / Global reach / By account tiles and the TikTok engagement trend use it directly. Replaced the retired `BentoTile`.
+
+### `CombinedKpiCard`
+`components/summary/combined-kpi-card.tsx` — the combined summary's grouped KPI card, built on `DashCard`. Same visual language as `MetricGroupCard` (icon chip + title + big headline number, then a sub-metric grid) but driven by the cross-platform combined summary and its precomputed `vs_previous` **percent** deltas (via `formatChange` → `DeltaBadge`) rather than raw previous values. Delta badges stay silent unless the Compare toggle is on (P-2).
 
 ### `DateRangePicker`
 Single popover, two views: preset buttons and a `Custom range…` reveal that swaps in a `react-day-picker` range calendar (future dates disabled). Apply sets `date_start`/`date_end` and clears `date_preset`. Syncs to URL.
 
 ### `AccountSwitcher` / `AccountCommandList`
-Server-side searched `cmdk` combobox (`?search=&platform=`) — single-select on platform routes, multi-select (grouped by platform) on the combined dashboard. Pinned + Recent groups persisted in `ui-store` via `accountSnapshots`. Syncs `account_id` (or `accounts`) to URL.
+Server-side searched `cmdk` combobox (`?search=&platform=`) — single-select on platform routes, multi-select (grouped by platform) on the combined dashboard. Pinned + Recent groups persisted in `ui-store` via `accountSnapshots`, pruned against the live account list when a snapshot is conclusively gone (idle, non-truncated page). Syncs `account_id` (or `accounts`) to URL. `useSelectedAccount` validates a selected `account_id` that isn't on the live first page via `GET /accounts/:id` (a snapshot alone is not trusted); a `404` (disabled/removed account) drops the dead selection and falls back to the first live remembered/first-page account, which the switcher then writes back to the URL.
+
+### `PaginationBar`
+Server-pagination footer: "Showing X–Y of N" + numbered page buttons (collapses to first/last with `…` past 7 pages) and prev/next. Props: `page`, `totalPages`, `total`, `perPage`, `onPage`. Used by `TableView` and `/settings/accounts`.
 
 ### `SyncStatusBadge`
-Polls sync status every 60 seconds. Shows dot indicator + last updated time. Triggers manual sync on click (owner only).
+Polls sync status every 60 seconds. Shows dot indicator + last updated time. Triggers manual sync on click (owner only). Lives in the `TopBar` (`hidden md:block`) on desktop; on mobile that top-bar instance is hidden, so it's re-surfaced under the page's primary `SectionHeading` via that heading's `freshness` prop (`md:hidden`) — one visible instance per breakpoint, freshness never dropped (P-1).
+
+### `DeltaPill`
+`components/metrics/delta-pill.tsx` — period-over-period delta badge (`▲ +12%`) used by KPI cards, funnel stages, table cells, and ad cards/rows. Computes the delta via the `metricDelta` helper (`lib/formatters.ts`), whose `direction` is **semantic (good/bad)**, not raw sign: for cost/efficiency metrics (`COST_METRICS` = `cpa`/`cpc`/`cpm`/`cpp`/`frequency`, plus any `cost_per_*` key) the direction is inverted so a decrease reads green ("up"). Props: `current`, `previous`, `metricKey`, `className?`, `variant?` (`"inline" | "tooltip"`, default `"tooltip"`), `currency?` (default `"USD"`), `valueType?` (overrides the type otherwise derived from `metricKey` via `metricType`). Renders **nothing** when there's no usable comparison (missing current/previous or a zero baseline) — stays silent per P-2. When a comparison exists it also shows the **previous absolute value**, formatted via `formatMetric(previous, type, currency)`: `variant="inline"` appends a muted `vs <prev>` after the pill (KPI cards, funnel); `variant="tooltip"` reveals `prev <prev>` on hover via the shadcn `Tooltip` (`components/ui/tooltip.tsx`, table cells + ad cards/rows). `DeltaBadge` (the raw visual, given a pre-computed `label`+`direction`) is exported for callers that already have a formatted change, e.g. `metric-tile.tsx`.
 
 ### `StatusBadge`
 Color-coded badge for entity status. Props: `status: 'active' | 'paused' | 'archived' | 'deleted'`
 
 ### `PlatformBadge`
-Small logo + name badge for platform. Props: `platform: 'meta' | 'google_ads' | 'tiktok'`
+Small platform icon. `meta`/`tiktok`/`google_ads` render their brand SVG (`/meta-logo.svg`, `/tiktok-logo.svg`, `/gads-logo.svg`); any other platform falls back to a colored letter tile. Props: `platform: 'meta' | 'google_ads' | 'tiktok'`, `size?: 'sm' | 'md'`
 
 ### `MetricValue`
 Formatted metric display. Handles currency, percentage, multiplier (ROAS), and large number abbreviation (1.2M, 45K). Props: `value`, `type: 'currency' | 'percent' | 'number' | 'roas'`, `currency?: string`
@@ -683,7 +808,16 @@ Centered illustration + title + description + optional CTA button. Used when: no
 Animated pulse placeholder. Variants: card, table-row, chart.
 
 ### `ConfirmDialog`
-shadcn `AlertDialog` wrapper for destructive actions (disconnect, remove member, delete org). Requires typing a confirmation phrase for high-risk actions.
+shadcn `AlertDialog` wrapper for destructive actions (disconnect, remove member). Requires typing a confirmation phrase for high-risk actions.
+
+### `AnimatedIcon`
+`components/shared/animated-icon.tsx` — the single wrapper for giving any `lucide-react` glyph a tasteful micro-animation. Both modes honor the OS "reduce motion" preference. Props: `icon: LucideIcon`, `motionPreset` (name of a preset in `lib/motion.ts`), `trigger?: "hover" | "state"` (default `"hover"`), `active?` + `activeVariant?` + `appear?` (for `trigger="state"`), `iconClassName?`, `size?`, `className?`.
+
+Two modes:
+- `trigger="hover"` (default): **CSS `group-hover` drives the animation**, so the whole containing element (a `<Link>`, `<button>`, row `<div>`, card, etc.) fires it on hover — not just the icon itself. The icon renders as a plain `<span>` carrying `group-hover:` transform classes (`ICON_HOVER_CLASS` in `lib/motion.ts`), so the parent can be any element type without becoming a motion component. **Requirement:** the nearest interactive/hover ancestor of the icon **must carry the Tailwind `group` class**, or the animation is inert. reduce-motion is honored via `motion-reduce:` variant guards on each class. Used for nav/menu/action glyphs (Summary, Settings, Bell, Filter, Trash, Export, Star, "See All"/drill chevrons, external-link/plug).
+- `trigger="state"`: framer-motion (`motion.span`) drives the animation from a boolean `active` — used for expand/collapse chevrons (rotate on open) and for `appear` "pop-in" of state icons (delta trend arrows, active sort arrow, sync CheckCircle2/AlertTriangle, connection-stage checks). This path respects reduce-motion via the global `<MotionConfig reducedMotion="user">` in `components/shared/providers.tsx`.
+
+Animation presets live **only** in `lib/motion.ts` (single source): `ICON_MOTION` (framer-motion variants, used by `trigger="state"`/`appear`) and `ICON_HOVER_CLASS` (Tailwind `group-hover:` class strings, used by `trigger="hover"`). The `wiggle` hover shake uses an `@keyframes icon-wiggle` defined in `app/globals.css`. Do not scatter inline motion objects in components — add a new preset in both maps and reference it by name. Current presets: `spin` (90° tip — settings/sliders), `wiggle` (shake — bell/alert/dismiss), `bounce` (vertical hop — download/export, up-down chevrons), `pop` (scale pop; also the mount `hidden→show` for appearing state icons), `draw` (scale+rotate — external-link/plug), `nudge` (subtle lift — generic nav glyphs), `nudgeRight` (slide right — "go/navigate" chevrons), `flip` (180° — expand/collapse chevrons). Platform-badge letter marks (M/T/G) and chart/data-viz inline SVGs (`shared/geo-tile.tsx`) are **not** routed through `AnimatedIcon` — they animate on their own terms. Active-op spinners (`Loader2`, `RefreshCw` with `animate-spin`) stay as CSS spins since they only run during a live async op.
 
 ---
 
@@ -702,10 +836,11 @@ Primary state for all dashboard filters — ensures shareable, bookmarkable URLs
 | `date_preset` | All dashboard views | `?date_preset=last_30d` |
 | `date_start` | All dashboard views | `?date_start=2026-05-01` |
 | `date_end` | All dashboard views | `?date_end=2026-05-30` |
-| `level` | Periodic, Table | `?level=campaign` |
+| `level` | Table | `?level=campaign` (Table only) |
+| `trend_level` | Trends/Periodic | `?trend_level=account` (default `account`; separate key from `level` so both can co-mount on Overview) |
 | `metrics` | Periodic | `?metrics=spend,ctr` |
 | `time_increment` | Periodic | `?time_increment=day` |
-| `compare` | Periodic | `?compare=true` |
+| `compare` | Global (ControlStrip) | `?compare=true` — drives Trends overlay + delta pills on cards/funnel/table/ads |
 | `breakdown` | Periodic | `?breakdown=age_gender` |
 | `status` | Table | `?status=active` |
 | `sort_by` | Table | `?sort_by=spend` |
@@ -722,8 +857,11 @@ For UI state that should NOT be in the URL:
 
 ```ts
 interface UIStore {
-  sidebarCollapsed: boolean
+  sidebarCollapsed: boolean                   // desktop rail collapse — persisted
   setSidebarCollapsed: (v: boolean) => void
+
+  mobileNavOpen: boolean                      // off-canvas drawer — ephemeral, never persisted
+  setMobileNavOpen: (open: boolean) => void
 
   visibleColumns: Record<string, string[]>   // per level — persisted to localStorage
   setVisibleColumns: (level: string, cols: string[]) => void

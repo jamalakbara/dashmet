@@ -10,25 +10,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { orgApi } from "@/lib/api/org";
 import { queryKeys } from "@/lib/query-keys";
+import { useIsOwner } from "@/hooks/use-role";
 
 const schema = z.object({ name: z.string().min(1, "Required") });
 type FormValues = z.infer<typeof schema>;
 
 export default function OrgSettingsPage() {
   const qc = useQueryClient();
+  const isOwner = useIsOwner();
   const [saved, setSaved] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteInput, setDeleteInput] = useState("");
   const [apiError, setApiError] = useState<string | null>(null);
 
   const { data: orgRes, isLoading } = useQuery({
@@ -102,60 +94,17 @@ export default function OrgSettingsPage() {
                 <Label className="text-muted-foreground">Slug</Label>
                 <Input value={org?.slug ?? ""} readOnly disabled className="font-mono text-xs" />
               </div>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button
+                type="submit"
+                disabled={isSubmitting || !isOwner}
+                title={!isOwner ? "Owner only" : undefined}
+              >
                 {isSubmitting ? "Saving…" : "Save changes"}
               </Button>
             </form>
           )}
         </CardContent>
       </Card>
-
-      {/* Danger zone */}
-      <Card className="border-destructive/40">
-        <CardHeader>
-          <CardTitle className="text-base text-destructive">Danger zone</CardTitle>
-          <CardDescription>
-            Deleting the organization is permanent and cannot be undone. All data will be lost.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
-            Delete organization
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Delete confirm dialog */}
-      <Dialog open={deleteOpen} onOpenChange={(o) => { setDeleteOpen(o); setDeleteInput(""); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete organization</DialogTitle>
-            <DialogDescription>
-              This action is permanent. Type <strong>{org?.name}</strong> to confirm.
-            </DialogDescription>
-          </DialogHeader>
-          <Input
-            placeholder={org?.name}
-            value={deleteInput}
-            onChange={(e) => setDeleteInput(e.target.value)}
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setDeleteOpen(false); setDeleteInput(""); }}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={deleteInput !== org?.name}
-              onClick={() => {
-                // Delete org — API not yet wired (destructive, out of scope for now)
-                setDeleteOpen(false);
-              }}
-            >
-              Delete permanently
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

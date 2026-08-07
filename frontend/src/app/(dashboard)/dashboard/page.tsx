@@ -3,25 +3,38 @@
 import { useQuery } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { AlertTriangle } from "lucide-react";
+import { motion } from "framer-motion";
+import { AlertTriangle, Activity, Layers, Wallet } from "lucide-react";
 import { format, parseISO } from "date-fns";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MetricCard } from "@/components/metrics/metric-card";
+import { DashCard } from "@/components/shared/dash-card";
+import { GeoTile } from "@/components/shared/geo-tile";
+import { CombinedKpiCard } from "@/components/summary/combined-kpi-card";
+import { SectionHeading } from "@/components/shared/section-heading";
 import { PlatformBadge } from "@/components/shared/platform-badge";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useAccountsCount } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
 import { getCombinableMetrics } from "@/lib/metrics";
-import { CHART_COLORS } from "@/lib/constants";
+import { staggerGrid } from "@/lib/motion";
+import {
+  seriesColor,
+  gradientDef,
+  gridProps,
+  axisProps,
+  tooltipProps,
+  chartAnimation,
+} from "@/lib/chart-theme";
 import { formatMetric, formatCurrency } from "@/lib/formatters";
 
 interface MetricBag {
@@ -73,6 +86,8 @@ function EmptyState({ message }: { message: string }) {
 export default function CombinedDashboardPage() {
   const accountCount = useAccountsCount();
   const [accountsParam] = useQueryState("accounts");
+  const [compareStr] = useQueryState("compare");
+  const compare = compareStr === "true";
   const dateRange = useDateRange();
 
   // null param = all org accounts (backend resolves); "" = explicitly none;
@@ -128,8 +143,20 @@ export default function CombinedDashboardPage() {
   if (ov && ov.currency_mismatch) {
     return (
       <div className="space-y-6">
+        <SectionHeading
+          title="Summary"
+          subtitle="Delivery and results across your connected accounts."
+        />
         <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-          <AlertTriangle className="size-4 shrink-0" />
+          <AnimatedIcon
+            icon={AlertTriangle}
+            motionPreset="pop"
+            trigger="state"
+            appear
+            activeVariant="show"
+            className="shrink-0"
+            iconClassName="size-4"
+          />
           Mixed currencies ({ov.currencies.join(", ")}) — totals can&apos;t be combined. Showing each account separately.
         </div>
 
@@ -167,143 +194,114 @@ export default function CombinedDashboardPage() {
   // ── Single currency → combined aggregate ──
   const summary = ov?.summary ?? {};
   const vsPrev = ov?.vs_previous ?? {};
+  const accountsLabel = ov?.account_count ?? accountCount ?? 0;
+  const kpiSpecs = combinableKpis.map((m) => ({
+    key: m.key,
+    label: m.label,
+    type: m.type,
+  }));
 
   return (
-    <div className="space-y-6">
-      {/* Combined KPI cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        {combinableKpis.map((metric) => (
-          <MetricCard
-            key={metric.key}
-            label={metric.label}
-            value={formatMetric(summary[metric.key], metric.type, currency)}
-            change={vsPrev[metric.key] ?? null}
-            sparkline={series.map((s) => (s[metric.key] as number) ?? 0)}
-            loading={ovLoading}
-          />
-        ))}
+    <motion.div {...staggerGrid} className="space-y-6">
+      {/* ── Overview: combined trend + grouped KPIs ── */}
+      <SectionHeading
+        title="Summary"
+        subtitle={`Combined delivery across ${accountsLabel} account${
+          accountsLabel === 1 ? "" : "s"
+        } for the selected period.`}
+      />
+
+      <DashCard
+        title={`Combined spend · ${ov?.account_count ?? 0} accounts`}
+        icon={Activity}
+        accent="bg-violet-500"
+        bodyClassName="px-4 pb-4 pt-2"
+      >
+        {tsLoading ? (
+          <div className="h-[300px] animate-pulse rounded-xl bg-muted/40" />
+        ) : series.length === 0 ? (
+          <EmptyState message="No data for selected period" />
+        ) : (
+          <ResponsiveContainer width="100%" height={300}>
+            <AreaChart data={series} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+              <defs>{gradientDef("dashSpendFill", seriesColor(0))}</defs>
+              <CartesianGrid {...gridProps} />
+              <XAxis dataKey="date" tickFormatter={formatXDate} {...axisProps} interval="preserveStartEnd" />
+              <YAxis
+                tickFormatter={(v) => formatCurrency(v, currency)}
+                {...axisProps}
+                width={64}
+              />
+              <Tooltip
+                formatter={(v) => [formatCurrency(v as number, currency), "Spend"]}
+                labelFormatter={(l) => formatXDate(l as string)}
+                {...tooltipProps}
+              />
+              <Area
+                type="monotone"
+                dataKey="spend"
+                stroke={seriesColor(0)}
+                strokeWidth={2}
+                fill="url(#dashSpendFill)"
+                dot={false}
+                activeDot={{ r: 4 }}
+                {...chartAnimation}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </DashCard>
+
+      <CombinedKpiCard
+        title="Combined KPIs"
+        icon={Wallet}
+        accent="bg-orange-500"
+        metrics={kpiSpecs}
+        summary={summary}
+        vsPrev={vsPrev}
+        currency={currency}
+        compare={compare}
+        loading={ovLoading}
+      />
+
+      {/* ── Breakdown: geography + per-account contribution ── */}
+      <SectionHeading
+        title="Breakdown"
+        subtitle="How each account and region contributed to the total."
+      />
+
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <GeoTile
+          className="min-h-[320px]"
+          dateRange={dateRange}
+          caption="Global reach"
+        />
+
+        <DashCard
+          title="By account"
+          icon={Layers}
+          accent="bg-emerald-500"
+          className="min-h-[320px]"
+          bodyClassName="gap-2 px-5 pb-5 pt-4"
+        >
+          {ov && ov.per_account.length > 0 ? (
+            ov.per_account.map((acc) => (
+              <div
+                key={acc.account_id}
+                className="flex items-center gap-3 rounded-lg bg-muted/40 px-3 py-2 text-sm"
+              >
+                {acc.platform && <PlatformBadge platform={acc.platform} size="sm" />}
+                <span className="truncate font-medium">{acc.name}</span>
+                <span className="ml-auto text-xs tabular-nums font-medium text-muted-foreground">
+                  {formatCurrency(acc.summary?.spend ?? 0, currency)}
+                </span>
+              </div>
+            ))
+          ) : (
+            <EmptyState message="No accounts in this selection" />
+          )}
+        </DashCard>
       </div>
-
-      {/* Trend charts */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Combined spend trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {tsLoading ? (
-              <div className="h-60 animate-pulse rounded bg-muted" />
-            ) : series.length === 0 ? (
-              <EmptyState message="No data for selected period" />
-            ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={series} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="date"
-                    tickFormatter={formatXDate}
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis
-                    tickFormatter={(v) => formatCurrency(v, currency)}
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={60}
-                  />
-                  <Tooltip
-                    formatter={(v) => [formatCurrency(v as number, currency), "Spend"]}
-                    labelFormatter={(l) => formatXDate(l as string)}
-                    contentStyle={{ fontSize: 12 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="spend"
-                    stroke={CHART_COLORS[0]}
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Combined clicks trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {tsLoading ? (
-              <div className="h-60 animate-pulse rounded bg-muted" />
-            ) : series.length === 0 ? (
-              <EmptyState message="No data for selected period" />
-            ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={series} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="date"
-                    tickFormatter={formatXDate}
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={40}
-                  />
-                  <Tooltip
-                    formatter={(v) => [(v as number)?.toLocaleString?.() ?? v, "Clicks"]}
-                    labelFormatter={(l) => formatXDate(l as string)}
-                    contentStyle={{ fontSize: 12 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="clicks"
-                    stroke={CHART_COLORS[1]}
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Per-account contribution */}
-      {ov && ov.per_account.length > 1 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">By account</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {ov.per_account.map((acc) => (
-                <div
-                  key={acc.account_id}
-                  className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
-                >
-                  {acc.platform && <PlatformBadge platform={acc.platform} size="sm" />}
-                  <span className="truncate font-medium">{acc.name}</span>
-                  <span className="ml-auto tabular-nums text-muted-foreground">
-                    {formatCurrency(acc.summary?.spend ?? 0, currency)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
+    </motion.div>
   );
 }

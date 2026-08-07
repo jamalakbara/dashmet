@@ -16,13 +16,15 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SegmentControl } from "@/components/ui/segment-control";
 import { insightsApi } from "@/lib/api/insights";
+import { SyncAwareEmpty } from "@/components/shared/sync-aware-empty";
+import { useSyncActive } from "@/hooks/use-sync-jobs";
 import { queryKeys } from "@/lib/query-keys";
 import { useAccountId } from "@/hooks/use-account";
 import { useDateRange } from "@/hooks/use-date-range";
 import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
-import { CHART_COLORS } from "@/lib/constants";
+import { CHART_COLORS, tooltipProps } from "@/lib/chart-theme";
 import { formatCurrency } from "@/lib/formatters";
 
 interface BreakdownRow {
@@ -30,6 +32,13 @@ interface BreakdownRow {
   dimensions: Record<string, string>;
   metrics: Record<string, number>;
 }
+
+const BREAKDOWN_TABS = [
+  { value: "age_gender",        label: "Age & Gender" },
+  { value: "country",           label: "Country" },
+  { value: "platform_position", label: "Platform" },
+  { value: "device",            label: "Device" },
+];
 
 const GENDER_COLORS: Record<string, string> = {
   female: CHART_COLORS[3],
@@ -42,13 +51,15 @@ function SkeletonChart({ height }: { height: number }) {
 }
 
 function Empty({ height = 280 }: { height?: number }) {
+  // Breakdowns sync on their own (hourly) cadence — an empty result on a fresh
+  // account is usually "not synced yet", not "no data" (P-1).
   return (
-    <div
-      className="flex items-center justify-center text-sm text-muted-foreground"
-      style={{ height }}
-    >
-      No data for selected period
-    </div>
+    <SyncAwareEmpty
+      jobType="breakdown"
+      emptyLabel="No breakdown data for this period"
+      syncingLabel="Syncing breakdowns… this fills in after the first breakdown sync"
+      height={height}
+    />
   );
 }
 
@@ -71,10 +82,10 @@ export function AgeGenderChart({ rows, loading, currency }: { rows: BreakdownRow
   return (
     <ResponsiveContainer width="100%" height={280}>
       <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
         <XAxis type="number" tickFormatter={(v) => formatCurrency(v, currency)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
         <YAxis type="category" dataKey="age" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={48} />
-        <Tooltip formatter={(v) => formatCurrency(v as number, currency)} contentStyle={{ fontSize: 12 }} />
+        <Tooltip formatter={(v) => formatCurrency(v as number, currency)} {...tooltipProps} />
         <Legend />
         {genders.map((g) => (
           <Bar key={g} dataKey={g} name={g.charAt(0).toUpperCase() + g.slice(1)} fill={GENDER_COLORS[g] ?? CHART_COLORS[2]} />
@@ -99,10 +110,10 @@ export function CountryChart({ rows, loading, currency }: { rows: BreakdownRow[]
   return (
     <ResponsiveContainer width="100%" height={280}>
       <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
         <XAxis type="number" tickFormatter={(v) => formatCurrency(v, currency)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
         <YAxis type="category" dataKey="country" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={32} />
-        <Tooltip formatter={(v) => [formatCurrency(v as number, currency), "Spend"]} contentStyle={{ fontSize: 12 }} />
+        <Tooltip formatter={(v) => [formatCurrency(v as number, currency), "Spend"]} {...tooltipProps} />
         <Bar dataKey="spend" fill={CHART_COLORS[0]} radius={2} />
       </BarChart>
     </ResponsiveContainer>
@@ -127,10 +138,10 @@ export function PlatformChart({ rows, loading, currency }: { rows: BreakdownRow[
   return (
     <ResponsiveContainer width="100%" height={280}>
       <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
         <XAxis type="number" tickFormatter={(v) => formatCurrency(v, currency)} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
         <YAxis type="category" dataKey="platform" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={72} />
-        <Tooltip formatter={(v) => [formatCurrency(v as number, currency), "Spend"]} contentStyle={{ fontSize: 12 }} />
+        <Tooltip formatter={(v) => [formatCurrency(v as number, currency), "Spend"]} {...tooltipProps} />
         <Legend />
         {positions.map((pos, i) => (
           <Bar key={`${pos ?? "unknown"}-${i}`} dataKey={pos} stackId="a" fill={CHART_COLORS[i % CHART_COLORS.length]} />
@@ -168,7 +179,7 @@ export function DeviceChart({ rows, loading }: { rows: BreakdownRow[]; loading: 
             <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
           ))}
         </Pie>
-        <Tooltip formatter={(v) => [Number(v).toLocaleString(), "Impressions"]} contentStyle={{ fontSize: 12 }} />
+        <Tooltip formatter={(v) => [Number(v).toLocaleString(), "Impressions"]} {...tooltipProps} />
         <Legend />
       </PieChart>
     </ResponsiveContainer>
@@ -187,6 +198,7 @@ export function BreakdownSection() {
   const [activeBreakdown, setActiveBreakdown] = useQueryState("breakdown", {
     defaultValue: "age_gender",
   });
+  const syncActive = useSyncActive();
 
   const { data: bdRes, isLoading: bdLoading } = useQuery({
     queryKey: queryKeys.breakdown(accountId ?? "", dateRange, activeBreakdown ?? ""),
@@ -199,37 +211,37 @@ export function BreakdownSection() {
       }),
     enabled: !!accountId && !!activeBreakdown,
     staleTime: 30 * 60 * 1000,
+    // Poll while a sync is landing so the chart fills in without a manual refresh.
+    refetchInterval: syncActive ? 5000 : false,
   });
 
   const bdRows: BreakdownRow[] = bdRes?.data?.data?.rows ?? [];
+  const active = activeBreakdown ?? "age_gender";
 
   return (
-    <Card>
+    <Card className="shadow-[var(--shadow-soft)]">
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">Breakdown</CardTitle>
+        <CardTitle className="font-display text-sm font-semibold">Breakdown</CardTitle>
       </CardHeader>
       <CardContent>
-        <Tabs value={activeBreakdown ?? "age_gender"} onValueChange={(v) => setActiveBreakdown(v)}>
-          <TabsList>
-            <TabsTrigger value="age_gender">Age & Gender</TabsTrigger>
-            <TabsTrigger value="country">Country</TabsTrigger>
-            <TabsTrigger value="platform_position">Platform</TabsTrigger>
-            <TabsTrigger value="device">Device</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="age_gender" className="mt-4">
+        <SegmentControl
+          items={BREAKDOWN_TABS}
+          value={active}
+          onValueChange={(v) => setActiveBreakdown(v)}
+          ariaLabel="Breakdown dimension"
+        />
+        <div className="mt-4">
+          {active === "age_gender" && (
             <AgeGenderChart rows={bdRows} loading={bdLoading} currency={currency} />
-          </TabsContent>
-          <TabsContent value="country" className="mt-4">
+          )}
+          {active === "country" && (
             <CountryChart rows={bdRows} loading={bdLoading} currency={currency} />
-          </TabsContent>
-          <TabsContent value="platform_position" className="mt-4">
+          )}
+          {active === "platform_position" && (
             <PlatformChart rows={bdRows} loading={bdLoading} currency={currency} />
-          </TabsContent>
-          <TabsContent value="device" className="mt-4">
-            <DeviceChart rows={bdRows} loading={bdLoading} />
-          </TabsContent>
-        </Tabs>
+          )}
+          {active === "device" && <DeviceChart rows={bdRows} loading={bdLoading} />}
+        </div>
       </CardContent>
     </Card>
   );

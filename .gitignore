@@ -51,6 +51,7 @@ Thumbs.db
 postgres_data/
 
 # ── Celery runtime ────────────────────────────────────────────
+celerybeat-schedule
 celerybeat-schedule.*
 celerybeat.pid
 

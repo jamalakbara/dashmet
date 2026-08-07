@@ -1,87 +1,232 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryState } from "nuqs";
+import { formatDistanceToNow } from "date-fns";
+import { motion } from "framer-motion";
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
-import { ArrowRight } from "lucide-react";
-import { format, parseISO } from "date-fns";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { MetricCard } from "@/components/metrics/metric-card";
-import { StatusBadge } from "@/components/shared/status-badge";
+  Wallet,
+  PieChart,
+  Clapperboard,
+  Sparkles,
+  AlertTriangle,
+  RotateCw,
+  type LucideIcon,
+} from "lucide-react";
+import { MetricGroupCard, type SubMetric } from "@/components/metrics/metric-group-card";
+import { SectionHeading } from "@/components/shared/section-heading";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { PeriodicView } from "@/components/views/periodic-view";
+import { FunnelView } from "@/components/views/funnel-view";
+import { TableView } from "@/components/views/table-view";
+import { AdsView } from "@/components/views/ads-view";
 import { insightsApi } from "@/lib/api/insights";
 import { queryKeys } from "@/lib/query-keys";
 import { useSelectedAccount } from "@/hooks/use-account";
+import { useSyncActive } from "@/hooks/use-sync-jobs";
 import { useDateRange } from "@/hooks/use-date-range";
 import { usePlatform } from "@/hooks/use-platform";
-import { usePlatformMetrics } from "@/hooks/use-platform-metrics";
+import { useIsOwner } from "@/hooks/use-role";
+import { useOverviewFilter } from "@/hooks/use-overview-filter";
 import { useSharedFilterQuery } from "@/hooks/use-shared-query";
-import { CHART_COLORS } from "@/lib/constants";
-import {
-  formatMetric,
-  formatCurrency,
-  formatPercent,
-  formatRoas,
-} from "@/lib/formatters";
-import type { EntityStatus } from "@/types/enums";
+import { staggerGrid } from "@/lib/motion";
+import { cn } from "@/lib/utils";
+import { metricLabel, metricType } from "@/lib/metrics";
+import { formatMetric, formatRoas } from "@/lib/formatters";
+import type { AccountType } from "@/types/enums";
 
-interface OverviewSummary {
-  spend: number;
-  impressions: number;
-  reach: number;
-  frequency: number;
-  clicks: number;
-  ctr: number;
-  cpm: number;
-  cpc: number;
-  conversions: number;
-  conversion_value: number;
-  roas: number;
-  cpa: number;
+interface OverviewMetrics {
   [key: string]: number;
 }
 
-interface TopCampaign {
-  id: string;
-  name: string;
-  spend: number;
-  impressions: number;
-  ctr: number;
-  conversions: number;
-  roas: number;
-  outbound_clicks?: number;
-  status?: EntityStatus;
+/**
+ * One grouped overview card. `headlineKey` omitted → a title-only card (the grid
+ * with no big number, e.g. Post & Media). `keys` are the sub-metrics, filtered
+ * at render to those actually present in the summary (P-1/P-2). `headlineKey`,
+ * when present, is excluded from `keys` so it isn't duplicated in the grid.
+ */
+interface CardSpec {
+  title: string;
+  icon: LucideIcon;
+  accent: string;
+  headlineKey?: string;
+  keys: string[];
+  /** Outer grid column span on `lg` (default 1). `2` makes the card full-width. */
+  span?: 1 | 2;
+  /** Inner sub-metric grid column count (default 2). `4` lays 8 metrics as 2×4. */
+  cols?: 2 | 4;
+  /**
+   * Per-card, per-metric-key label overrides. Shown instead of the global
+   * registry label for this card only (`labels[k] ?? metricLabel(k)`). Used so
+   * TikTok cards match the reference dashboard's exact wording without mutating
+   * the shared registry labels (keys like clicks/cpc/ctr are shared with Meta).
+   */
+  labels?: Record<string, string>;
+  /**
+   * Opt-in deviation from the usual "hide absent metrics" behavior (P-2). When
+   * true, `buildSubMetrics` emits EVERY key in `keys` (minus the headline) even
+   * when its summary value is absent, filling absent values with `0` (formatted
+   * per metric type — "IDR 0", "0", "0%", "0.00x"). Used only by the TikTok
+   * cards to match the reference dashboard's full-grid completeness. Meta/CPAS
+   * cards leave this unset and keep presence-filtering absent metrics.
+   */
+  fillAbsent?: boolean;
 }
 
-interface SeriesRow {
-  date: string;
-  spend?: number;
-  conversions?: number;
-  [key: string]: number | string | undefined;
-}
+/** TikTok's two overview cards, shared across standard/cpas. */
+const TIKTOK_CARDS: CardSpec[] = [
+  {
+    title: "Cost",
+    icon: Wallet,
+    accent: "bg-orange-500",
+    headlineKey: "spend",
+    fillAbsent: true,
+    keys: [
+      "impressions", "reach", "frequency", "clicks", "cpc", "cpm", "cpp", "ctr",
+      "video_views", "avg_watch_time", "avg_watch_time_per_user",
+      "total_engagement",
+      "follows", "profile_visits",
+    ],
+    // Reference-dashboard wording. impressions/reach/frequency/cpm keep their
+    // generic registry labels (shared with Meta/Google — don't override those).
+    labels: {
+      clicks: "Clicks (destination)",
+      cpc: "CPC (destination)",
+      cpp: "Cost per 1000 People Reached",
+      ctr: "CTR (destination)",
+      video_views: "Video views",
+      avg_watch_time: "Avg. Watch Time per Video View",
+      avg_watch_time_per_user: "Avg. Watch Time per User",
+      total_engagement: "Total Engagement / Clicks (all)",
+      follows: "Paid follows",
+      profile_visits: "Paid profile visits",
+    },
+  },
+  {
+    title: "ROAS (Shop)",
+    icon: PieChart,
+    accent: "bg-emerald-500",
+    headlineKey: "roas_shop",
+    fillAbsent: true,
+    keys: [
+      "page_view_onsite", "web_add_to_cart", "web_add_to_cart_value", "cost_per_web_add_to_cart",
+      "web_checkout", "cost_per_web_checkout", "web_checkout_value",
+      "web_purchases", "web_purchase_value", "cost_per_web_purchase",
+      "product_clicks_ix", "live_views_10s", "live_product_clicks",
+    ],
+    // Reference-dashboard wording (shop/onsite conversions).
+    labels: {
+      page_view_onsite: "Page Views (Onsite)",
+      web_add_to_cart: "Add to cart (Shop)",
+      web_add_to_cart_value: "Add to cart value (Shop)",
+      cost_per_web_add_to_cart: "Cost per Add to cart (Shop)",
+      web_checkout: "Checkouts initiated (Shop)",
+      cost_per_web_checkout: "Cost per Checkout Initiated (Shop)",
+      web_checkout_value: "Checkout initiation value (Shop)",
+      web_purchases: "Purchases (Shop)",
+      web_purchase_value: "Gross revenue (Shop)",
+      cost_per_web_purchase: "Cost per purchase (Shop)",
+      product_clicks_ix: "Product Clicks (Instant Experience)",
+      live_views_10s: "10-second LIVE views",
+      live_product_clicks: "LIVE Product Clicks",
+    },
+  },
+];
 
-function formatXDate(dateStr: string) {
-  try {
-    return format(parseISO(dateStr), "MMM d");
-  } catch {
-    return dateStr;
-  }
+/**
+ * Platform- and account-type-scoped card definitions. Keyed first by platform,
+ * then by account type. STRICTLY separated: a standard Meta account renders zero
+ * `*_shared` metrics, a cpas account renders none of the standard ROAS / Post &
+ * Media metrics. Driven off `platform` + `accountType` from the selected
+ * account — never mixed. Keys absent from the summary are dropped silently.
+ *
+ * Platforms without a bespoke design (e.g. google_ads) fall back to `meta` via
+ * `getOverviewCards`, so adding a platform never regresses an existing one.
+ */
+const OVERVIEW_CARDS: Record<string, Record<AccountType, CardSpec[]>> = {
+  meta: {
+  standard: [
+    {
+      title: "Spend",
+      icon: Wallet,
+      accent: "bg-orange-500",
+      headlineKey: "spend",
+      keys: [
+        "reach", "impressions", "frequency", "ctr", "cpm",
+        "inline_link_clicks", "clicks", "cpc",
+        "landing_page_views", "cost_per_landing_page_view",
+      ],
+    },
+    {
+      title: "ROAS",
+      icon: PieChart,
+      accent: "bg-emerald-500",
+      headlineKey: "roas",
+      keys: [
+        "purchase", "conversion_value", "cost_per_purchase",
+        "add_to_cart", "add_to_cart_value", "cost_per_add_to_cart",
+        "conversion_rate", "avg_basket_price",
+      ],
+    },
+    {
+      title: "Post & Media",
+      icon: Clapperboard,
+      accent: "bg-violet-500",
+      // Full-width bottom row: 8 metrics laid out as two rows of 4 so the card
+      // fills the space left by an odd (3-card) count in a 2-col grid.
+      span: 2,
+      cols: 4,
+      keys: [
+        "inline_post_engagement", "post_saves", "post_reactions", "comments",
+        "video_thruplays", "video_views", "video_p100", "video_avg_time",
+      ],
+    },
+  ],
+  cpas: [
+    {
+      title: "Spend",
+      icon: Wallet,
+      accent: "bg-orange-500",
+      headlineKey: "spend",
+      keys: [
+        "reach", "impressions", "ctr", "cpm",
+        "inline_link_clicks", "clicks", "cpc",
+      ],
+    },
+    {
+      title: "ROAS Shared Item",
+      icon: PieChart,
+      accent: "bg-emerald-500",
+      headlineKey: "roas_shared",
+      keys: [
+        "purchase_shared", "purchase_value_shared", "cost_per_purchase_shared",
+        "add_to_cart_shared", "add_to_cart_value_shared", "cost_per_add_to_cart_shared",
+        "content_view_shared", "cost_per_content_view_shared",
+      ],
+    },
+  ],
+  },
+  // TikTok has no Post & Media / full-width card — two 2-up cards: delivery
+  // Cost and onsite/shop ROAS. Standard and cpas share the same layout.
+  tiktok: {
+    standard: TIKTOK_CARDS,
+    cpas: TIKTOK_CARDS,
+  },
+};
+
+/**
+ * Resolve the overview card set for a platform + account type. Platforms without
+ * a bespoke design fall back to Meta's cards (no regression), and a null/unknown
+ * account type falls back to `standard`. Never returns undefined.
+ */
+function getOverviewCards(
+  platform: string | null | undefined,
+  accountType: AccountType | null,
+): CardSpec[] {
+  const byType = OVERVIEW_CARDS[platform ?? "meta"] ?? OVERVIEW_CARDS.meta;
+  return byType[accountType ?? "standard"];
 }
 
 function EmptyState({ message }: { message: string }) {
@@ -92,300 +237,336 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
-export function OverviewView() {
-  const { accountId, currency } = useSelectedAccount();
-  const platform = usePlatform() ?? "meta";
-  const withQuery = useSharedFilterQuery();
-  const dateRange = useDateRange();
-  const { kpiMetrics, accountType } = usePlatformMetrics();
-  const isCpas = accountType === "cpas";
-  const kpiKeys = kpiMetrics.map((m) => m.key);
-  const trendMetric2 = kpiMetrics.find((m) => m.key === "conversions") ? "conversions" : "clicks";
-  const trendMetric2Label = kpiMetrics.find((m) => m.key === trendMetric2)?.label ?? trendMetric2;
+/**
+ * Build the sub-metric rows for a card. Default behavior (P-2): only keys
+ * present in the summary are emitted. When `fillAbsent` is true, EVERY key
+ * (minus the headline `skip`) is emitted — absent values fall back to `0`,
+ * formatted per metric type — so the card renders its full grid (TikTok
+ * reference completeness) instead of collapsing to a "No data" state.
+ */
+function buildSubMetrics(
+  keys: string[],
+  summary: OverviewMetrics | undefined,
+  currency: string,
+  skip?: string,
+  labels?: Record<string, string>,
+  fillAbsent?: boolean,
+): SubMetric[] {
+  if (!summary && !fillAbsent) return [];
+  return keys
+    .filter((k) => k !== skip && (fillAbsent || summary?.[k] != null))
+    .map((k) => {
+      const present = summary?.[k] != null;
+      const raw = present ? summary![k] : 0;
+      return {
+        key: k,
+        label: labels?.[k] ?? metricLabel(k),
+        value: formatMetric(raw, metricType(k), currency),
+        raw,
+      };
+    });
+}
 
-  const [polling, setPolling] = useState(false);
-  const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevAccountId = useRef<string | null>(null);
+/**
+ * On-demand AI narrative summary of the overview. On mount we PEEK the cache
+ * (a safe, token-free GET) so an existing diagnosis shows instantly; generation
+ * stays opt-in (a click) so token spend is always intentional (P-5). The
+ * narrative is anchored to the same period/model returned by the endpoint so it
+ * reads against the numbers shown on screen (P-1). On failure we surface the
+ * backend's `detail` verbatim with a retry — never a silent/empty card or a
+ * fabricated summary (P-4).
+ */
+function AiSummaryCard({
+  accountId,
+  dateRange,
+  filter,
+}: {
+  accountId: string;
+  dateRange: ReturnType<typeof useDateRange>;
+  filter: ReturnType<typeof useOverviewFilter>;
+}) {
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!accountId || accountId === prevAccountId.current) return;
-    prevAccountId.current = accountId;
-    setPolling(true);
-    if (pollTimer.current) clearTimeout(pollTimer.current);
-    pollTimer.current = setTimeout(() => setPolling(false), 5 * 60 * 1000);
-    return () => {
-      if (pollTimer.current) clearTimeout(pollTimer.current);
-    };
-  }, [accountId]);
-
-  const { data: overviewRes, isLoading: overviewLoading } = useQuery({
-    queryKey: queryKeys.overview(accountId ?? "", dateRange),
+  // Cache-only peek — never spends tokens, so it's safe to auto-run on mount.
+  const peekKey = ["overview-summary-peek", accountId, dateRange, filter] as const;
+  const peek = useQuery({
+    queryKey: peekKey,
     queryFn: () =>
-      insightsApi.overview({ account_id: accountId!, ...dateRange }),
-    enabled: !!accountId,
+      insightsApi.peekSummary({ account_id: accountId, ...dateRange, ...filter }),
     staleTime: 15 * 60 * 1000,
-    refetchInterval: polling ? 5000 : false,
   });
 
-  const { data: timeseriesRes, isLoading: timeseriesLoading } = useQuery({
-    queryKey: queryKeys.timeseries(
-      accountId ?? "",
-      dateRange,
-      "account",
-      kpiKeys,
-      "day"
-    ),
-    queryFn: () =>
-      insightsApi.timeseries({
-        account_id: accountId!,
+  const summary = useMutation({
+    mutationFn: (force: boolean) =>
+      insightsApi.generateSummary({
+        account_id: accountId,
         ...dateRange,
-        level: "account",
-        metrics: kpiKeys.join(","),
-        time_increment: "day",
+        ...filter,
+        force,
       }),
-    enabled: !!accountId,
-    staleTime: 15 * 60 * 1000,
-    refetchInterval: polling ? 5000 : false,
+    // Keep the peek cache in lockstep with what we just generated so the shown
+    // summary and any remount stay consistent (a remount re-runs peek → hit).
+    onSuccess: (data) => queryClient.setQueryData(peekKey, data),
   });
 
-  const isLoading = overviewLoading || timeseriesLoading;
+  // Display precedence: freshest first. A just-generated mutation result wins
+  // over the cached peek; both fall back to idle when neither has a summary.
+  const data = summary.data ?? peek.data ?? null;
 
-  const overview = overviewRes?.data?.data;
-  const summary: OverviewSummary | undefined = overview?.summary;
+  const errorDetail =
+    (summary.error as { response?: { data?: { detail?: string } } })?.response?.data
+      ?.detail ?? "Couldn't generate the AI summary. Try again.";
 
-  useEffect(() => {
-    if (polling && (summary?.spend !== null && summary?.spend !== undefined)) {
-      setPolling(false);
-      if (pollTimer.current) clearTimeout(pollTimer.current);
-    }
-  }, [polling, summary?.spend]);
+  const asOf = data?.data_as_of
+    ? formatDistanceToNow(new Date(data.data_as_of), { addSuffix: true })
+    : null;
 
-  const vsPrev: Record<string, number | null> = overview?.vs_previous ?? {};
-  const topCampaigns: TopCampaign[] = overview?.top_campaigns ?? [];
-  const series: SeriesRow[] = timeseriesRes?.data?.data?.series ?? [];
-
-  if (!accountId) {
-    return (
-      <EmptyState message="No account selected. Connect an account in Settings → Connections." />
-    );
-  }
+  const showSkeleton = summary.isPending || (peek.isLoading && !summary.data);
 
   return (
-    <div className="space-y-6">
-      {/* KPI Cards — 2 rows × 4 */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        {kpiMetrics.map((metric) => (
-          <MetricCard
-            key={metric.key}
-            label={metric.label}
-            value={formatMetric(summary?.[metric.key], metric.type, currency)}
-            change={vsPrev[metric.key] ?? null}
-            sparkline={series.map((s) => (s[metric.key] as number) ?? 0)}
-            loading={isLoading}
-          />
-        ))}
-      </div>
-
-      {/* Trend Charts */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-muted-foreground">Trends</h2>
-          <Link
-            href={withQuery(`/${platform}/periodic`)}
-            className="flex items-center gap-1 text-xs text-primary hover:underline"
-          >
-            Open Periodic <ArrowRight className="size-3" />
-          </Link>
-        </div>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Spend Trend */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Spend trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="h-60 animate-pulse rounded bg-muted" />
-            ) : series.length === 0 ? (
-              <EmptyState message="No data for selected period" />
-            ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={series} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="date"
-                    tickFormatter={formatXDate}
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis
-                    tickFormatter={(v) => formatCurrency(v, currency)}
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={60}
-                  />
-                  <Tooltip
-                    formatter={(v) => [formatCurrency(v as number, currency), "Spend"]}
-                    labelFormatter={(l) => formatXDate(l as string)}
-                    contentStyle={{ fontSize: 12 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="spend"
-                    stroke={CHART_COLORS[0]}
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Trend chart 2: conversions (Meta) or clicks (TikTok fallback) */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">{trendMetric2Label} trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="h-60 animate-pulse rounded bg-muted" />
-            ) : series.length === 0 ? (
-              <EmptyState message="No data for selected period" />
-            ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <LineChart data={series} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="date"
-                    tickFormatter={formatXDate}
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={40}
-                  />
-                  <Tooltip
-                    formatter={(v) => [v as number, trendMetric2Label]}
-                    labelFormatter={(l) => formatXDate(l as string)}
-                    contentStyle={{ fontSize: 12 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey={trendMetric2}
-                    stroke={CHART_COLORS[1]}
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 4 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-        </div>
-      </div>
-
-      {/* Top Campaigns */}
+    <section className="space-y-3">
+      <SectionHeading
+        title="AI Summary"
+        subtitle="A grounded narrative of what changed this period."
+      />
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-sm font-medium">Top campaigns</CardTitle>
-          <Link
-            href={withQuery(`/${platform}/table?level=campaign`)}
-            className="flex items-center gap-1 text-xs text-primary hover:underline"
-          >
-            View all <ArrowRight className="size-3" />
-          </Link>
-        </CardHeader>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="space-y-px">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="h-10 animate-pulse bg-muted mx-4 my-1 rounded" />
+        <CardContent className="space-y-4">
+          {showSkeleton ? (
+            <div className="space-y-4" aria-busy>
+              <div className="h-5 w-3/4 animate-pulse rounded bg-muted" />
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="space-y-2">
+                  <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+                  <div className="h-4 w-11/12 animate-pulse rounded bg-muted" />
+                </div>
               ))}
             </div>
-          ) : topCampaigns.length === 0 ? (
-            <EmptyState message="No campaigns in this period" />
-          ) : (
-            <>
-            {isCpas && (
-              <div className="mx-4 mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
-                Conversion data (ROAS, purchases, revenue) for this account is managed by the retailer and may not be available here.
+          ) : summary.isError ? (
+            <Alert variant="destructive">
+              <AlertTriangle />
+              <AlertTitle>AI summary failed</AlertTitle>
+              <AlertDescription>
+                <p>{errorDetail}</p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => summary.mutate(true)}
+                  className="mt-2 gap-2"
+                >
+                  <RotateCw className="size-4" />
+                  Retry
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : data ? (
+            <div className="space-y-4">
+              {/* Headline reads as the lead — larger and heavier than the rest. */}
+              <p className="text-base font-semibold leading-snug text-foreground">
+                {data.headline}
+              </p>
+              <div className="space-y-3">
+                {(
+                  [
+                    { label: "Likely driver", text: data.driver },
+                    { label: "Watch", text: data.watch },
+                    { label: "Next", text: data.next_step },
+                  ] as const
+                ).map((section) => (
+                  <div key={section.label} className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {section.label}
+                    </p>
+                    <p className="text-sm leading-relaxed whitespace-pre-line text-foreground">
+                      {section.text}
+                    </p>
+                  </div>
+                ))}
               </div>
-            )}
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Campaign</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Spend</TableHead>
-                  <TableHead className="text-right">Impressions</TableHead>
-                  <TableHead className="text-right">CTR</TableHead>
-                  {isCpas ? (
-                    <TableHead className="text-right">Outbound Clicks</TableHead>
-                  ) : (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+                <p className="text-xs text-muted-foreground">
+                  {data.period.date_start} – {data.period.date_stop}
+                  {" · "}
+                  {data.model}
+                  {asOf && (
                     <>
-                      <TableHead className="text-right">Conv.</TableHead>
-                      <TableHead className="text-right">ROAS</TableHead>
+                      {" · "}
+                      Data as of {asOf}
                     </>
                   )}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {topCampaigns.slice(0, 5).map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell className="font-medium max-w-48 truncate">
-                      {c.name}
-                    </TableCell>
-                    <TableCell>
-                      {c.status ? (
-                        <StatusBadge status={c.status} />
-                      ) : (
-                        <span className="text-muted-foreground text-sm">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatCurrency(c.spend, currency)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {c.impressions?.toLocaleString() ?? "—"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatPercent(c.ctr)}
-                    </TableCell>
-                    {isCpas ? (
-                      <TableCell className="text-right tabular-nums">
-                        {c.outbound_clicks != null
-                          ? c.outbound_clicks.toLocaleString()
-                          : "—"}
-                      </TableCell>
-                    ) : (
-                      <>
-                        <TableCell className="text-right tabular-nums">
-                          {c.conversions?.toLocaleString() ?? "—"}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatRoas(c.roas)}
-                        </TableCell>
-                      </>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            </>
+                </p>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => summary.mutate(true)}
+                  className="gap-2"
+                >
+                  <RotateCw className="size-4" />
+                  Regenerate
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-start gap-2">
+              <Button onClick={() => summary.mutate(false)} className="gap-2">
+                <Sparkles className="size-4" />
+                Generate AI summary
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Uses AI · counts toward token usage
+              </p>
+            </div>
           )}
         </CardContent>
       </Card>
-    </div>
+    </section>
+  );
+}
+
+/** Format a card's headline value by its metric type (roas has its own formatter). */
+function formatHeadline(
+  key: string,
+  summary: OverviewMetrics | undefined,
+  currency: string,
+): string {
+  const type = metricType(key);
+  const value = summary?.[key] ?? null;
+  return type === "roas"
+    ? formatRoas(Number(value ?? 0))
+    : formatMetric(value, type, currency);
+}
+
+export function OverviewView() {
+  const { accountId, currency, accountType } = useSelectedAccount();
+  const isOwner = useIsOwner();
+  const platform = usePlatform() ?? "meta";
+  const withQuery = useSharedFilterQuery();
+  const dateRange = useDateRange();
+  const filter = useOverviewFilter();
+  const [compareStr] = useQueryState("compare");
+  const compare = compareStr === "true";
+
+  // Poll every section's query while a sync is actually landing (derived from
+  // real sync_jobs state), then stop once it's done — replaces a blind 5-min
+  // timer, and is shared by every section so they all fill in together.
+  const syncActive = useSyncActive();
+
+  const { data: overviewRes, isLoading } = useQuery({
+    queryKey: queryKeys.overview(accountId ?? "", dateRange, filter),
+    queryFn: () => insightsApi.overview({ account_id: accountId!, ...dateRange, ...filter }),
+    enabled: !!accountId,
+    staleTime: 15 * 60 * 1000,
+    refetchInterval: syncActive ? 5000 : false,
+  });
+
+  const summary: OverviewMetrics | undefined = overviewRes?.data?.data?.summary;
+  const previous: Record<string, number | null> | undefined =
+    overviewRes?.data?.data?.previous;
+
+  if (!accountId) {
+    return (
+      <EmptyState
+        message={
+          isOwner
+            ? "No account selected. Connect an account in Settings → Connections."
+            : "No accounts assigned to you yet. Ask your organization owner to grant access."
+        }
+      />
+    );
+  }
+
+  // Platform- and account-type-scoped card set. Meta standard → 3 cards (Spend /
+  // ROAS / Post & Media); Meta cpas → 2 cards (Spend / ROAS Shared Item); TikTok
+  // → 2 cards (Cost / ROAS (Shop)). Platforms without a design fall back to Meta,
+  // and an unresolved account type falls back to standard. Strict separation is
+  // guaranteed by keying the config on platform + accountType.
+  const cards = getOverviewCards(platform, accountType);
+
+  return (
+    <motion.div {...staggerGrid} className="space-y-6">
+      {/* Section heading */}
+      <SectionHeading
+        title="Overview"
+        subtitle="Delivery and results for the selected period."
+        freshness
+      />
+
+      {/* Grouped metric cards — items-start so expanding one doesn't stretch the
+          others. Rendered from the account-type-scoped config so standard and
+          cpas never share a card set. */}
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        {cards.map((card) => {
+          const hasHeadline = card.headlineKey != null;
+          const subMetrics = buildSubMetrics(
+            card.keys,
+            summary,
+            currency,
+            card.headlineKey,
+            card.labels,
+            card.fillAbsent,
+          );
+          const columns = card.cols ?? 2;
+          return (
+            <MetricGroupCard
+              key={card.title}
+              className={cn(card.span === 2 && "lg:col-span-2")}
+              title={card.title}
+              icon={card.icon}
+              accent={card.accent}
+              columns={columns}
+              // A wide 4-col card previews a full row (columns) rather than the
+              // default 4, so both of its two rows stay visible without "See More".
+              previewCount={columns === 4 ? subMetrics.length : undefined}
+              headline={
+                hasHeadline
+                  ? formatHeadline(card.headlineKey!, summary, currency)
+                  : undefined
+              }
+              headlineKey={card.headlineKey}
+              headlineValue={hasHeadline ? summary?.[card.headlineKey!] ?? null : null}
+              subMetrics={subMetrics}
+              detailHref={withQuery(`/${platform}/table`)}
+              loading={isLoading}
+              compare={compare}
+              previous={previous}
+              currency={currency}
+            />
+          );
+        })}
+      </div>
+
+      {/* AI narrative summary (on-demand, grounded in the same overview numbers).
+          Keyed on account + period + filter so a context change remounts the
+          card back to its idle state — a summary is only ever shown against the
+          numbers it was generated for (P-1), never left stale after the period
+          changes. Regeneration stays an explicit click (no auto token spend). */}
+      <AiSummaryCard
+        key={`${accountId}:${JSON.stringify(dateRange)}:${JSON.stringify(filter)}`}
+        accountId={accountId}
+        dateRange={dateRange}
+        filter={filter}
+      />
+
+      {/* Trends (periodic charts with metric tabs) */}
+      <section className="space-y-3">
+        <SectionHeading title="Trends" subtitle="Daily performance over the selected period." />
+        <PeriodicView />
+      </section>
+
+      {/* Funnel */}
+      <section className="space-y-3">
+        <SectionHeading title="Funnel" subtitle="Conversion path and step drop-off." />
+        <FunnelView />
+      </section>
+
+      {/* Table preview → full Table tab */}
+      <section className="space-y-3">
+        <TableView preview />
+      </section>
+
+      {/* Ads preview → full Ads tab */}
+      <section className="space-y-3">
+        <AdsView preview />
+      </section>
+    </motion.div>
   );
 }

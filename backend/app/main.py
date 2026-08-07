@@ -20,6 +20,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Let the browser read the download filename from file responses (e.g. the
+    # PPTX export) when the frontend is on a different origin.
+    expose_headers=["Content-Disposition"],
 )
 
 app.include_router(api_v1_router, prefix="/api/v1")

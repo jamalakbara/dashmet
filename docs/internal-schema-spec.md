@@ -84,24 +84,51 @@ Links users to organizations with a role.
 |---|---|---|
 | `id` | uuid PK | |
 | `organization_id` | uuid FK → organizations | |
-| `user_id` | uuid FK → users | |
+| `user_id` | uuid FK → users | **Null while an invite is pending** — no user account exists until accepted |
 | `role` | varchar | `owner` \| `member` |
 | `invited_by_user_id` | uuid FK → users | Null if self-registered |
+| `invite_email` | varchar | The invited address; set for pending invites (so the row is displayable/dedupable while `user_id` is null), cleared on accept |
 | `invite_token` | varchar | Set when invite is pending, null once accepted |
 | `invite_expires_at` | timestamp | |
 | `accepted_at` | timestamp | Null until invite accepted |
 | `created_at` | timestamp | |
 
+**Constraints:** partial unique index `uq_membership_org_invite_email` on
+`(organization_id, invite_email) WHERE invite_email IS NOT NULL` — one pending
+invite per email per org (the `(organization_id, user_id)` unique constraint
+can't catch these since `user_id` is null while pending).
+
 **Role permissions:**
 
 | Action | Owner | Member |
 |---|---|---|
-| View dashboard | ✅ | ✅ |
+| View dashboard | ✅ | ✅ (only granted accounts) |
+| View / select ad accounts | ✅ (all) | ✅ (only granted — see `membership_accounts`) |
 | Connect / disconnect ad accounts | ✅ | ❌ |
+| Edit account config | ✅ | ❌ |
 | Invite members | ✅ | ❌ |
 | Remove members | ✅ | ❌ |
+| Grant a member account access | ✅ | ❌ |
 | Update org settings | ✅ | ❌ |
 | Trigger manual sync | ✅ | ❌ |
+
+### `membership_accounts`
+
+Per-member account allowlist. One row grants one membership access to one
+account. **Owners are unrestricted** (implicit access to every org account) and
+have **no rows** here; members see only granted accounts — **no row = no
+access**. New members and newly-synced accounts are not auto-granted.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `membership_id` | uuid FK → organization_memberships | `ON DELETE CASCADE` |
+| `account_id` | uuid FK → accounts | `ON DELETE CASCADE` |
+| `created_at` | timestamp | |
+
+**Constraints:** `UNIQUE(membership_id, account_id)` (`uq_membership_account`);
+indexes on `membership_id` and `account_id`. Cascade on both FKs means removing
+a member or an account drops its grants automatically.
 
 ### `platform_connections`
 
@@ -478,7 +505,7 @@ Tracks every background fetch from a platform API. Used to diagnose failures, pr
 | `date_start` | date | Coverage start (for insights jobs) |
 | `date_stop` | date | Coverage end |
 | `breakdown_type` | varchar | Null unless job_type is `breakdown` |
-| `status` | varchar | `pending` \| `running` \| `completed` \| `failed` \| `skipped` |
+| `status` | varchar | `pending` \| `running` \| `completed` \| `failed` \| `skipped` (`skipped` = rate-limited mid-run, rescheduled; not a permanent failure) |
 | `platform_job_id` | varchar | Meta `report_run_id` for async jobs; null for sync |
 | `rows_written` | int | Records upserted on success |
 | `error_message` | text | Error detail on failure |
@@ -544,6 +571,8 @@ Common `action_type` values used in `metric_action_stats.action_type`. Grouped b
 ---
 
 ## 8. Schema Diagram
+
+> For the full Mermaid ER diagram (all columns, PK/FK/UK markers, cardinalities) see [`docs/erd.md`](./erd.md). This section stays as a quick-reference sketch.
 
 ```
 organizations ──── organization_memberships ──── users

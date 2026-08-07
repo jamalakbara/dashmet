@@ -7,7 +7,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from workers.celery_app import celery_app
+from workers.celery_app import celery_app, HEAVY_SOFT_TIME_LIMIT, HEAVY_TIME_LIMIT, LOCK_TTL
 
 logger = logging.getLogger(__name__)
 
@@ -15,13 +15,22 @@ _METRIC_FIELDS = ",".join([
     "impressions", "clicks", "spend", "ctr", "cpm", "cpc", "cpp",
     "frequency", "inline_link_clicks", "inline_link_click_ctr",
     "cost_per_inline_link_click",
+    "inline_post_engagement", "cost_per_inline_post_engagement",
+    "estimated_ad_recall_rate", "estimated_ad_recallers",
     "outbound_clicks", "outbound_clicks_ctr", "cost_per_outbound_click",
     "actions", "action_values", "cost_per_action_type",
     "purchase_roas", "website_purchase_roas",
     "video_play_actions", "video_avg_time_watched_actions",
+    "video_continuous_2_sec_watched_actions",
     "video_p25_watched_actions", "video_p50_watched_actions",
     "video_p75_watched_actions", "video_p100_watched_actions",
     "video_thruplay_watched_actions",
+    # CPAS (Collaborative Ads / "shared item"): for catalog-segment accounts the
+    # retailer owns the pixel, so regular actions/action_values/purchase_roas come
+    # back empty — catalog_segment_* is the ONLY source of CPAS conversions. These
+    # fields are universally valid and return empty (not an error) for non-catalog
+    # accounts, so requesting them unconditionally for all Meta accounts is safe.
+    "catalog_segment_actions", "catalog_segment_value",
     "date_start", "date_stop",
 ])
 
@@ -44,7 +53,31 @@ ACTION_STAT_FIELDS = {
     "video_p25_watched_actions", "video_p50_watched_actions",
     "video_p75_watched_actions", "video_p100_watched_actions",
     "results", "cost_per_result",
+    # CPAS shared-item conversions — see _METRIC_FIELDS comment. Persisted into
+    # metric_action_stats as (field_name, action_type, value) with normalized types.
+    "catalog_segment_actions", "catalog_segment_value",
 }
+
+# CPAS shared-item provenance: with Collaborative Ads the retailer owns the pixel,
+# and Meta returns catalog_segment_* action types in varying forms depending on the
+# retailer's pixel setup — offsite_conversion.fb_pixel_*, omni_*, or bare names.
+# Normalize to clean canonical action types so the read layer has a stable contract
+# to pivot on. Substring-matched (order matters: check specific buckets by keyword).
+# Scoped to catalog_segment_* fields ONLY — regular actions/action_values are stored
+# verbatim. Unknown catalog_segment types are stored as-is (not dropped) — a
+# restated/unknown type is still data.
+_CATALOG_SEGMENT_ACTION_BUCKETS = (
+    ("purchase", "purchase"),
+    ("add_to_cart", "add_to_cart"),
+    ("view_content", "view_content"),
+)
+
+
+def _normalize_catalog_segment_action(action_type: str) -> str:
+    for keyword, canonical in _CATALOG_SEGMENT_ACTION_BUCKETS:
+        if keyword in action_type:
+            return canonical
+    return action_type
 
 SKIP_FIELDS = {
     "campaign_id", "campaign_name", "adset_id", "adset_name",
@@ -110,13 +143,18 @@ def _is_stale(account_id: str, db) -> bool:
 )
 def sync_insights_daily_all(self):
     from workers.db_helpers import get_worker_db
+    from workers.dispatch import stagger_dispatch
     from app.models.platform import Account
 
     with get_worker_db() as db:
-        accounts = db.query(Account).filter(Account.account_status == "active", Account.platform_id == "meta").all()
-        for account in accounts:
-            sync_insights_for_account.delay(str(account.id))
-        logger.info(f"Enqueued insights sync for {len(accounts)} accounts")
+        pairs = [
+            (str(aid), str(cid) if cid else None)
+            for aid, cid in db.query(Account.id, Account.platform_connection_id)
+            .filter(Account.account_status == "active", Account.platform_id == "meta")
+            .all()
+        ]
+    count = stagger_dispatch(sync_insights_for_account, pairs)
+    logger.info(f"Enqueued insights sync for {count} accounts")
 
 
 @celery_app.task(
@@ -126,13 +164,18 @@ def sync_insights_daily_all(self):
 )
 def sync_breakdowns_all(self):
     from workers.db_helpers import get_worker_db
+    from workers.dispatch import stagger_dispatch
     from app.models.platform import Account
 
     with get_worker_db() as db:
-        accounts = db.query(Account).filter(Account.account_status == "active", Account.platform_id == "meta").all()
-        for account in accounts:
-            sync_breakdowns_for_account.delay(str(account.id), "last_30d")
-        logger.info(f"Enqueued breakdown sync for {len(accounts)} accounts")
+        pairs = [
+            (str(aid), str(cid) if cid else None)
+            for aid, cid in db.query(Account.id, Account.platform_connection_id)
+            .filter(Account.account_status == "active", Account.platform_id == "meta")
+            .all()
+        ]
+    count = stagger_dispatch(sync_breakdowns_for_account, pairs, extra_args=("last_30d",))
+    logger.info(f"Enqueued breakdown sync for {count} accounts")
 
 
 @celery_app.task(
@@ -142,14 +185,21 @@ def sync_breakdowns_all(self):
     retry_backoff=True,
     retry_backoff_max=900,
     retry_jitter=True,
+    soft_time_limit=HEAVY_SOFT_TIME_LIMIT,
+    time_limit=HEAVY_TIME_LIMIT,
 )
 def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d", force: bool = False):
+    from celery.exceptions import SoftTimeLimitExceeded
     from workers.db_helpers import (
         get_worker_db, upsert_metrics_daily, bulk_upsert_action_stats,
         create_sync_job, finalize_sync_job,
     )
-    from workers.meta_client import MetaClient
-    from workers.rate_limit import apply_backoff
+    from workers.meta_client import MetaClient, MetaAPIError
+    from workers.rate_limit import (
+        apply_backoff, RateLimitBackoff,
+        acquire_lock, release_lock, connection_paused_remaining,
+        pause_connection, is_meta_rate_limit_error, HARD_PAUSE_SECONDS,
+    )
     from app.models.platform import Account, PlatformConnection, AccountConfig
     from app.models.structure import Campaign, AdGroup, Ad
     from app.services.auth import decrypt_token
@@ -191,8 +241,26 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
 
         account_id_obj = account.id
         platform_id = account.platform_id
+        connection_id = str(conn.id)
         token = decrypt_token(conn.access_token)
         ext_id = account.external_id  # already has "act_" prefix
+        # Resolve preset → explicit time_range in the account tz once, up front —
+        # the same resolver the read path uses, so synced days == queried days (§2.3).
+        from workers.date_range import meta_time_range
+        time_range = meta_time_range(date_preset, account.timezone)
+
+    # Gate: skip the whole token while it's rate-limit paused (shared app quota)
+    paused = connection_paused_remaining(connection_id)
+    if paused > 0:
+        logger.info(f"[{account_id}] Connection paused {paused}s — rescheduling")
+        self.apply_async(args=[account_id, date_preset, force], countdown=paused)
+        return
+
+    # Overlap guard: only one insights run per account at a time
+    lock_token = acquire_lock("insights_daily", account_id, LOCK_TTL)
+    if not lock_token:
+        logger.info(f"[{account_id}] Insights sync already running — skip")
+        return
 
     # Phase 2: commit "running" job before any Meta API call
     job_id = create_sync_job(account_id_obj, platform_id, "insights_daily")
@@ -222,14 +290,16 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
 
         # ── Campaign non-unique ──────────────────────────────────────────────
         with get_worker_db() as db:
-            apply_backoff(account_id)
+            apply_backoff(account_id, connection_id)
             rows1 = client.get_insights(
                 ext_id,
                 fields=NON_UNIQUE_FIELDS,
                 level="campaign",
-                date_preset=date_preset,
+                time_range=time_range,
                 time_increment=1,
                 action_attribution_windows=attribution_window,
+                account_id=account_id,
+                connection_id=connection_id,
             )
             metric_rows, action_rows = [], []
             for raw in rows1:
@@ -245,13 +315,15 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
 
         # ── Campaign unique ──────────────────────────────────────────────────
         with get_worker_db() as db:
-            apply_backoff(account_id)
+            apply_backoff(account_id, connection_id)
             rows2 = client.get_insights(
                 ext_id,
                 fields=UNIQUE_FIELDS,
                 level="campaign",
-                date_preset=date_preset,
+                time_range=time_range,
                 time_increment=1,
+                account_id=account_id,
+                connection_id=connection_id,
             )
             unique_rows = []
             for raw in rows2:
@@ -285,39 +357,47 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
         ad_nonunique, ad_unique = [], []
 
         for platform_campaign_id in active_campaign_ids:
-            apply_backoff(account_id)
+            apply_backoff(account_id, connection_id)
             adset_nonunique.extend(client.get_insights(
                 platform_campaign_id,
                 fields=ADGROUP_NON_UNIQUE_FIELDS,
                 level="adset",
-                date_preset=date_preset,
+                time_range=time_range,
                 time_increment=1,
                 action_attribution_windows=attribution_window,
+                account_id=account_id,
+                connection_id=connection_id,
             ))
-            apply_backoff(account_id)
+            apply_backoff(account_id, connection_id)
             adset_unique.extend(client.get_insights(
                 platform_campaign_id,
                 fields=ADGROUP_UNIQUE_FIELDS,
                 level="adset",
-                date_preset=date_preset,
+                time_range=time_range,
                 time_increment=1,
+                account_id=account_id,
+                connection_id=connection_id,
             ))
-            apply_backoff(account_id)
+            apply_backoff(account_id, connection_id)
             ad_nonunique.extend(client.get_insights(
                 platform_campaign_id,
                 fields=AD_NON_UNIQUE_FIELDS,
                 level="ad",
-                date_preset=date_preset,
+                time_range=time_range,
                 time_increment=1,
                 action_attribution_windows=attribution_window,
+                account_id=account_id,
+                connection_id=connection_id,
             ))
-            apply_backoff(account_id)
+            apply_backoff(account_id, connection_id)
             ad_unique.extend(client.get_insights(
                 platform_campaign_id,
                 fields=AD_UNIQUE_FIELDS,
                 level="ad",
-                date_preset=date_preset,
+                time_range=time_range,
                 time_increment=1,
+                account_id=account_id,
+                connection_id=connection_id,
             ))
 
         if adset_nonunique and not adgroup_map:
@@ -393,10 +473,33 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
         finalize_sync_job(job_id, "completed", rows_written=total_rows)
         logger.info(f"[{account_id}] Insights sync complete: {total_rows} rows")
 
+    except RateLimitBackoff as b:
+        # Rate limited mid-run: reschedule the whole task (idempotent upserts).
+        # Off the error-retry budget so a throttled account isn't marked failed.
+        finalize_sync_job(job_id, "skipped")
+        logger.info(f"[{account_id}] Insights rescheduled in {b.countdown}s ({b.scope})")
+        self.apply_async(args=[account_id, date_preset, force], countdown=b.countdown)
+        return
+    except SoftTimeLimitExceeded as e:
+        finalize_sync_job(job_id, "failed", error=e)
+        logger.error(f"[{account_id}] Insights sync exceeded soft time limit")
+        return
+    except MetaAPIError as e:
+        if is_meta_rate_limit_error(e.code, e.subcode):
+            pause_connection(connection_id, HARD_PAUSE_SECONDS)
+            finalize_sync_job(job_id, "skipped")
+            logger.warning(f"[{account_id}] Meta rate-limit error (code {e.code}) — pausing connection {HARD_PAUSE_SECONDS}s")
+            self.apply_async(args=[account_id, date_preset, force], countdown=HARD_PAUSE_SECONDS)
+            return
+        finalize_sync_job(job_id, "failed", error=e)
+        logger.error(f"[{account_id}] Insights sync failed: {e}")
+        raise self.retry(exc=e)
     except Exception as e:
         finalize_sync_job(job_id, "failed", error=e)
         logger.error(f"[{account_id}] Insights sync failed: {e}")
         raise self.retry(exc=e)
+    finally:
+        release_lock("insights_daily", account_id, lock_token)
 
 
 def parse_insight_row(entity_type: str, entity_id: str, date: str, raw_row: dict):
@@ -412,6 +515,10 @@ def parse_insight_row(entity_type: str, entity_id: str, date: str, raw_row: dict
                 action_type = item.get("action_type")
                 if raw_val is None or action_type is None:
                     continue
+                # CPAS shared-item fields: normalize varying pixel-dependent
+                # action types to canonical purchase/add_to_cart/view_content.
+                if field in ("catalog_segment_actions", "catalog_segment_value"):
+                    action_type = _normalize_catalog_segment_action(action_type)
                 action_stats.append({
                     "entity_type": entity_type,
                     "entity_id": entity_id,
@@ -461,7 +568,7 @@ BREAKDOWN_CONFIGS = {
     },
 }
 
-BREAKDOWN_FIELDS = "impressions,clicks,spend,ctr,cpm,cpc,date_start,date_stop"
+BREAKDOWN_FIELDS = "impressions,reach,clicks,spend,ctr,cpm,cpc,actions,date_start,date_stop"
 
 
 @celery_app.task(
@@ -469,12 +576,19 @@ BREAKDOWN_FIELDS = "impressions,clicks,spend,ctr,cpm,cpc,date_start,date_stop"
     bind=True,
     max_retries=3,
     retry_backoff=True,
+    soft_time_limit=HEAVY_SOFT_TIME_LIMIT,
+    time_limit=HEAVY_TIME_LIMIT,
 )
 def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_30d"):
-    from workers.db_helpers import get_worker_db
+    from celery.exceptions import SoftTimeLimitExceeded
+    from workers.db_helpers import get_worker_db, create_sync_job, finalize_sync_job
     from workers.meta_client import MetaClient, MetaAPIError
-    from workers.rate_limit import apply_backoff, RateLimitState
-    from app.models.platform import Account, PlatformConnection
+    from workers.rate_limit import (
+        apply_backoff, RateLimitState, RateLimitBackoff,
+        acquire_lock, release_lock, connection_paused_remaining,
+        pause_connection, is_meta_rate_limit_error, HARD_PAUSE_SECONDS,
+    )
+    from app.models.platform import Account, PlatformConnection, AccountConfig
     from app.models.metrics import MetricBreakdowns
     from app.services.auth import decrypt_token
     from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -489,23 +603,58 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
 
         token = decrypt_token(conn.access_token)
         ext_id = account.external_id.replace("act_", "")
+        connection_id = str(conn.id)
+        account_id_obj = account.id
+        platform_id = account.platform_id
+        account_tz = account.timezone
+        config = (
+            db.query(AccountConfig)
+            .filter(AccountConfig.account_id == account.id)
+            .first()
+        )
+        primary_conversion_action = (
+            config.primary_conversion_action
+            if config and config.primary_conversion_action
+            else "purchase"
+        )
 
-        try:
+    paused = connection_paused_remaining(connection_id)
+    if paused > 0:
+        logger.info(f"[{account_id}] Connection paused {paused}s — rescheduling breakdowns")
+        self.apply_async(args=[account_id, date_preset], countdown=paused)
+        return
+
+    lock_token = acquire_lock("breakdowns", account_id, LOCK_TTL)
+    if not lock_token:
+        logger.info(f"[{account_id}] Breakdown sync already running — skip")
+        return
+
+    # Commit a "running" job before the first API call (P-8) so the breakdown
+    # section/badge can tell "syncing" from "done" — without this, job_type
+    # "breakdown" has no producer and the badge is stuck "partially synced".
+    job_id = create_sync_job(account_id_obj, platform_id, "breakdown")
+
+    try:
+        # Resolve preset → explicit time_range in the account tz (§2.3): same
+        # resolver as the read path, so breakdown days == queried days.
+        from workers.date_range import meta_time_range
+        time_range = meta_time_range(date_preset, account_tz)
+        with get_worker_db() as db:
             client = MetaClient(token)
             total = 0
 
             for bd_type, cfg in BREAKDOWN_CONFIGS.items():
-                apply_backoff(account_id)
+                apply_backoff(account_id, connection_id)
                 params = {
                     "fields": BREAKDOWN_FIELDS,
                     "level": "account",
-                    "date_preset": date_preset,
+                    "time_range": time_range,
                     "time_increment": 1,
                     "breakdowns": cfg["breakdowns"],
                     "limit": 500,
                 }
                 rows, rate_limits = client.get(f"/act_{ext_id}/insights", params)
-                RateLimitState(account_id).update_from_headers(rate_limits)
+                RateLimitState(account_id, connection_id).update_from_headers(rate_limits)
                 data = rows.get("data", [])
 
                 bd_rows = []
@@ -516,17 +665,29 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
                     val = cfg["value_fn"](r)
                     if not val:
                         continue
+                    # Conversions come back inside the `actions` array — pull the
+                    # account's primary conversion action out for the breakdown column.
+                    conv_val = None
+                    for a in (r.get("actions") or []):
+                        if a.get("action_type") == primary_conversion_action:
+                            try:
+                                conv_val = float(a.get("value"))
+                            except (TypeError, ValueError):
+                                conv_val = None
+                            break
                     bd_rows.append({
                         "entity_type": "account",
-                        "entity_id": account.id,
-                        "platform_id": account.platform_id,
-                        "account_id": account.id,
+                        "entity_id": account_id_obj,
+                        "platform_id": platform_id,
+                        "account_id": account_id_obj,
                         "date": date_str,
                         "breakdown_type": bd_type,
                         "breakdown_value": val,
                         "impressions": _coerce(r.get("impressions")),
+                        "reach": _coerce(r.get("reach")),
                         "clicks": _coerce(r.get("clicks")),
                         "spend": _coerce(r.get("spend")),
+                        "conversions": conv_val,
                         "ctr": _coerce(r.get("ctr")),
                         "cpm": _coerce(r.get("cpm")),
                         "cpc": _coerce(r.get("cpc")),
@@ -539,8 +700,10 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
                         index_elements=["entity_id", "date", "breakdown_type", "breakdown_value"],
                         set_={
                             "impressions": stmt.excluded.impressions,
+                            "reach": stmt.excluded.reach,
                             "clicks": stmt.excluded.clicks,
                             "spend": stmt.excluded.spend,
+                            "conversions": stmt.excluded.conversions,
                             "ctr": stmt.excluded.ctr,
                             "cpm": stmt.excluded.cpm,
                             "cpc": stmt.excluded.cpc,
@@ -553,6 +716,31 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
 
             logger.info(f"[{account_id}] Breakdown sync complete: {total} rows")
 
-        except MetaAPIError as e:
-            logger.error(f"[{account_id}] Breakdown sync failed: {e}")
-            raise self.retry(exc=e)
+        finalize_sync_job(job_id, "completed", rows_written=total)
+
+    except RateLimitBackoff as b:
+        # Throttled mid-run: reschedule off the error-retry budget (skipped, not failed).
+        finalize_sync_job(job_id, "skipped")
+        logger.info(f"[{account_id}] Breakdown rescheduled in {b.countdown}s ({b.scope})")
+        self.apply_async(args=[account_id, date_preset], countdown=b.countdown)
+        return
+    except SoftTimeLimitExceeded as e:
+        finalize_sync_job(job_id, "failed", error=e)
+        logger.error(f"[{account_id}] Breakdown sync exceeded soft time limit")
+        return
+    except MetaAPIError as e:
+        if is_meta_rate_limit_error(e.code, e.subcode):
+            pause_connection(connection_id, HARD_PAUSE_SECONDS)
+            finalize_sync_job(job_id, "skipped")
+            logger.warning(f"[{account_id}] Breakdown Meta rate-limit (code {e.code}) — pausing connection {HARD_PAUSE_SECONDS}s")
+            self.apply_async(args=[account_id, date_preset], countdown=HARD_PAUSE_SECONDS)
+            return
+        finalize_sync_job(job_id, "failed", error=e)
+        logger.error(f"[{account_id}] Breakdown sync failed: {e}")
+        raise self.retry(exc=e)
+    except Exception as e:
+        finalize_sync_job(job_id, "failed", error=e)
+        logger.error(f"[{account_id}] Breakdown sync failed: {e}")
+        raise self.retry(exc=e)
+    finally:
+        release_lock("breakdowns", account_id, lock_token)

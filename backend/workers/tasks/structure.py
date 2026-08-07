@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from workers.celery_app import celery_app
+from workers.celery_app import celery_app, HEAVY_SOFT_TIME_LIMIT, HEAVY_TIME_LIMIT, LOCK_TTL
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +115,7 @@ def sync_accounts_for_connection(self, connection_id: str, org_id: str):
             logger.warning(f"[conn:{connection_id}] No active connection")
             return
 
+        conn_uuid = conn.id  # keep a primitive for use after the session closes
         token = decrypt_token(conn.access_token)
 
         try:
@@ -201,7 +202,32 @@ def sync_accounts_for_connection(self, connection_id: str, org_id: str):
         db.commit()
         logger.info(f"[conn:{connection_id}] Imported {len(ad_accounts)} ad accounts")
 
+    # Structure fans out globally (staggered, skips-fresh — cheap).
     sync_structure_all.delay()
+
+    # D-lite (F/§P-5): don't make a freshly-connected user wait for the next
+    # 15-min/hourly beat for their KPIs and breakdowns. Eager-enqueue insights +
+    # breakdown, but scoped to *this connection's* accounts and via
+    # stagger_dispatch (not raw .delay) so we don't burst the shared token.
+    # Scoping matters for breakdown especially: it has no staleness guard, so a
+    # global fan-out would re-fetch every account's breakdowns on every connect.
+    # insights runs its retry-until-structure-ready guard if it lands first.
+    from workers.tasks.insights import sync_insights_for_account, sync_breakdowns_for_account
+    from workers.dispatch import stagger_dispatch
+
+    with get_worker_db() as db:
+        pairs = [
+            (str(aid), str(cid) if cid else None)
+            for aid, cid in db.query(Account.id, Account.platform_connection_id)
+            .filter(
+                Account.platform_connection_id == conn_uuid,
+                Account.account_status == "active",
+            )
+            .all()
+        ]
+    n_ins = stagger_dispatch(sync_insights_for_account, pairs)
+    n_bd = stagger_dispatch(sync_breakdowns_for_account, pairs, extra_args=("last_30d",))
+    logger.info(f"[conn:{connection_id}] Eager first sync — insights:{n_ins} breakdowns:{n_bd}")
 
 
 @celery_app.task(
@@ -212,17 +238,18 @@ def sync_accounts_for_connection(self, connection_id: str, org_id: str):
 )
 def sync_structure_all(self):
     from workers.db_helpers import get_worker_db
+    from workers.dispatch import stagger_dispatch
     from app.models.platform import Account
 
     with get_worker_db() as db:
-        accounts = (
-            db.query(Account)
+        pairs = [
+            (str(aid), str(cid) if cid else None)
+            for aid, cid in db.query(Account.id, Account.platform_connection_id)
             .filter(Account.account_status == "active", Account.platform_id == "meta")
             .all()
-        )
-        for account in accounts:
-            sync_structure_for_account.delay(str(account.id))
-        logger.info(f"Enqueued structure sync for {len(accounts)} accounts")
+        ]
+    count = stagger_dispatch(sync_structure_for_account, pairs)
+    logger.info(f"Enqueued structure sync for {count} accounts")
 
 
 @celery_app.task(
@@ -231,11 +258,18 @@ def sync_structure_all(self):
     max_retries=3,
     default_retry_delay=60,
     retry_backoff=True,
+    soft_time_limit=HEAVY_SOFT_TIME_LIMIT,
+    time_limit=HEAVY_TIME_LIMIT,
 )
 def sync_structure_for_account(self, account_id: str):
+    from celery.exceptions import SoftTimeLimitExceeded
     from workers.db_helpers import get_worker_db, create_sync_job, finalize_sync_job
-    from workers.meta_client import MetaClient
-    from workers.rate_limit import apply_backoff
+    from workers.meta_client import MetaClient, MetaAPIError
+    from workers.rate_limit import (
+        apply_backoff, RateLimitBackoff,
+        acquire_lock, release_lock, connection_paused_remaining,
+        pause_connection, is_meta_rate_limit_error, HARD_PAUSE_SECONDS,
+    )
     from app.models.platform import Account, PlatformConnection
     from app.models.structure import Campaign, AdGroup, Ad
     from app.services.auth import decrypt_token
@@ -258,15 +292,29 @@ def sync_structure_for_account(self, account_id: str):
 
         account_id_obj = account.id
         platform_id = account.platform_id
+        connection_id = str(conn.id)
         token = decrypt_token(conn.access_token)
         ext_id = account.external_id.replace("act_", "")
+
+    # Gate: skip the whole token while it's rate-limit paused (shared app quota)
+    paused = connection_paused_remaining(connection_id)
+    if paused > 0:
+        logger.info(f"[{account_id}] Connection paused {paused}s — rescheduling structure")
+        self.apply_async(args=[account_id], countdown=paused)
+        return
+
+    # Overlap guard: only one structure run per account at a time
+    lock_token = acquire_lock("structure", account_id, LOCK_TTL)
+    if not lock_token:
+        logger.info(f"[{account_id}] Structure sync already running — skip")
+        return
 
     # Phase 2: commit "running" job before any Meta API call
     job_id = create_sync_job(account_id_obj, platform_id, "structure")
 
     structure_synced = False
     try:
-        apply_backoff(account_id)
+        apply_backoff(account_id, connection_id)
         client = MetaClient(token)
 
         _all_statuses = json.dumps([{
@@ -277,16 +325,19 @@ def sync_structure_for_account(self, account_id: str):
         campaigns_data = client.paginate(
             f"/act_{ext_id}/campaigns",
             {"fields": CAMPAIGN_FIELDS, "filtering": _all_statuses, "limit": 200},
+            account_id=account_id, connection_id=connection_id,
         )
-        apply_backoff(account_id)
+        apply_backoff(account_id, connection_id)
         adsets_data = client.paginate(
             f"/act_{ext_id}/adsets",
             {"fields": ADSET_FIELDS, "filtering": _all_statuses, "limit": 200},
+            account_id=account_id, connection_id=connection_id,
         )
-        apply_backoff(account_id)
+        apply_backoff(account_id, connection_id)
         ads_data = client.paginate(
             f"/act_{ext_id}/ads",
             {"fields": AD_FIELDS, "filtering": _all_statuses, "limit": 200},
+            account_id=account_id, connection_id=connection_id,
         )
 
         with get_worker_db() as db:
@@ -430,10 +481,31 @@ def sync_structure_for_account(self, account_id: str):
         logger.info(f"[{account_id}] Structure sync complete: {total} rows")
         structure_synced = True
 
+    except RateLimitBackoff as b:
+        finalize_sync_job(job_id, "skipped")
+        logger.info(f"[{account_id}] Structure rescheduled in {b.countdown}s ({b.scope})")
+        self.apply_async(args=[account_id], countdown=b.countdown)
+        return
+    except SoftTimeLimitExceeded as e:
+        finalize_sync_job(job_id, "failed", error=e)
+        logger.error(f"[{account_id}] Structure sync exceeded soft time limit")
+        return
+    except MetaAPIError as e:
+        if is_meta_rate_limit_error(e.code, e.subcode):
+            pause_connection(connection_id, HARD_PAUSE_SECONDS)
+            finalize_sync_job(job_id, "skipped")
+            logger.warning(f"[{account_id}] Structure Meta rate-limit (code {e.code}) — pausing connection {HARD_PAUSE_SECONDS}s")
+            self.apply_async(args=[account_id], countdown=HARD_PAUSE_SECONDS)
+            return
+        finalize_sync_job(job_id, "failed", error=e)
+        logger.error(f"[{account_id}] Structure sync failed: {e}")
+        raise self.retry(exc=e)
     except Exception as e:
         finalize_sync_job(job_id, "failed", error=e)
         logger.error(f"[{account_id}] Structure sync failed: {e}")
         raise self.retry(exc=e)
+    finally:
+        release_lock("structure", account_id, lock_token)
 
     if structure_synced:
         from workers.tasks.insights import sync_insights_for_account

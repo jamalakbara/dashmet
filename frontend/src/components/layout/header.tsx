@@ -1,37 +1,36 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { PanelLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { DateRangePicker } from "@/components/shared/date-range-picker";
-import { SyncStatusBadge } from "@/components/shared/sync-status-badge";
+import { Menu } from "lucide-react";
 import { UserMenu } from "@/components/shared/user-menu";
+import { useMe } from "@/hooks/use-me";
 import { useUIStore } from "@/stores/ui-store";
 
-const AccountSwitcher = dynamic(
-  () => import("@/components/shared/account-switcher").then((m) => ({ default: m.AccountSwitcher })),
-  { ssr: false, loading: () => <div className="h-8 w-48 animate-pulse rounded-lg bg-muted" /> }
-);
-
+/**
+ * Settings top bar — no account picker / date range / sync here (those are
+ * dashboard-only filters). Just the mobile nav trigger and the user control.
+ */
 export function Header() {
-  const { toggleSidebar } = useUIStore();
+  const { data: me } = useMe();
+  const openMobileNav = useUIStore((s) => s.setMobileNavOpen);
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b bg-card px-4">
-      <div className="flex items-center gap-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleSidebar}
-          aria-label="Toggle sidebar"
-        >
-          <PanelLeft className="size-4" />
-        </Button>
-        <AccountSwitcher />
-        <DateRangePicker />
-      </div>
-      <div className="flex items-center gap-4">
-        <SyncStatusBadge />
+    <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-3 sm:px-5">
+      {/* Hamburger opens the nav drawer below `md`, where the rail is hidden. */}
+      <button
+        type="button"
+        onClick={() => openMobileNav(true)}
+        aria-label="Open navigation"
+        className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground md:hidden"
+      >
+        <Menu className="size-5" />
+      </button>
+      <div className="flex items-center gap-2.5 ml-auto">
+        <div className="hidden text-right leading-tight sm:block">
+          <p className="text-sm font-semibold">{me?.name ?? "—"}</p>
+          <p className="max-w-[160px] truncate text-xs text-muted-foreground">
+            {me?.email ?? ""}
+          </p>
+        </div>
         <UserMenu />
       </div>
     </header>

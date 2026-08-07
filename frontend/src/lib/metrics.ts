@@ -16,26 +16,126 @@ export interface MetricDef {
 
 export const METRIC_REGISTRY: MetricDef[] = [
   // ── Shared (meta + tiktok, both account types) ───────────────────────
-  { key: "spend",       label: "Spend",       type: "currency", align: "right", platforms: ["meta","tiktok"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:true  },
-  { key: "impressions", label: "Impressions", type: "number",   align: "right", platforms: ["meta","tiktok"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:true  },
+  { key: "spend",       label: "Spend",       type: "currency", align: "right", platforms: ["meta","tiktok","google_ads"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:true  },
+  { key: "impressions", label: "Impressions", type: "number",   align: "right", platforms: ["meta","tiktok","google_ads"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:true  },
   { key: "reach",       label: "Reach",       type: "number",   align: "right", platforms: ["meta","tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true,  showInTable:true,  tableDefaultVisible:false },
   { key: "frequency",   label: "Frequency",   type: "number",   align: "right", platforms: ["meta","tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:false, showInTable:false, tableDefaultVisible:false },
-  { key: "clicks",      label: "Clicks",      type: "number",   align: "right", platforms: ["meta","tiktok"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:true  },
-  { key: "ctr",         label: "CTR",         type: "percent",  align: "right", platforms: ["meta","tiktok"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:true  },
-  { key: "cpm",         label: "CPM",         type: "currency", align: "right", platforms: ["meta","tiktok"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:false },
-  { key: "cpc",         label: "CPC",         type: "currency", align: "right", platforms: ["meta","tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true,  showInTable:true,  tableDefaultVisible:false },
+  { key: "clicks",      label: "Clicks",      type: "number",   align: "right", platforms: ["meta","tiktok","google_ads"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:true  },
+  { key: "ctr",         label: "CTR",         type: "percent",  align: "right", platforms: ["meta","tiktok","google_ads"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:true  },
+  { key: "cpm",         label: "CPM",         type: "currency", align: "right", platforms: ["meta","tiktok","google_ads"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:false },
+  { key: "cpc",         label: "CPC",         type: "currency", align: "right", platforms: ["meta","tiktok","google_ads"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true,  showInTable:true,  tableDefaultVisible:false },
   // ── Meta standard-only ────────────────────────────────────────────────
-  { key: "inline_link_clicks", label: "Link Clicks",  type: "number",   align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:false, showInTable:false, tableDefaultVisible:false },
+  { key: "inline_link_clicks", label: "Link Clicks",  type: "number",   align: "right", platforms: ["meta"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:false, showInTable:false, tableDefaultVisible:false },
   { key: "cpp",              label: "CPP",         type: "currency", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:false, showInTable:false, tableDefaultVisible:false },
-  { key: "conversions",      label: "Conversions", type: "number",   align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:true  },
-  { key: "conversion_value", label: "Conv. Value", type: "currency", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:false, showInTable:true,  tableDefaultVisible:false },
-  { key: "roas",             label: "ROAS",        type: "roas",     align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:true  },
-  { key: "cpa",              label: "CPA",         type: "currency", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true,  showInTable:true,  tableDefaultVisible:false },
+  { key: "conversions",      label: "Conversions", type: "number",   align: "right", platforms: ["meta","tiktok","google_ads"], accountTypes: ["standard"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:true  },
+  { key: "conversion_value", label: "Conv. Value", type: "currency", align: "right", platforms: ["meta","google_ads"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:false, showInTable:true,  tableDefaultVisible:false },
+  { key: "roas",             label: "ROAS",        type: "roas",     align: "right", platforms: ["meta","google_ads"], accountTypes: ["standard"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:true  },
+  { key: "cpa",              label: "CPA",         type: "currency", align: "right", platforms: ["meta","tiktok","google_ads"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true,  showInTable:true,  tableDefaultVisible:false },
+  { key: "conversion_rate",  label: "CVR",         type: "percent",  align: "right", platforms: ["meta","tiktok","google_ads"], accountTypes: ["standard"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:false },
   // ── Meta CPAS-primary ─────────────────────────────────────────────────
   { key: "outbound_clicks",         label: "Outbound Clicks",     type: "number",   align: "right", platforms: ["meta"], accountTypes: ["cpas"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:true  },
   { key: "outbound_clicks_ctr",     label: "Outbound CTR",        type: "percent",  align: "right", platforms: ["meta"], accountTypes: ["cpas"], showInKpi:true,  showInPeriodic:true,  showInTable:true,  tableDefaultVisible:true  },
   { key: "cost_per_outbound_click", label: "Cost/Outbound Click", type: "currency", align: "right", platforms: ["meta"], accountTypes: ["cpas"], showInKpi:false, showInPeriodic:true,  showInTable:true,  tableDefaultVisible:false },
+
+  // ── Meta CPAS shared-item (catalog segment) ───────────────────────────
+  { key: "purchase_shared",              label: "Purchase Shared Item",           type: "number",   align: "right", platforms: ["meta"], accountTypes: ["cpas"], showInKpi:true,  showInPeriodic:true, showInTable:true, tableDefaultVisible:true  },
+  { key: "purchase_value_shared",        label: "Purchase Value Shared Item",     type: "currency", align: "right", platforms: ["meta"], accountTypes: ["cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "cost_per_purchase_shared",     label: "Cost Per Purchase Shared Item",  type: "currency", align: "right", platforms: ["meta"], accountTypes: ["cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "add_to_cart_shared",           label: "Add to Cart Shared Item",        type: "number",   align: "right", platforms: ["meta"], accountTypes: ["cpas"], showInKpi:true,  showInPeriodic:true, showInTable:true, tableDefaultVisible:true  },
+  { key: "add_to_cart_value_shared",     label: "Add to Cart Value Shared Item",  type: "currency", align: "right", platforms: ["meta"], accountTypes: ["cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:true  },
+  { key: "cost_per_add_to_cart_shared",  label: "Cost Per Add to Cart Shared Item", type: "currency", align: "right", platforms: ["meta"], accountTypes: ["cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "content_view_shared",          label: "Content View Shared Item",       type: "number",   align: "right", platforms: ["meta"], accountTypes: ["cpas"], showInKpi:true,  showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "cost_per_content_view_shared", label: "Cost Per Content View Shared Item", type: "currency", align: "right", platforms: ["meta"], accountTypes: ["cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "roas_shared",                  label: "ROAS Shared Item",               type: "roas",     align: "right", platforms: ["meta"], accountTypes: ["cpas"], showInKpi:true,  showInPeriodic:true, showInTable:true, tableDefaultVisible:true  },
+
+  // ── Meta conversion detail (from the synced `actions` array) ──────────
+  { key: "add_to_cart",        label: "Add to Cart",        type: "number", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "add_to_cart_value",  label: "Add to Cart Value",  type: "currency", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "avg_basket_price",   label: "Avg. Basket Price",  type: "currency", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "initiate_checkout",  label: "Checkouts",          type: "number", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "landing_page_views", label: "Landing Page Views", type: "number", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "leads",              label: "Leads",              type: "number", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+
+  // ── Meta engagement & recall (metrics_daily scalar columns) ──────────
+  { key: "post_reactions",     label: "Post Reaction",      type: "number",   align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "post_saves",         label: "Post Save",          type: "number",   align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "inline_post_engagement",          label: "Post Engagement",  type: "number",   align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "cost_per_inline_post_engagement", label: "Cost/Engagement",  type: "currency", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "estimated_ad_recall_rate",        label: "Est. Recall Rate", type: "percent",  align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "estimated_ad_recallers",          label: "Est. Recallers",   type: "number",   align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+
+  // ── Meta-specific video depth ─────────────────────────────────────────
+  { key: "video_2s",         label: "2s Views",       type: "number", align: "right", platforms: ["meta"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "video_thruplays",  label: "ThruPlays",      type: "number", align: "right", platforms: ["meta"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "video_avg_time",   label: "Avg Watch Time", type: "number", align: "right", platforms: ["meta"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+
+  // ── Shared video stages (identical field_name on both platforms) ──────
+  { key: "video_views", label: "Video Views", type: "number", align: "right", platforms: ["meta","tiktok","google_ads"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "video_p25",   label: "Video 25%",   type: "number", align: "right", platforms: ["meta","tiktok","google_ads"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "video_p50",   label: "Video 50%",   type: "number", align: "right", platforms: ["meta","tiktok","google_ads"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "video_p75",   label: "Video 75%",   type: "number", align: "right", platforms: ["meta","tiktok","google_ads"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "video_p100",  label: "Video 100%",  type: "number", align: "right", platforms: ["meta","tiktok","google_ads"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+
+  // ── TikTok engagement ─────────────────────────────────────────────────
+  { key: "likes",           label: "Likes",          type: "number",  align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:true  },
+  { key: "comments",        label: "Comments",       type: "number",  align: "right", platforms: ["meta","tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "shares",          label: "Shares",         type: "number",  align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "follows",         label: "Follows",        type: "number",  align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "profile_visits",  label: "Profile Visits", type: "number",  align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "engagement_rate", label: "Engagement Rate",type: "percent", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true, showInTable:true, tableDefaultVisible:true  },
+  { key: "total_engagement",   label: "Total Engagement",     type: "number", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "product_clicks_ix",  label: "Product Clicks (IX)",  type: "number", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "live_views_10s",     label: "10-sec LIVE Views",    type: "number", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "live_product_clicks",label: "LIVE Product Clicks",  type: "number", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+
+  // ── TikTok conversion & results ───────────────────────────────────────
+  { key: "result",          label: "Results",         type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "cost_per_result", label: "Cost/Result",     type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+
+  // ── TikTok-specific video depth ───────────────────────────────────────
+  { key: "video_2s_views",  label: "2s Views",       type: "number", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "video_6s_views",  label: "6s Views",       type: "number", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "avg_watch_time",  label: "Avg Watch Time", type: "number", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+
+  // ── TikTok website / app events ───────────────────────────────────────
+  { key: "web_purchases",      label: "Purchases (Shop)",    type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "web_purchase_value", label: "Gross Revenue (Shop)",type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "web_add_to_cart",    label: "Add to Cart (Shop)",  type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "app_installs",       label: "App Installs",   type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "install_cost",       label: "Install Cost",   type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+
+  // ── Meta funnel events (from the synced `actions` array) ──────────────
+  { key: "view_content",          label: "Content Views",  type: "number", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "purchase",              label: "Purchases",      type: "number", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "search",                label: "Searches",       type: "number", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "complete_registration", label: "Registrations",  type: "number", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+
+  // ── Meta cost per funnel step (computed) ──────────────────────────────
+  { key: "cost_per_view_content",       label: "Cost/Content View", type: "currency", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "cost_per_add_to_cart",        label: "Cost/Add to Cart",  type: "currency", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "cost_per_initiate_checkout",  label: "Cost/Checkout",     type: "currency", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "cost_per_purchase",           label: "Cost/Purchase",     type: "currency", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "cost_per_landing_page_view",  label: "Cost/LP View",      type: "currency", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "cost_per_lead",               label: "Cost/Lead",         type: "currency", align: "right", platforms: ["meta"], accountTypes: ["standard"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+
+  // ── TikTok web funnel events ──────────────────────────────────────────
+  { key: "web_checkout",          label: "Checkouts Init. (Shop)", type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "cost_per_web_purchase", label: "Cost/Purchase (Shop)",   type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "cost_per_web_add_to_cart", label: "Cost/ATC (Shop)",     type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+
+  // ── TikTok onsite / shop events ───────────────────────────────────────
+  { key: "page_view_onsite",        label: "Page Views (Onsite)",   type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "web_add_to_cart_value",   label: "ATC Value (Shop)",      type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "web_checkout_value",      label: "Checkout Value (Shop)", type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "avg_watch_time_per_user", label: "Avg Watch/User",        type: "number",   align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
+  { key: "roas_shop",               label: "ROAS (Shop)",           type: "roas",     align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:true,  showInPeriodic:true, showInTable:true, tableDefaultVisible:true  },
+  { key: "cost_per_web_checkout",   label: "Cost/Checkout (Shop)",  type: "currency", align: "right", platforms: ["tiktok"], accountTypes: ["standard","cpas"], showInKpi:false, showInPeriodic:true, showInTable:true, tableDefaultVisible:false },
 ];
+
+/** Resolve a metric's display label / format type by key (single source of truth). */
+const METRIC_BY_KEY = new Map(METRIC_REGISTRY.map((m) => [m.key, m]));
+export const metricLabel = (key: string): string => METRIC_BY_KEY.get(key)?.label ?? key;
+export const metricType = (key: string): MetricType => METRIC_BY_KEY.get(key)?.type ?? "number";
 
 export function getMetricsForPlatform(
   platform: string | null | undefined,
@@ -55,10 +155,11 @@ export function getMetricsForPlatform(
  * different action field than Meta, so summing them cross-platform would
  * undercount. Surface those only on the per-platform views.
  */
+const COMBINABLE_KEYS = new Set([
+  "spend", "impressions", "reach", "frequency", "clicks", "ctr", "cpm", "cpc",
+]);
 export const getCombinableMetrics = () =>
-  METRIC_REGISTRY.filter(
-    (m) => m.platforms.includes("meta") && m.platforms.includes("tiktok"),
-  );
+  METRIC_REGISTRY.filter((m) => COMBINABLE_KEYS.has(m.key));
 
 export const getKpiMetrics = (p: string | null | undefined, at: AccountType | null = null) =>
   getMetricsForPlatform(p, at).filter((m) => m.showInKpi);

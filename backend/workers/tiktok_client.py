@@ -13,6 +13,11 @@ BASE_URL = "https://business-api.tiktok.com/open_api/v1.3"
 MAX_PAGES = 50
 VIDEO_BATCH_SIZE = 100
 
+# TikTok enforces an app-level 10 QPS limit shared across every worker. We cap
+# below that (8 QPS) for headroom so bursts from concurrent backfill fan-out
+# don't trip "reaches the QPS limit 10" (HTTP 200 with code != 0 -> failed job).
+TIKTOK_APP_QPS_CAP = 8
+
 
 class TikTokAPIError(Exception):
     def __init__(self, code: int, message: str, request_id: str | None = None):
@@ -40,14 +45,36 @@ class TikTokClient:
             )
 
     def _rate_limit_check(self) -> None:
+        """App-wide per-second token bucket shared across all workers via Redis.
+
+        TikTok's real limit is 10 QPS at the *app* level; the previous per-minute
+        counter never enforced it, so concurrent backfill fan-out burst past 10
+        req/sec and every job failed with "reaches the QPS limit 10". We cap at
+        TIKTOK_APP_QPS_CAP (8) per one-second window: each request claims a slot
+        in that second's key; if the window is full we sleep to the next second
+        and re-check. No-op when Redis is absent (unit tests without a broker).
+        """
         if not self._redis:
             return
-        minute_key = f"tiktok_req_count:{int(time.time() // 60)}"
-        count = self._redis.incr(minute_key)
-        self._redis.expire(minute_key, 120)
-        if count >= 800:
-            logger.warning("TikTok rate limit approaching (%s/min), sleeping 5s", count)
-            time.sleep(5)
+        while True:
+            second = int(time.time())
+            key = f"tiktok_qps:{second}"
+            count = self._redis.incr(key)
+            # Expire well past the window so a claimed slot is never double-counted
+            # by a clock that lingers on the same second; harmless if it re-sets.
+            self._redis.expire(key, 2)
+            if count <= TIKTOK_APP_QPS_CAP:
+                return
+            # Window is full: give back the slot we claimed and wait out the second.
+            self._redis.decr(key)
+            sleep_for = 1.0 - (time.time() - second)
+            if sleep_for < 0:
+                sleep_for = 0.0
+            logger.warning(
+                "TikTok app QPS cap %s reached in window %s; sleeping %.3fs",
+                TIKTOK_APP_QPS_CAP, second, sleep_for,
+            )
+            time.sleep(sleep_for)
 
     def get(self, path: str, params: dict | None = None) -> dict:
         self._rate_limit_check()

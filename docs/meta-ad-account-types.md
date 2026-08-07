@@ -375,6 +375,16 @@ If `business.id` in the catalog response does not match your brand's Business Ma
 
 Since both account types use the same API, your dashboard needs to handle both gracefully.
 
+### DashMet Implementation
+
+`account_type` is **stored, not auto-detected** — it's a column on `accounts` (`'standard' | 'cpas'`, default `'standard'`) set manually per account.
+
+- **Where it's set:** Settings → Accounts (`/settings/accounts`). Each Meta account row has a Standard/CPAS dropdown.
+- **Meta-only by design:** CPAS is a Meta concept. Non-Meta (e.g. TikTok) accounts show no selector — just a muted `—` — and the API **rejects** `account_type='cpas'` when `platform != 'meta'` with `409 CONFLICT` ("CPAS account type is only available for Meta accounts"). Guard lives in `update_account_config` (`backend/app/services/accounts.py`).
+- **How it's consumed:** the stored `account_type` drives platform/account-type-aware metric sets (`use-platform-metrics.ts` on the frontend) — CPAS hides ROAS/conversion metrics per the rules below.
+
+The `detectAccountType()` heuristic below is a fallback/reference only; DashMet trusts the stored value.
+
 ### Detecting Account Type
 
 ```javascript

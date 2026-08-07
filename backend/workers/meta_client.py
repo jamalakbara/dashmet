@@ -71,13 +71,30 @@ class MetaClient:
         resp.raise_for_status()
         return data, self._parse_rate_limits(resp)
 
+    def _record_rate_limits(self, rate_limits: dict, account_id, connection_id) -> None:
+        """Feed rate-limit headers into Redis so apply_backoff sees live data.
+        No-op unless an account_id is supplied (keeps non-sync callers cheap)."""
+        if not account_id:
+            return
+        from workers.rate_limit import RateLimitState
+        RateLimitState(str(account_id), str(connection_id) if connection_id else None).update_from_headers(rate_limits)
+
     def paginate(
-        self, path: str, params: dict | None = None, max_pages: int = MAX_PAGES
+        self,
+        path: str,
+        params: dict | None = None,
+        max_pages: int = MAX_PAGES,
+        account_id=None,
+        connection_id=None,
     ) -> list[dict]:
-        """Follow paging cursors and return flat list of all data items."""
+        """Follow paging cursors and return flat list of all data items.
+
+        Pass account_id/connection_id to record rate-limit headers per page —
+        otherwise the throttle headers are discarded and backoff reads stale data."""
         all_items = []
         current_params = dict(params) if params else {}
-        data, _ = self.get(path, current_params)
+        data, rate_limits = self.get(path, current_params)
+        self._record_rate_limits(rate_limits, account_id, connection_id)
         all_items.extend(data.get("data", []))
 
         page_count = 1
@@ -92,7 +109,8 @@ class MetaClient:
         while after_cursor and page_count < max_pages:
             next_params = dict(current_params)
             next_params["after"] = after_cursor
-            data, _ = self.get(path, next_params)
+            data, rate_limits = self.get(path, next_params)
+            self._record_rate_limits(rate_limits, account_id, connection_id)
             all_items.extend(data.get("data", []))
             paging = data.get("paging", {})
             after_cursor = paging.get("cursors", {}).get("after")
@@ -144,23 +162,32 @@ class MetaClient:
         entity_id: str,
         fields: str,
         level: str,
-        date_preset: str,
+        time_range: str,
         time_increment: int = 1,
         action_attribution_windows: str | None = None,
+        account_id=None,
+        connection_id=None,
     ) -> list[dict]:
         """Fetch insights for any entity. Pass 'act_123' for account-level,
-        bare campaign/adset/ad ID for entity-level."""
+        bare campaign/adset/ad ID for entity-level.
+
+        `time_range` is a Meta time_range JSON string (see workers.date_range) —
+        never a `date_preset`. Sending an explicit range in the account timezone
+        is a hard requirement (PRD §2.3)."""
         params = {
             "fields": fields,
             "level": level,
-            "date_preset": date_preset,
+            "time_range": time_range,
             "time_increment": time_increment,
             "limit": 200,
         }
         if action_attribution_windows:
             windows = _parse_attribution_windows(action_attribution_windows)
             params["action_attribution_windows"] = json.dumps(windows)
-        return self.paginate(f"/{entity_id}/insights", params)
+        return self.paginate(
+            f"/{entity_id}/insights", params,
+            account_id=account_id, connection_id=connection_id,
+        )
 
     def close(self):
         self._client.close()

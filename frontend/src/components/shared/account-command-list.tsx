@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Star } from "lucide-react";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import {
   Command,
   CommandEmpty,
@@ -13,7 +14,12 @@ import {
 } from "@/components/ui/command";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PlatformBadge } from "@/components/shared/platform-badge";
-import { useAccountSearch, type Account } from "@/hooks/use-account";
+import {
+  useAccountSearch,
+  useGroupedAccountSearch,
+  PICKER_PAGE_SIZE,
+  type Account,
+} from "@/hooks/use-account";
 import { useUIStore, type AccountSnapshot } from "@/stores/ui-store";
 import { cn } from "@/lib/utils";
 
@@ -65,7 +71,12 @@ export function AccountCommandList({
   onToggle,
 }: AccountCommandListProps) {
   const [search, setSearch] = useState("");
-  const { accounts, isFetching } = useAccountSearch(platform, search);
+  // Combined dashboard (platform null) fans out per platform; a single platform
+  // route uses one scoped query. `enabled` keeps the unused hook from fetching.
+  const isCombined = platform === null;
+  const single = useAccountSearch(platform, search, !isCombined);
+  const combined = useGroupedAccountSearch(search, isCombined);
+  const { accounts, isFetching } = isCombined ? combined : single;
 
   const snapshots = useUIStore((s) => s.accountSnapshots);
   const pinnedIds = useUIStore((s) => s.pinnedAccountIds);
@@ -76,13 +87,23 @@ export function AccountCommandList({
   const searching = search.trim().length > 0;
   const scopeOk = (p: string) => !platform || p === platform;
 
+  // Recent/Pinned render from persisted localStorage snapshots, which survive a
+  // disconnect+reconnect and can point at accounts the API no longer returns
+  // (e.g. account_status="disabled"). Prune snapshots absent from the live list,
+  // but only when absence is conclusive: an idle, non-truncated page proves the
+  // account is gone. A capped/loading page proves presence, not absence — never
+  // drop a valid account that just sits beyond the first page.
+  const liveIds = new Set(accounts.map((a) => a.id));
+  const canPrune = !searching && !isFetching && accounts.length < PICKER_PAGE_SIZE;
+  const liveOk = (id: string) => !canPrune || liveIds.has(id);
+
   const pinned = pinnedIds
     .map((id) => snapshots[id])
-    .filter((s): s is AccountSnapshot => !!s && scopeOk(s.platform));
+    .filter((s): s is AccountSnapshot => !!s && scopeOk(s.platform) && liveOk(s.id));
   const recent = recentIds
     .filter((id) => !pinnedIds.includes(id))
     .map((id) => snapshots[id])
-    .filter((s): s is AccountSnapshot => !!s && scopeOk(s.platform))
+    .filter((s): s is AccountSnapshot => !!s && scopeOk(s.platform) && liveOk(s.id))
     .slice(0, 5);
 
   // When idle, don't repeat pinned/recent inside the results list.
@@ -90,9 +111,14 @@ export function AccountCommandList({
   const results = searching ? accounts : accounts.filter((a) => !shortcutIds.has(a.id));
 
   function pick(account: Account) {
-    recordAccount(toSnapshot(account));
-    if (mode === "single") onSelect?.(account);
-    else onToggle?.(account);
+    // Only single-select records to Recent. Recording on a multi toggle would
+    // pull the row into the Recent group and out of its platform list mid-select.
+    if (mode === "single") {
+      recordAccount(toSnapshot(account));
+      onSelect?.(account);
+    } else {
+      onToggle?.(account);
+    }
   }
 
   const isSelected = (id: string) =>
@@ -129,10 +155,12 @@ export function AccountCommandList({
             e.stopPropagation();
             togglePin(account.id);
           }}
-          className="shrink-0 rounded p-0.5 hover:bg-accent"
+          className="group shrink-0 rounded p-0.5 hover:bg-accent"
         >
-          <Star
-            className={cn(
+          <AnimatedIcon
+            icon={Star}
+            motionPreset="pop"
+            iconClassName={cn(
               "size-3.5",
               pinnedNow ? "fill-amber-400 text-amber-400" : "text-muted-foreground"
             )}

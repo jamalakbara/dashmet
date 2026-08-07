@@ -9,6 +9,7 @@ import { z } from "zod";
 import { formatDistanceToNow } from "date-fns";
 import { CheckCircle2, XCircle, Plug, ExternalLink, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
+import { AnimatedIcon } from "@/components/shared/animated-icon";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,7 @@ import { connectionsApi } from "@/lib/api/connections";
 import { accountsApi } from "@/lib/api/accounts";
 import { syncApi } from "@/lib/api/sync";
 import { queryKeys } from "@/lib/query-keys";
+import { useIsOwner } from "@/hooks/use-role";
 
 const tokenSchema = z.object({
   access_token: z.string().min(10, "Token is too short"),
@@ -70,12 +72,24 @@ const PLATFORMS = [
     name:      "Google Ads",
     icon:      "G",
     color:     "bg-red-500",
-    auth_type: "soon" as const,
+    auth_type: "oauth" as const,
     instructions: undefined,
   },
 ];
 
+// Brand SVGs served from /public; platforms without one fall back to a letter tile.
+const PLATFORM_LOGO: Record<string, string> = {
+  meta:       "/meta-logo.svg",
+  tiktok:     "/tiktok-logo.svg",
+  google_ads: "/gads-logo.svg",
+};
+
 function PlatformIcon({ platform }: { platform: typeof PLATFORMS[0] }) {
+  const logo = PLATFORM_LOGO[platform.key];
+  if (logo) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={logo} alt={platform.name} className="size-10 shrink-0 rounded-lg" />;
+  }
   return (
     <div className={`flex size-10 shrink-0 items-center justify-center rounded-lg ${platform.color} text-sm font-bold text-white`}>
       {platform.icon}
@@ -125,7 +139,7 @@ function SyncProgressBanner({ platformKey, platformName, onDismiss }: {
     {
       label: "Historical data (14d / 30d / 90d)",
       time: "~3–15 min",
-      done: platformKey === "tiktok"
+      done: platformKey === "tiktok" || platformKey === "google_ads"
         ? jobs.insights_historical?.status === "completed"
         : jobs.insights_async?.status === "completed",
     },
@@ -151,7 +165,15 @@ function SyncProgressBanner({ platformKey, platformName, onDismiss }: {
               {stages.map((stage, i) => (
                 <div key={i} className="flex items-center gap-2 text-xs">
                   {stage.done
-                    ? <CheckCircle2 className="size-3 shrink-0 text-green-500" />
+                    ? <AnimatedIcon
+                        icon={CheckCircle2}
+                        motionPreset="pop"
+                        trigger="state"
+                        appear
+                        activeVariant="show"
+                        className="shrink-0"
+                        iconClassName="size-3 text-green-500"
+                      />
                     : <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
                   }
                   <span>{stage.label}</span>
@@ -162,8 +184,8 @@ function SyncProgressBanner({ platformKey, platformName, onDismiss }: {
               ))}
             </div>
           </div>
-          <button onClick={onDismiss} className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground">
-            <X className="size-3.5" />
+          <button onClick={onDismiss} className="group shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground">
+            <AnimatedIcon icon={X} motionPreset="wiggle" iconClassName="size-3.5" />
           </button>
         </div>
       </AlertDescription>
@@ -177,6 +199,7 @@ function ConnectionsSettingsPageInner() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  const isOwner = useIsOwner();
   const [connectingPlatform, setConnectingPlatform] = useState<typeof PLATFORMS[0] | null>(null);
   const [disconnectId, setDisconnectId] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -207,6 +230,30 @@ function ConnectionsSettingsPageInner() {
       router.replace(pathname);
     } else if (tiktokStatus === "error") {
       toast.error("TikTok connection failed. Please try again.");
+      router.replace(pathname);
+    }
+
+    const googleStatus = searchParams.get("google");
+    if (googleStatus === "connected") {
+      qc.invalidateQueries({ queryKey: ["connections"] });
+      qc.invalidateQueries({ queryKey: queryKeys.accounts() });
+      toast.success("Google Ads connected. Syncing your data…");
+      setConnectSuccess(true);
+      setSyncBannerPlatform({ key: "google_ads", name: "Google Ads" });
+      setTimeout(() => setConnectSuccess(false), 4000);
+      const checkAfter = (ms: number) =>
+        setTimeout(async () => {
+          await qc.invalidateQueries({ queryKey: queryKeys.accounts() });
+          const cached = qc.getQueryData<unknown[]>(queryKeys.accounts());
+          if (ms === 12000 && (!cached || cached.length === 0)) {
+            toast.error("No Google Ads accounts found. Check your developer token / MCC access and try reconnecting.");
+          }
+        }, ms);
+      checkAfter(5000);
+      checkAfter(12000);
+      router.replace(pathname);
+    } else if (googleStatus === "error") {
+      toast.error("Google Ads connection failed. Please try again.");
       router.replace(pathname);
     }
   }, [searchParams, qc, router, pathname]);
@@ -276,14 +323,17 @@ function ConnectionsSettingsPageInner() {
     setOauthLoading(true);
     setConnectError(null);
     try {
-      const res = await connectionsApi.initiateTikTokOAuth();
+      const res = platform.key === "google_ads"
+        ? await connectionsApi.initiateGoogleOAuth()
+        : await connectionsApi.initiateTikTokOAuth();
       const authUrl = res.data?.data?.auth_url;
       if (authUrl) {
         window.location.href = authUrl;
       }
     } catch {
-      toast.error("Could not initiate TikTok OAuth. Please try again.");
-      setConnectError("Could not initiate TikTok OAuth. Please try again.");
+      const msg = `Could not initiate ${platform.name} OAuth. Please try again.`;
+      toast.error(msg);
+      setConnectError(msg);
       setOauthLoading(false);
     }
   }
@@ -325,15 +375,22 @@ function ConnectionsSettingsPageInner() {
             return (
               <Card key={platform.key}>
                 <CardHeader className="p-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
                       <PlatformIcon platform={platform} />
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-medium">{platform.name}</p>
                         {conn ? (
                           <div className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
-                            <div className="flex items-center gap-1">
-                              <CheckCircle2 className="size-3 text-green-500" />
+                            <div className="flex flex-wrap items-center gap-x-1">
+                              <AnimatedIcon
+                                icon={CheckCircle2}
+                                motionPreset="pop"
+                                trigger="state"
+                                appear
+                                activeVariant="show"
+                                iconClassName="size-3 text-green-500"
+                              />
                               <span>Connected</span>
                               {conn.token_type && <span>· {conn.token_type.replace(/_/g, " ")}</span>}
                             </div>
@@ -359,27 +416,33 @@ function ConnectionsSettingsPageInner() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="text-destructive border-destructive/30 hover:bg-destructive/5"
+                        disabled={!isOwner}
+                        title={!isOwner ? "Owner only" : undefined}
+                        className="shrink-0 text-destructive border-destructive/30 hover:bg-destructive/5"
                         onClick={() => setDisconnectId(conn.id)}
                       >
                         Disconnect
                       </Button>
-                    ) : platform.auth_type === "soon" ? (
-                      <Button size="sm" disabled>
-                        Coming soon
-                      </Button>
                     ) : platform.auth_type === "oauth" ? (
                       <Button
                         size="sm"
+                        className="group shrink-0"
                         onClick={() => handleOAuthConnect(platform)}
-                        disabled={oauthLoading}
+                        disabled={oauthLoading || !isOwner}
+                        title={!isOwner ? "Owner only" : undefined}
                       >
-                        <ExternalLink className="size-3.5" />
+                        <AnimatedIcon icon={ExternalLink} motionPreset="draw" iconClassName="size-3.5" />
                         {oauthLoading ? "Redirecting…" : "Connect"}
                       </Button>
                     ) : (
-                      <Button size="sm" onClick={() => openConnect(platform)}>
-                        <Plug className="size-3.5" />
+                      <Button
+                        size="sm"
+                        className="group shrink-0"
+                        disabled={!isOwner}
+                        title={!isOwner ? "Owner only" : undefined}
+                        onClick={() => openConnect(platform)}
+                      >
+                        <AnimatedIcon icon={Plug} motionPreset="draw" iconClassName="size-3.5" />
                         Connect
                       </Button>
                     )}

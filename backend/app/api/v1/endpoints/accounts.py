@@ -2,7 +2,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, OwnerUser
 from app.exceptions import ForbiddenError, NotFoundError
 from app.schemas.accounts import AccountConfigUpdateRequest, AccountResponse
 from app.schemas.common import DataResponse, PaginatedResponse, build_pagination
@@ -20,6 +20,7 @@ def list_accounts(
     search: Optional[str] = Query(None),
     platform: Optional[str] = Query(None),
 ):
+    restrict_ids = acc_svc.get_accessible_account_ids(db, current_user)
     accounts, total = acc_svc.list_accounts(
         db,
         current_user["org_id"],
@@ -27,6 +28,7 @@ def list_accounts(
         per_page=per_page,
         search=search,
         platform=platform,
+        restrict_ids=restrict_ids,
     )
     return PaginatedResponse(
         data=[AccountResponse.from_orm_account(a) for a in accounts],
@@ -37,7 +39,10 @@ def list_accounts(
 @router.get("/{account_id}")
 def get_account(account_id: str, current_user: CurrentUser, db: DbSession):
     try:
-        account = acc_svc.get_account_with_config(db, account_id, current_user["org_id"])
+        allowed = acc_svc.get_accessible_account_ids(db, current_user)
+        account = acc_svc.get_account_with_config(
+            db, account_id, current_user["org_id"], allowed_ids=allowed
+        )
         return DataResponse(data=AccountResponse.from_orm_account(account))
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -49,7 +54,7 @@ def get_account(account_id: str, current_user: CurrentUser, db: DbSession):
 def update_account_config(
     account_id: str,
     body: AccountConfigUpdateRequest,
-    current_user: CurrentUser,
+    current_user: OwnerUser,
     db: DbSession,
 ):
     try:
