@@ -1,16 +1,22 @@
-"""SMTP email sending.
+"""Email sending — Resend HTTP API (preferred) with SMTP fallback.
 
-Kept deliberately small: stdlib `smtplib` only (no extra dependency). The public
-helpers — `send_invite_email`, `send_verification_email`,
+Two transports, chosen in `_send`:
+- Resend HTTP API (port 443) when `RESEND_API_KEY` is set. Preferred because
+  many hosts block outbound SMTP ports (Railway blocks 25/465/587), which
+  surfaces as `[Errno 101] Network is unreachable`.
+- SMTP (`smtplib`, stdlib) otherwise — the local/dev fallback.
+
+The public helpers — `send_invite_email`, `send_verification_email`,
 `send_password_reset_email` — are all called *after* the relevant DB row is
 committed, so email delivery never gates the row's existence (P-8: the durable
 trace is the DB row, not the email).
 
 Delivery contract:
-- SMTP not configured (`SMTP_HOST` empty) → log the accept link, return False.
-  This is the dev fallback; nothing is emailed but the invite is unaffected.
-- SMTP configured and the server rejects the message → raise `EmailError`, so a
-  real delivery failure is a distinguishable error, never a silent success.
+- No transport configured (`RESEND_API_KEY` and `SMTP_HOST` both empty) → log
+  the link, return False. Dev fallback; nothing is emailed but the row is
+  unaffected.
+- Transport configured and delivery fails → raise `EmailError`, so a real
+  delivery failure is a distinguishable error, never a silent success.
 """
 import logging
 import smtplib
@@ -18,20 +24,72 @@ import ssl
 from email.message import EmailMessage
 from email.utils import formataddr
 
+import requests
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+RESEND_ENDPOINT = "https://api.resend.com/emails"
+
 
 class EmailError(Exception):
-    """A configured SMTP server rejected or failed to accept a message."""
+    """A configured transport rejected or failed to accept a message."""
+
+
+def _email_configured() -> bool:
+    """True when any real transport is set up (Resend or SMTP).
+
+    When False, the helpers log the link instead of sending (dev fallback).
+    """
+    return bool(settings.RESEND_API_KEY or settings.SMTP_HOST)
+
+
+def _from_field() -> str:
+    from_addr = settings.RESEND_FROM or settings.SMTP_FROM or settings.SMTP_USER
+    return formataddr((settings.SMTP_FROM_NAME, from_addr))
 
 
 def _send(to: str, subject: str, text_body: str, html_body: str) -> None:
+    """Deliver via Resend HTTP API when configured, else SMTP.
+
+    Resend is preferred because it uses HTTPS (port 443) — SMTP ports are
+    blocked on some hosts (e.g. Railway blocks 25/465/587). SMTP remains the
+    local/dev fallback. Either transport raises EmailError on failure.
+    """
+    if settings.RESEND_API_KEY:
+        _send_via_resend(to, subject, text_body, html_body)
+    else:
+        _send_via_smtp(to, subject, text_body, html_body)
+
+
+def _send_via_resend(to: str, subject: str, text_body: str, html_body: str) -> None:
+    try:
+        resp = requests.post(
+            RESEND_ENDPOINT,
+            headers={
+                "Authorization": f"Bearer {settings.RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": _from_field(),
+                "to": [to],
+                "subject": subject,
+                "html": html_body,
+                "text": text_body,
+            },
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        raise EmailError(str(e)) from e
+    if resp.status_code >= 400:
+        raise EmailError(f"Resend API {resp.status_code}: {resp.text}")
+
+
+def _send_via_smtp(to: str, subject: str, text_body: str, html_body: str) -> None:
     msg = EmailMessage()
     msg["Subject"] = subject
-    from_addr = settings.SMTP_FROM or settings.SMTP_USER
-    msg["From"] = formataddr((settings.SMTP_FROM_NAME, from_addr))
+    msg["From"] = _from_field()
     msg["To"] = to
     msg.set_content(text_body)
     msg.add_alternative(html_body, subtype="html")
@@ -69,7 +127,7 @@ def send_invite_email(
     """
     accept_url = f"{settings.FRONTEND_URL}/accept-invite?token={token}"
 
-    if not settings.SMTP_HOST:
+    if not _email_configured():
         logger.info("[DEV] SMTP not configured — invite link for %s: %s", to, accept_url)
         return False
 
@@ -115,7 +173,7 @@ def send_verification_email(to: str, token: str, name: str) -> bool:
     """
     verify_url = f"{settings.FRONTEND_URL}/verify-email?token={token}"
 
-    if not settings.SMTP_HOST:
+    if not _email_configured():
         logger.info("[DEV] SMTP not configured — verify link for %s: %s", to, verify_url)
         return False
 
@@ -160,7 +218,7 @@ def send_password_reset_email(to: str, token: str) -> bool:
     """
     reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
 
-    if not settings.SMTP_HOST:
+    if not _email_configured():
         logger.info("[DEV] SMTP not configured — reset link for %s: %s", to, reset_url)
         return False
 
