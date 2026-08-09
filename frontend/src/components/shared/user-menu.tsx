@@ -11,12 +11,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useQueryClient } from "@tanstack/react-query";
 import { authApi } from "@/lib/api/auth";
 import { clearAuthCookie } from "@/lib/api/client";
 import { useMe } from "@/hooks/use-me";
 
 export function UserMenu() {
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const { data: me } = useMe();
 
@@ -27,6 +29,7 @@ export function UserMenu() {
   async function handleSignOut() {
     await authApi.logout().catch(() => {});
     clearAuthCookie();
+    queryClient.clear();
     router.push("/login");
   }
 

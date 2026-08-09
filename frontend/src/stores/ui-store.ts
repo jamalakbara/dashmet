@@ -34,6 +34,8 @@ interface UIStore {
   pinnedAccountIds: string[];
   recordAccount: (snapshot: AccountSnapshot) => void;
   togglePin: (id: string) => void;
+  clearPlatformSnapshots: (platform: string) => void;
+  removeStaleSnapshots: (ids: string[]) => void;
 }
 
 export const useUIStore = create<UIStore>()(
@@ -70,6 +72,32 @@ export const useUIStore = create<UIStore>()(
             ? state.pinnedAccountIds.filter((p) => p !== id)
             : [...state.pinnedAccountIds, id],
         })),
+      clearPlatformSnapshots: (platform) =>
+        set((state) => {
+          const removed = new Set(
+            Object.values(state.accountSnapshots)
+              .filter((s) => s.platform === platform)
+              .map((s) => s.id)
+          );
+          const nextSnapshots = { ...state.accountSnapshots };
+          removed.forEach((id) => delete nextSnapshots[id]);
+          return {
+            accountSnapshots: nextSnapshots,
+            recentAccountIds: state.recentAccountIds.filter((id) => !removed.has(id)),
+            pinnedAccountIds: state.pinnedAccountIds.filter((id) => !removed.has(id)),
+          };
+        }),
+      removeStaleSnapshots: (ids) =>
+        set((state) => {
+          const removed = new Set(ids);
+          const nextSnapshots = { ...state.accountSnapshots };
+          removed.forEach((id) => delete nextSnapshots[id]);
+          return {
+            accountSnapshots: nextSnapshots,
+            recentAccountIds: state.recentAccountIds.filter((id) => !removed.has(id)),
+            pinnedAccountIds: state.pinnedAccountIds.filter((id) => !removed.has(id)),
+          };
+        }),
     }),
     {
       name: "dashmet-ui",
