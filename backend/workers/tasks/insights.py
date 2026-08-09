@@ -3,11 +3,17 @@ Sync worker — Insights (daily metrics)
 Fetches scalar + action metrics from Meta Insights API and upserts into DB.
 Schedule: every 15 minutes via Celery Beat.
 """
+import json
 import logging
+import re
+import urllib.parse as _up
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from workers.celery_app import celery_app, HEAVY_SOFT_TIME_LIMIT, HEAVY_TIME_LIMIT, LOCK_TTL
+
+# Max sub-requests per Meta batch call (platform hard limit is 50).
+_BATCH_SIZE = 50
 
 logger = logging.getLogger(__name__)
 
@@ -356,49 +362,60 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
         adset_nonunique, adset_unique = [], []
         ad_nonunique, ad_unique = [], []
 
-        for platform_campaign_id in active_campaign_ids:
+        # Build all 4 sub-requests per campaign upfront, then fire in batches of
+        # _BATCH_SIZE (50). Each batch = 1 HTTP round-trip instead of 4×N sequential
+        # calls. apply_backoff once per chunk (not per call) — still checks Redis state
+        # before each batch, but cuts round-trips by 75%.
+        # Caveat: batch doesn't auto-paginate. limit=500 covers all but unusually large
+        # campaigns (>500 adsets or >500 ads); those get truncated to 500 rows.
+        aw_json = json.dumps(
+            re.findall(r"\d+d_(?:click|view|engaged_view)", attribution_window)
+            or [attribution_window]
+        ) if attribution_window else None
+
+        _specs = [
+            (ADGROUP_NON_UNIQUE_FIELDS, "adset", "adset_nonunique", aw_json),
+            (ADGROUP_UNIQUE_FIELDS,     "adset", "adset_unique",    None),
+            (AD_NON_UNIQUE_FIELDS,      "ad",    "ad_nonunique",    aw_json),
+            (AD_UNIQUE_FIELDS,          "ad",    "ad_unique",       None),
+        ]
+        batch_requests: list[dict] = []
+        batch_tags: list[tuple[str, str]] = []
+        for pid in active_campaign_ids:
+            for fields, level, tag, aw in _specs:
+                batch_requests.append({
+                    "method": "GET",
+                    "relative_url": _campaign_batch_url(pid, fields, level, time_range, 1, aw),
+                })
+                batch_tags.append((pid, tag))
+
+        for _i in range(0, len(batch_requests), _BATCH_SIZE):
             apply_backoff(account_id, connection_id)
-            adset_nonunique.extend(client.get_insights(
-                platform_campaign_id,
-                fields=ADGROUP_NON_UNIQUE_FIELDS,
-                level="adset",
-                time_range=time_range,
-                time_increment=1,
-                action_attribution_windows=attribution_window,
-                account_id=account_id,
-                connection_id=connection_id,
-            ))
-            apply_backoff(account_id, connection_id)
-            adset_unique.extend(client.get_insights(
-                platform_campaign_id,
-                fields=ADGROUP_UNIQUE_FIELDS,
-                level="adset",
-                time_range=time_range,
-                time_increment=1,
-                account_id=account_id,
-                connection_id=connection_id,
-            ))
-            apply_backoff(account_id, connection_id)
-            ad_nonunique.extend(client.get_insights(
-                platform_campaign_id,
-                fields=AD_NON_UNIQUE_FIELDS,
-                level="ad",
-                time_range=time_range,
-                time_increment=1,
-                action_attribution_windows=attribution_window,
-                account_id=account_id,
-                connection_id=connection_id,
-            ))
-            apply_backoff(account_id, connection_id)
-            ad_unique.extend(client.get_insights(
-                platform_campaign_id,
-                fields=AD_UNIQUE_FIELDS,
-                level="ad",
-                time_range=time_range,
-                time_increment=1,
-                account_id=account_id,
-                connection_id=connection_id,
-            ))
+            chunk = batch_requests[_i:_i + _BATCH_SIZE]
+            tags = batch_tags[_i:_i + _BATCH_SIZE]
+            results = client.batch(chunk, account_id=account_id, connection_id=connection_id)
+            for (pid, kind), result in zip(tags, results):
+                if "error" in result:
+                    err = result["error"]
+                    code = err.get("code", 0)
+                    subcode = err.get("error_subcode")
+                    if is_meta_rate_limit_error(code, subcode):
+                        pause_connection(connection_id, HARD_PAUSE_SECONDS)
+                        raise RateLimitBackoff(HARD_PAUSE_SECONDS, scope="connection")
+                    logger.warning(
+                        "[%s] Batch sub-request error campaign=%s kind=%s code=%s: %s",
+                        account_id, pid, kind, code, err.get("message"),
+                    )
+                    continue
+                data = result.get("data", [])
+                if kind == "adset_nonunique":
+                    adset_nonunique.extend(data)
+                elif kind == "adset_unique":
+                    adset_unique.extend(data)
+                elif kind == "ad_nonunique":
+                    ad_nonunique.extend(data)
+                elif kind == "ad_unique":
+                    ad_unique.extend(data)
 
         if adset_nonunique and not adgroup_map:
             raise RuntimeError(
@@ -547,6 +564,21 @@ def _coerce(value):
     except (ValueError, TypeError):
         pass
     return value
+
+
+def _campaign_batch_url(campaign_id: str, fields: str, level: str, time_range: str,
+                        time_increment: int = 1, aw_json: str | None = None) -> str:
+    """Relative URL for a Meta batch sub-request (per-campaign insights)."""
+    params: list[tuple[str, str]] = [
+        ("fields", fields),
+        ("level", level),
+        ("time_range", time_range),
+        ("time_increment", str(time_increment)),
+        ("limit", "500"),
+    ]
+    if aw_json:
+        params.append(("action_attribution_windows", aw_json))
+    return f"/{campaign_id}/insights?" + _up.urlencode(params)
 
 
 BREAKDOWN_CONFIGS = {

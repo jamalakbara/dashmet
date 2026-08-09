@@ -5,6 +5,10 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+- **Meta insights sync: per-campaign batch API** — replaced N×4 sequential `get_insights` calls (one per campaign per level/uniqueness combo) with Meta batch API, capped at 50 sub-requests per round-trip. 50 active campaigns: 200 HTTP calls → 4. `apply_backoff` now fires once per batch chunk instead of once per call (−75% Redis round-trips). Batch sub-request errors (permission denied, deleted campaign, etc.) are now isolated — a bad campaign logs a warning and is skipped instead of aborting the whole task; rate-limit errors in sub-responses still pause the connection and reschedule. `backend/workers/tasks/insights.py`, `backend/workers/meta_client.py`
+- **TikTok insights sync: early staleness check** — `_is_stale` now runs before lock acquisition and job creation. Fresh accounts (most accounts, most beat cycles) exit with 1 DB read instead of lock + 2 DB writes + 1 DB read. `backend/workers/tasks/tiktok_insights.py`
+
 ### Added
 - **TikTok GMV Max (Ads) view — built but PARKED pending requirements.** The view + route
   (`/tiktok/gmv-max`) exist but are **not surfaced** in the tab bar or the `/tiktok` landing (removed
