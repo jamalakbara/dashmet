@@ -27,7 +27,7 @@ const PLATFORM_TITLE: Record<string, string> = {
 
 /**
  * Light top chrome bar: active-platform title on the left, then freshness /
- * date-range / notifications / user on the right. Mirrors the Base Data header.
+ * date-range / notifications / user on the right. Mirrors the DashMet header.
  */
 export function TopBar() {
   const platform = usePlatform();

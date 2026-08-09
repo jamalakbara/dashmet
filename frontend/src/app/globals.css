@@ -57,7 +57,7 @@
 
 @layer base {
   :root {
-    /* Base Data — bright SaaS, cool blue accent on a light-gray canvas.
+    /* DashMet — bright SaaS, cool blue accent on a light-gray canvas.
        App bg sits slightly below pure-white cards so surfaces float (figure/ground). */
     --background: oklch(0.968 0.003 264);
     --foreground: oklch(0.27 0.03 264);

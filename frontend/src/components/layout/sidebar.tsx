@@ -87,7 +87,7 @@ function SidebarInner({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/logo.svg"
-              alt="Base Data"
+              alt="DashMet"
               className="size-10 shrink-0 rounded-xl transition-opacity group-hover/brand:opacity-0"
             />
             <button
@@ -105,13 +105,11 @@ function SidebarInner({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/logo.svg"
-              alt="Base Data"
+              alt="DashMet"
               className="size-10 shrink-0 rounded-xl"
             />
             <span className="text-[15px] font-bold leading-tight tracking-tight">
-              Base Data
-              <br />
-              Dashboard
+              DashMet
             </span>
             {showCollapseToggle && (
               <button
@@ -249,7 +247,7 @@ function SidebarInner({
 }
 
 /**
- * Indigo sidebar rail (Base Data style). Persistent from `md` up; below that it
+ * Indigo sidebar rail (DashMet style). Persistent from `md` up; below that it
  * hides and the {@link MobileSidebar} drawer takes over (opened from the top-bar
  * hamburger) so the content canvas gets the full narrow-screen width.
  *

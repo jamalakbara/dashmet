@@ -4,7 +4,7 @@ import { TopBar } from "@/components/layout/top-bar";
 import { ControlStrip } from "@/components/layout/control-strip";
 
 /**
- * Base Data shell: fixed indigo sidebar rail on the left, then a column with the
+ * DashMet shell: fixed indigo sidebar rail on the left, then a column with the
  * light top chrome bar, an action strip, and the scrollable content canvas.
  */
 export default function DashboardLayout({
