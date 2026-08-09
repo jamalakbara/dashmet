@@ -181,6 +181,16 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
 
     account_uuid = uuid.UUID(account_id)
 
+    # Early staleness check — avoids acquiring the lock and writing a job row
+    # for accounts that don't need a sync yet (every beat cycle, most accounts
+    # are still fresh from the previous run).
+    historical_ttl = timedelta(hours=6)
+    ttl = historical_ttl if job_type == "insights_historical" else STALE_THRESHOLD
+    with get_worker_db() as db:
+        if not _is_stale(db, account_uuid, job_type, ttl):
+            logger.info("TikTok insights (%s) fresh for %s — skip", job_type, account_id)
+            return
+
     # Overlap guard. daily and historical are distinct syncs → distinct lock keys.
     lock_name = f"tiktok_{job_type}"
     lock_token = acquire_lock(lock_name, account_id, LOCK_TTL)
@@ -188,18 +198,12 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
         logger.info("TikTok insights (%s) already running for %s — skip", job_type, account_id)
         return
 
-    historical_ttl = timedelta(hours=6)
-    ttl = historical_ttl if job_type == "insights_historical" else STALE_THRESHOLD
     job_id = create_sync_job(account_uuid, "tiktok", job_type)
 
     try:
         with get_worker_db() as db:
             account = db.get(Account, account_uuid)
             if not account:
-                finalize_sync_job(job_id, "skipped")
-                return
-
-            if not _is_stale(db, account_uuid, job_type, ttl):
                 finalize_sync_job(job_id, "skipped")
                 return
 

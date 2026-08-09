@@ -28,6 +28,7 @@ import { accountsApi } from "@/lib/api/accounts";
 import { syncApi } from "@/lib/api/sync";
 import { queryKeys } from "@/lib/query-keys";
 import { useIsOwner } from "@/hooks/use-role";
+import { useUIStore } from "@/stores/ui-store";
 
 const tokenSchema = z.object({
   access_token: z.string().min(10, "Token is too short"),
@@ -200,6 +201,17 @@ function ConnectionsSettingsPageInner() {
   const searchParams = useSearchParams();
 
   const isOwner = useIsOwner();
+  const clearPlatformSnapshots = useUIStore((s) => s.clearPlatformSnapshots);
+
+  function clearInsightCache() {
+    qc.removeQueries({ queryKey: ["combined"] });
+    qc.removeQueries({ queryKey: ["combined-timeseries"] });
+    qc.removeQueries({ queryKey: ["overview"] });
+    qc.removeQueries({ queryKey: ["timeseries"] });
+    qc.removeQueries({ queryKey: ["table"] });
+    qc.removeQueries({ queryKey: ["breakdown"] });
+    qc.removeQueries({ queryKey: ["engagement"] });
+  }
   const [connectingPlatform, setConnectingPlatform] = useState<typeof PLATFORMS[0] | null>(null);
   const [disconnectId, setDisconnectId] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -211,6 +223,8 @@ function ConnectionsSettingsPageInner() {
   useEffect(() => {
     const tiktokStatus = searchParams.get("tiktok");
     if (tiktokStatus === "connected") {
+      clearPlatformSnapshots("tiktok");
+      clearInsightCache();
       qc.invalidateQueries({ queryKey: ["connections"] });
       qc.invalidateQueries({ queryKey: queryKeys.accounts() });
       toast.success("TikTok connected. Syncing your data…");
@@ -235,6 +249,8 @@ function ConnectionsSettingsPageInner() {
 
     const googleStatus = searchParams.get("google");
     if (googleStatus === "connected") {
+      clearPlatformSnapshots("google_ads");
+      clearInsightCache();
       qc.invalidateQueries({ queryKey: ["connections"] });
       qc.invalidateQueries({ queryKey: queryKeys.accounts() });
       toast.success("Google Ads connected. Syncing your data…");
@@ -271,7 +287,9 @@ function ConnectionsSettingsPageInner() {
   const connectMutation = useMutation({
     mutationFn: ({ platform, token }: { platform: string; token: string }) =>
       connectionsApi.create(platform, token),
-    onSuccess: () => {
+    onSuccess: (_data, { platform }) => {
+      clearPlatformSnapshots(platform);
+      clearInsightCache();
       qc.invalidateQueries({ queryKey: ["connections"] });
       qc.invalidateQueries({ queryKey: queryKeys.accounts() });
       toast.success("Connected. Syncing your data…");
@@ -303,7 +321,10 @@ function ConnectionsSettingsPageInner() {
 
   const disconnectMutation = useMutation({
     mutationFn: (id: string) => connectionsApi.delete(id),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
+      const platform = connections.find((c) => c.id === id)?.platform;
+      if (platform) clearPlatformSnapshots(platform);
+      clearInsightCache();
       qc.invalidateQueries({ queryKey: ["connections"] });
       qc.invalidateQueries({ queryKey: queryKeys.accounts() });
       setDisconnectId(null);

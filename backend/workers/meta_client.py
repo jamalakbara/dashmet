@@ -122,8 +122,9 @@ class MetaClient:
 
         return all_items
 
-    def batch(self, requests: list[dict]) -> list[dict]:
-        """POST /v25.0/ with batch param. Each request is {"method", "relative_url"}."""
+    def batch(self, requests: list[dict], account_id=None, connection_id=None) -> list[dict]:
+        """POST /v25.0/ with batch param. Each request is {"method", "relative_url"}.
+        Pass account_id/connection_id to record rate-limit headers from the response."""
         resp = self._client.post(
             BASE_URL + "/",
             data={
@@ -132,6 +133,7 @@ class MetaClient:
             },
         )
         resp.raise_for_status()
+        self._record_rate_limits(self._parse_rate_limits(resp), account_id, connection_id)
         results = resp.json()
         parsed = []
         for item in results:
@@ -139,7 +141,8 @@ class MetaClient:
                 parsed.append({})
                 continue
             body = json.loads(item.get("body", "{}"))
-            self._check_error(body)
+            # Don't raise on sub-request errors — a single bad campaign must not
+            # abort the whole batch. Caller inspects "error" per result.
             parsed.append(body)
         return parsed
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Star } from "lucide-react";
 import { AnimatedIcon } from "@/components/shared/animated-icon";
 import {
@@ -83,6 +83,7 @@ export function AccountCommandList({
   const recentIds = useUIStore((s) => s.recentAccountIds);
   const recordAccount = useUIStore((s) => s.recordAccount);
   const togglePin = useUIStore((s) => s.togglePin);
+  const removeStaleSnapshots = useUIStore((s) => s.removeStaleSnapshots);
 
   const searching = search.trim().length > 0;
   const scopeOk = (p: string) => !platform || p === platform;
@@ -96,6 +97,19 @@ export function AccountCommandList({
   const liveIds = new Set(accounts.map((a) => a.id));
   const canPrune = !searching && !isFetching && accounts.length < PICKER_PAGE_SIZE;
   const liveOk = (id: string) => !canPrune || liveIds.has(id);
+
+  // Self-heal: when absence is conclusive, permanently remove stale IDs from
+  // localStorage so they don't flash back on next open while fetching.
+  useEffect(() => {
+    if (!canPrune) return;
+    const allTracked = [...recentIds, ...pinnedIds];
+    const stale = allTracked.filter((id) => {
+      const s = snapshots[id];
+      return s && scopeOk(s.platform) && !liveIds.has(id);
+    });
+    if (stale.length > 0) removeStaleSnapshots(stale);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canPrune, liveIds.size]);
 
   const pinned = pinnedIds
     .map((id) => snapshots[id])
