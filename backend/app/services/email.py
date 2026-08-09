@@ -1,9 +1,10 @@
 """SMTP email sending.
 
-Kept deliberately small: stdlib `smtplib` only (no extra dependency). The one
-public helper — `send_invite_email` — is called from the org invite endpoint
-*after* the membership row is committed, so email delivery never gates the
-invite's existence (P-8: the durable trace is the DB row, not the email).
+Kept deliberately small: stdlib `smtplib` only (no extra dependency). The public
+helpers — `send_invite_email`, `send_verification_email`,
+`send_password_reset_email` — are all called *after* the relevant DB row is
+committed, so email delivery never gates the row's existence (P-8: the durable
+trace is the DB row, not the email).
 
 Delivery contract:
 - SMTP not configured (`SMTP_HOST` empty) → log the accept link, return False.
@@ -102,4 +103,96 @@ def send_invite_email(
 
     _send(to, subject, text_body, html_body)
     logger.info("Invite email sent to %s", to)
+    return True
+
+
+def send_verification_email(to: str, token: str, name: str) -> bool:
+    """Send an email-verification link after signup.
+
+    Same delivery contract as `send_invite_email`: returns True when handed to a
+    configured SMTP server, False when SMTP is unconfigured (link logged — dev
+    only), raises `EmailError` only when a configured server fails.
+    """
+    verify_url = f"{settings.FRONTEND_URL}/verify-email?token={token}"
+
+    if not settings.SMTP_HOST:
+        logger.info("[DEV] SMTP not configured — verify link for %s: %s", to, verify_url)
+        return False
+
+    subject = "Verify your email for DashMet"
+    text_body = (
+        f"Welcome to DashMet{f', {name}' if name else ''}!\n\n"
+        f"Confirm your email address:\n{verify_url}\n\n"
+        f"If you didn't create this account, ignore this email."
+    )
+    html_body = f"""\
+<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;color:#1f2937">
+  <h2 style="margin:0 0 8px">Verify your email</h2>
+  <p style="margin:0 0 16px;color:#4b5563">
+    Welcome to DashMet{f', {name}' if name else ''}! Confirm your email address to activate your account.
+  </p>
+  <p style="margin:0 0 24px">
+    <a href="{verify_url}"
+       style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-weight:600">
+      Verify email
+    </a>
+  </p>
+  <p style="margin:0 0 4px;color:#6b7280;font-size:13px">
+    Or paste this link into your browser:
+  </p>
+  <p style="margin:0 0 24px;color:#6b7280;font-size:13px;word-break:break-all">{verify_url}</p>
+  <p style="margin:0;color:#9ca3af;font-size:12px">
+    If you didn't create this account, you can ignore this email.
+  </p>
+</div>"""
+
+    _send(to, subject, text_body, html_body)
+    logger.info("Verification email sent to %s", to)
+    return True
+
+
+def send_password_reset_email(to: str, token: str) -> bool:
+    """Send a password-reset link.
+
+    Same delivery contract as `send_invite_email`: returns True when handed to a
+    configured SMTP server, False when SMTP is unconfigured (link logged — dev
+    only), raises `EmailError` only when a configured server fails.
+    """
+    reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
+
+    if not settings.SMTP_HOST:
+        logger.info("[DEV] SMTP not configured — reset link for %s: %s", to, reset_url)
+        return False
+
+    subject = "Reset your DashMet password"
+    text_body = (
+        f"We received a request to reset your DashMet password.\n\n"
+        f"Reset it here:\n{reset_url}\n\n"
+        f"This link expires in 1 hour. If you didn't request this, ignore "
+        f"this email — your password stays unchanged."
+    )
+    html_body = f"""\
+<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;color:#1f2937">
+  <h2 style="margin:0 0 8px">Reset your password</h2>
+  <p style="margin:0 0 16px;color:#4b5563">
+    We received a request to reset your DashMet password.
+  </p>
+  <p style="margin:0 0 24px">
+    <a href="{reset_url}"
+       style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-weight:600">
+      Reset password
+    </a>
+  </p>
+  <p style="margin:0 0 4px;color:#6b7280;font-size:13px">
+    Or paste this link into your browser:
+  </p>
+  <p style="margin:0 0 24px;color:#6b7280;font-size:13px;word-break:break-all">{reset_url}</p>
+  <p style="margin:0;color:#9ca3af;font-size:12px">
+    This link expires in 1 hour. If you didn't request this, you can ignore this
+    email — your password stays unchanged.
+  </p>
+</div>"""
+
+    _send(to, subject, text_body, html_body)
+    logger.info("Password reset email sent to %s", to)
     return True

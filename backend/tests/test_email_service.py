@@ -1,8 +1,9 @@
-"""Invite email delivery contract (services/email.py).
+"""Email delivery contract (services/email.py).
 
-No SMTP server is contacted: smtplib is patched. These lock the three
-behaviours the invite flow depends on — dev fallback, successful send, and a
+No SMTP server is contacted: smtplib is patched. These lock the behaviours all
+three flows depend on — dev fallback, successful send with the right link, and a
 configured-server failure surfacing as EmailError (never a silent success).
+Covers invite, signup verification, and password reset.
 """
 from unittest.mock import MagicMock, patch
 
@@ -63,3 +64,61 @@ def test_configured_server_failure_raises_email_error(monkeypatch):
     ):
         with pytest.raises(EmailError):
             email_svc.send_invite_email("new@example.com", "t", "Acme", "Owner")
+
+
+def test_verification_email_dev_fallback(monkeypatch, caplog):
+    monkeypatch.setattr(email_svc.settings, "SMTP_HOST", "")
+    with patch.object(email_svc.smtplib, "SMTP") as smtp:
+        with caplog.at_level("INFO"):
+            sent = email_svc.send_verification_email("new@example.com", "vtok", "Sam")
+    assert sent is False
+    smtp.assert_not_called()
+    assert "verify-email?token=vtok" in caplog.text
+
+
+def test_verification_email_sends_link(monkeypatch):
+    monkeypatch.setattr(email_svc.settings, "SMTP_HOST", "smtp.example.com")
+    monkeypatch.setattr(email_svc.settings, "SMTP_USE_SSL", False)
+    monkeypatch.setattr(email_svc.settings, "SMTP_USE_TLS", False)
+    monkeypatch.setattr(email_svc.settings, "SMTP_USER", "")
+    monkeypatch.setattr(email_svc.settings, "FRONTEND_URL", "https://app.test")
+
+    server = MagicMock()
+    ctx = MagicMock()
+    ctx.__enter__.return_value = server
+    with patch.object(email_svc.smtplib, "SMTP", return_value=ctx):
+        sent = email_svc.send_verification_email("new@example.com", "vtok9", "Sam")
+
+    assert sent is True
+    msg = server.send_message.call_args.args[0]
+    text_part = msg.get_body(preferencelist=("plain",)).get_content()
+    assert "https://app.test/verify-email?token=vtok9" in text_part
+
+
+def test_password_reset_email_dev_fallback(monkeypatch, caplog):
+    monkeypatch.setattr(email_svc.settings, "SMTP_HOST", "")
+    with patch.object(email_svc.smtplib, "SMTP") as smtp:
+        with caplog.at_level("INFO"):
+            sent = email_svc.send_password_reset_email("new@example.com", "rtok")
+    assert sent is False
+    smtp.assert_not_called()
+    assert "reset-password?token=rtok" in caplog.text
+
+
+def test_password_reset_email_sends_link(monkeypatch):
+    monkeypatch.setattr(email_svc.settings, "SMTP_HOST", "smtp.example.com")
+    monkeypatch.setattr(email_svc.settings, "SMTP_USE_SSL", False)
+    monkeypatch.setattr(email_svc.settings, "SMTP_USE_TLS", False)
+    monkeypatch.setattr(email_svc.settings, "SMTP_USER", "")
+    monkeypatch.setattr(email_svc.settings, "FRONTEND_URL", "https://app.test")
+
+    server = MagicMock()
+    ctx = MagicMock()
+    ctx.__enter__.return_value = server
+    with patch.object(email_svc.smtplib, "SMTP", return_value=ctx):
+        sent = email_svc.send_password_reset_email("new@example.com", "rtok9")
+
+    assert sent is True
+    msg = server.send_message.call_args.args[0]
+    text_part = msg.get_body(preferencelist=("plain",)).get_content()
+    assert "https://app.test/reset-password?token=rtok9" in text_part

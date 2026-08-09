@@ -23,6 +23,8 @@ from app.schemas.auth import (
 )
 from app.schemas.common import DataResponse
 from app.services import auth as auth_svc
+from app.services import email as email_svc
+from app.services.email import EmailError
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,14 @@ def signup(body: SignupRequest, db: DbSession):
     except ConflictError as e:
         raise HTTPException(status_code=409, detail=str(e))
 
-    logger.info(f"[DEV] Email verify token for {user.email}: {user.email_verify_token}")
+    # Send AFTER commit: the account exists regardless of delivery outcome.
+    try:
+        email_svc.send_verification_email(
+            user.email, user.email_verify_token, user.name
+        )
+    except EmailError as e:
+        logger.error("Verification email to %s failed: %s", user.email, e)
+
     return DataResponse(data={"message": "Account created. Check your email to verify."})
 
 
@@ -131,8 +140,12 @@ def login(body: LoginRequest, db: DbSession):
 def forgot_password(body: ForgotPasswordRequest, db: DbSession):
     user = auth_svc.initiate_password_reset(db, body.email)
     if user:
-        logger.info(f"[DEV] Password reset token for {body.email}: {user.reset_password_token}")
         db.commit()
+        # Send AFTER commit; never reveal whether the email exists to the caller.
+        try:
+            email_svc.send_password_reset_email(user.email, user.reset_password_token)
+        except EmailError as e:
+            logger.error("Password reset email to %s failed: %s", user.email, e)
     return DataResponse(
         data={"message": "If that email exists, a reset link has been sent."}
     )
