@@ -39,9 +39,17 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
 
-    # SMTP (member invite emails). If SMTP_HOST is empty the invite link is
-    # logged instead of emailed (dev fallback) — the invite row is still
-    # created either way. STARTTLS on 587 (default); for implicit SSL use
+    # Email delivery. Two transports (see services/email.py):
+    #   1. Resend HTTP API (port 443) — preferred. Set RESEND_API_KEY. Required
+    #      on hosts that block outbound SMTP ports (e.g. Railway blocks 25/465/587).
+    #   2. SMTP (smtplib) — local/dev fallback, used only when RESEND_API_KEY is
+    #      empty and SMTP_HOST is set.
+    # If BOTH are empty the link is logged instead of emailed (dev fallback) —
+    # the account/invite/reset row is still created either way.
+    RESEND_API_KEY: str = ""
+    RESEND_FROM: str = ""  # sender for Resend; falls back to SMTP_FROM / SMTP_USER
+
+    # SMTP (fallback transport). STARTTLS on 587 (default); for implicit SSL use
     # port 465 with SMTP_USE_SSL=true.
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587
