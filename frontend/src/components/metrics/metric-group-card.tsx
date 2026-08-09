@@ -47,7 +47,7 @@ interface MetricGroupCardProps {
 }
 
 /**
- * Grouped metric card (Base Data style): a colored icon chip + title + headline
+ * Grouped metric card (DashMet style): a colored icon chip + title + headline
  * number, a "See Detail" affordance, then a two-column grid of sub-metrics with
  * a "See More" expander for the overflow. One card per metric family.
  */
