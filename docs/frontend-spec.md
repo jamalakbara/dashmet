@@ -87,6 +87,7 @@ src/
 │
 ├── components/
 │   ├── ui/                       # shadcn/ui primitives (auto-generated)
+│   ├── auth/                     # AuthShell — shared brand-panel card for all (auth) pages
 │   ├── layout/                   # Sidebar, Header, PlatformTabs
 │   ├── views/                    # Per-platform view bodies (Overview/Periodic/Table/Ads)
 │   ├── charts/                   # Recharts wrappers
@@ -257,7 +258,7 @@ Sidebar (`components/layout/sidebar.tsx`) is an **indigo rail** with a single `D
 
 ## 5. Auth Pages
 
-All auth pages share a centered card layout — no sidebar, no header. Logo centered above the card.
+All auth pages share the `AuthShell` chrome (`src/components/auth/auth-shell.tsx`) — a single floating rounded card on the light-gray canvas, mirroring the dashboard's figure/ground. Its left half unfolds the indigo rail (same `bg-sidebar` surface, logo lockup, iris signature gradient + value highlights) and is hidden below `lg`, where a compact brand lockup shows above the form instead. No sidebar, no header. Each page renders only its own form content as `children`; password fields carry a show/hide toggle.
 
 ### Login (`/login`)
 
