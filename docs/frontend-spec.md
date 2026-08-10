@@ -92,7 +92,7 @@ src/
 │   ├── charts/                   # Recharts wrappers
 │   ├── metrics/                  # MetricGroupCard, MetricTable, BreakdownSection, etc.
 │   ├── ads/                      # AdCard, CreativePreview, etc.
-│   └── shared/                   # AccountSwitcher, AccountCommandList, DateRangePicker, StatusBadge, etc.
+│   └── shared/                   # AccountSwitcher, AccountCommandList, DateRangePicker, StatusBadge, AccountStatusBadge, etc.
 │
 ├── hooks/
 │   ├── use-account.ts            # Selected account + server-side account search (useAccountSearch / useAccountsCount / useSelectedAccount)
@@ -748,6 +748,7 @@ Showing 1–20 of 123        ←  1  2  3  …  7  →
 - **Data:** `useQuery` on `accountsApi.list({ search, platform, page, per_page: 20 })`, keyed by `queryKeys.accountsList(platform, search, page)`. `placeholderData:(prev)=>prev` keeps the list stable while typing/paging. `PAGE_SIZE = 20`.
 - **Search:** local input → `useDebounced(…, 250)` (from `hooks/use-account.ts`) → server `search` param.
 - **Platform filter:** `Tabs` (All / Meta / TikTok), single-select, value `all`/`meta`/`tiktok` → server `platform` param. `all` sends no filter.
+- **Status:** each row renders an `AccountStatusBadge` beside the account name — an amber "Unsettled" badge when `account_status === "unsettled"` (Meta billing/review pending), and nothing otherwise (P-2). `disabled` accounts don't appear in the list at all (excluded server-side).
 - Changing search or platform resets `page` to 1.
 - **Account type control is Meta-only:** Meta rows render the Standard/CPAS `Select`; non-Meta (TikTok) rows render a muted `—` (CPAS is a Meta concept; backend rejects `cpas` on non-Meta with `409`).
 - **Mutation:** `accountsApi.updateConfig(id, { account_type })`; on success invalidates the `["accounts"]` prefix (refreshes this list, picker search, and count together).
@@ -781,7 +782,7 @@ The UI runs on **one accent family**: the sidebar indigo (`--primary`/`--ring`/`
 Single popover, two views: preset buttons and a `Custom range…` reveal that swaps in a `react-day-picker` range calendar (future dates disabled). Apply sets `date_start`/`date_end` and clears `date_preset`. Syncs to URL.
 
 ### `AccountSwitcher` / `AccountCommandList`
-Server-side searched `cmdk` combobox (`?search=&platform=`) — single-select on platform routes, multi-select (grouped by platform) on the combined dashboard. Pinned + Recent groups persisted in `ui-store` via `accountSnapshots`, pruned against the live account list when a snapshot is conclusively gone (idle, non-truncated page). Syncs `account_id` (or `accounts`) to URL. `useSelectedAccount` validates a selected `account_id` that isn't on the live first page via `GET /accounts/:id` (a snapshot alone is not trusted); a `404` (disabled/removed account) drops the dead selection and falls back to the first live remembered/first-page account, which the switcher then writes back to the URL.
+Server-side searched `cmdk` combobox (`?search=&platform=`) — single-select on platform routes, multi-select (grouped by platform) on the combined dashboard. Each row shows an `AccountStatusBadge` next to the name (amber "Unsettled" for `account_status === "unsettled"`, nothing otherwise). Pinned + Recent groups persisted in `ui-store` via `accountSnapshots`, pruned against the live account list when a snapshot is conclusively gone (idle, non-truncated page). Syncs `account_id` (or `accounts`) to URL. `useSelectedAccount` validates a selected `account_id` that isn't on the live first page via `GET /accounts/:id` (a snapshot alone is not trusted); a `404` (disabled/removed account) drops the dead selection and falls back to the first live remembered/first-page account, which the switcher then writes back to the URL.
 
 ### `PaginationBar`
 Server-pagination footer: "Showing X–Y of N" + numbered page buttons (collapses to first/last with `…` past 7 pages) and prev/next. Props: `page`, `totalPages`, `total`, `perPage`, `onPage`. Used by `TableView` and `/settings/accounts`.
@@ -794,6 +795,9 @@ Polls sync status every 60 seconds. Shows dot indicator + last updated time. Tri
 
 ### `StatusBadge`
 Color-coded badge for entity status. Props: `status: 'active' | 'paused' | 'archived' | 'deleted'`
+
+### `AccountStatusBadge`
+`components/shared/account-status-badge.tsx` — surfaces a Meta ad account's health so a flagged account is never shown without indicating why (P-2/P-4). Renders an amber **"Unsettled"** badge (with a `title` tooltip: "Billing or review pending on Meta — data may be incomplete.") **only** when `status === "unsettled"`; `"active"`, `"disabled"`, and missing status render **nothing**, so the badge disappears when everything is fine (P-2). Props: `status?: string`, `className?`. Used on the `/settings/accounts` list and in `AccountCommandList` (the account picker).
 
 ### `PlatformBadge`
 Small platform icon. `meta`/`tiktok`/`google_ads` render their brand SVG (`/meta-logo.svg`, `/tiktok-logo.svg`, `/gads-logo.svg`); any other platform falls back to a colored letter tile. Props: `platform: 'meta' | 'google_ads' | 'tiktok'`, `size?: 'sm' | 'md'`

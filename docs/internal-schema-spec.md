@@ -179,7 +179,7 @@ One row per ad account per platform, scoped to an organization.
 | `name` | varchar | Account name |
 | `currency` | varchar | ISO 4217 code (e.g. `USD`) |
 | `timezone` | varchar | IANA timezone (e.g. `America/Los_Angeles`) |
-| `account_status` | varchar | `active` \| `disabled` \| `pending_review` \| `closed` |
+| `account_status` | varchar | `active` \| `unsettled` \| `disabled` (internal buckets; see Meta status mapping in `docs/sync-worker-spec.md`). `disabled` hides the account from reads/sync; `unsettled` stays visible + syncable |
 | `business_id` | varchar | Parent business ID (Meta: Business Manager ID) |
 | `business_name` | varchar | |
 | `synced_at` | timestamp | Last time this account record was updated |

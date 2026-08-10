@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/command";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PlatformBadge } from "@/components/shared/platform-badge";
+import { AccountStatusBadge } from "@/components/shared/account-status-badge";
 import {
   useAccountSearch,
   useGroupedAccountSearch,
@@ -153,7 +154,10 @@ export function AccountCommandList({
         )}
         <PlatformBadge platform={account.platform} size="sm" />
         <div className="flex min-w-0 flex-1 flex-col leading-tight">
-          <span className="truncate font-medium">{account.name}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate font-medium">{account.name}</span>
+            <AccountStatusBadge status={account.account_status} className="shrink-0" />
+          </span>
           <span className="truncate text-xs text-muted-foreground tabular-nums">
             {account.business_name ?? account.external_id}
           </span>

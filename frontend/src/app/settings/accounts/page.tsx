@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PlatformBadge } from "@/components/shared/platform-badge";
+import { AccountStatusBadge } from "@/components/shared/account-status-badge";
 import { PaginationBar } from "@/components/shared/pagination-bar";
 import { accountsApi } from "@/lib/api/accounts";
 import { queryKeys } from "@/lib/query-keys";
@@ -142,7 +143,10 @@ export default function AccountsSettingsPage() {
                 <div className="flex min-w-0 items-center gap-3">
                   <PlatformBadge platform={account.platform} />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{account.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-medium">{account.name}</p>
+                      <AccountStatusBadge status={account.account_status} />
+                    </div>
                     <p className="text-xs text-muted-foreground">{account.currency}</p>
                   </div>
                 </div>

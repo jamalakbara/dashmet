@@ -91,10 +91,10 @@ CELERYBEAT_SCHEDULE = {
     "sync-structure-all-accounts": {
         "task": "sync.structure",
         "schedule": crontab(minute="*/30"),   # every 30 min
-        "args": [],                            # fetches all active accounts
+        "args": [],                            # fetches all non-disabled accounts
     },
 
-    # Insights — daily metrics for active accounts (last 7d window)
+    # Insights — daily metrics for non-disabled accounts (last 7d window)
     "sync-insights-active": {
         "task": "sync.insights_daily",
         "schedule": crontab(minute="*/15"),   # every 15 min
@@ -170,6 +170,19 @@ def is_stale(account_id, job_type, ttl_minutes):
 ```
 
 Pagination: follow `paging.next` until absent. Use `limit=100`.
+
+**Meta `account_status` mapping.** `/me/adaccounts` returns a numeric `account_status`. The worker (`META_ACCOUNT_STATUS_MAP` in `workers/tasks/structure.py`) maps it to one of three internal `account_status` values stored on `accounts`:
+
+| Meta status | Internal `account_status` |
+|---|---|
+| `1` ACTIVE, `9` IN_GRACE_PERIOD | `active` |
+| `3` UNSETTLED, `7` PENDING_RISK_REVIEW, `8` PENDING_SETTLEMENT | `unsettled` |
+| `2` DISABLED, `100` PENDING_CLOSURE, `101` CLOSED | `disabled` |
+| any unrecognized status | `unsettled` |
+
+An `unsettled` account (unpaid balance / under review) still returns readable data, so it stays visible and syncable rather than being hidden. An unknown/unrecognized status defaults to `unsettled`, never `disabled` — a status we don't recognize must not silently vanish the account (P-2/P-4). Only the known terminal states map to `disabled`.
+
+**Which accounts get synced.** Every `*_all` dispatcher and the eager per-connection sync gate on `account_status != "disabled"` (i.e. `active` **and** `unsettled` accounts sync; only `disabled` are skipped). This gate applies across all platforms and all task families (structure / insights / breakdowns / async).
 
 ### Insights fetch order (per account, per sync cycle)
 
@@ -657,7 +670,7 @@ High-level pseudocode for each major task.
 ### `sync.structure` (runs every 30 min)
 
 ```
-for each active account:
+for each non-disabled account:
     skip if not stale (TTL: 30 min)
     create sync_job(type='structure', status='running')
     token = db.get_decrypted_token(account.platform_connection_id)
@@ -681,7 +694,7 @@ for each active account:
 ### `sync.insights_daily` (runs every 15 min)
 
 ```
-for each active account:
+for each non-disabled account:
     skip if not stale (TTL: 15 min)
     create sync_job(type='insights_daily', status='running')
     token = db.get_decrypted_token(account.platform_connection_id)
@@ -724,7 +737,7 @@ for each active account:
 ### `sync.async_submit` (runs every 6 hours)
 
 ```
-for each active account:
+for each non-disabled account:
     skip if an async job for this account + date_preset is already running or fresh
 
     create sync_job(type='insights_async', status='running')

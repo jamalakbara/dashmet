@@ -174,7 +174,7 @@ erDiagram
         string name
         string currency "default USD"
         string timezone "default UTC"
-        string account_status "default 'active'; 'disabled' hides it"
+        string account_status "'active'|'unsettled'|'disabled'; 'disabled' hides it"
         string account_type "default 'standard'; e.g. 'cpas'"
         string business_id "nullable"
         string business_name "nullable"
