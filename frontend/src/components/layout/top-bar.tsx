@@ -1,11 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { Bell, Menu } from "lucide-react";
-import { AnimatedIcon } from "@/components/shared/animated-icon";
+import { Menu } from "lucide-react";
 import { useUIStore } from "@/stores/ui-store";
 import { DateRangePicker } from "@/components/shared/date-range-picker";
 import { SyncStatusBadge } from "@/components/shared/sync-status-badge";
+import { NotificationCenter } from "@/components/shared/notification-center";
 import { UserMenu } from "@/components/shared/user-menu";
 import { PlatformBadge } from "@/components/shared/platform-badge";
 import { usePlatform } from "@/hooks/use-platform";
@@ -68,13 +68,7 @@ export function TopBar() {
         <div className="hidden sm:block">
           <DateRangePicker />
         </div>
-        <button
-          type="button"
-          aria-label="Notifications"
-          className="group relative hidden size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground sm:flex"
-        >
-          <AnimatedIcon icon={Bell} motionPreset="wiggle" iconClassName="size-[18px]" />
-        </button>
+        <NotificationCenter />
         <div className="flex items-center gap-2.5">
           <UserMenu />
           <div className="hidden leading-tight sm:block">

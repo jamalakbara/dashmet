@@ -22,6 +22,11 @@ def refresh_tiktok_tokens(self):
     from app.services.auth import decrypt_token, encrypt_token
     from workers.tiktok_client import TikTokClient, TikTokAPIError
     from workers.rate_limit import redis_client
+    from workers.token_alerts import (
+        record_token_failure,
+        clear_token_failure,
+        send_token_failure_email,
+    )
     from app.config import settings
 
     cutoff = datetime.now(timezone.utc) + timedelta(hours=2)
@@ -57,12 +62,40 @@ def refresh_tiktok_tokens(self):
                 if c:
                     c.access_token = encrypt_token(new_access)
                     c.token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+                    # Recovery (P-2): clear health + resolve any open alert.
+                    clear_token_failure(db, connection=c)
             logger.info("Refreshed TikTok token for connection %s", conn.id)
 
         except (TikTokAPIError, Exception) as exc:
             logger.error("Failed to refresh TikTok token for %s: %s", conn.id, exc)
+            body = (
+                "Automatic refresh of your TikTok connection failed — the "
+                "refresh token is likely expired or revoked. The connection has "
+                "been paused. Reconnect TikTok to restore data syncing."
+            )
+            # Keep the existing deactivation, but add a durable trace (P-8) +
+            # user-facing alert. Commit the evidence even though refresh failed.
             with get_worker_db() as db:
                 c = db.get(PlatformConnection, conn.id)
-                if c:
-                    c.is_active = False
+                if not c:
+                    continue
+                c.is_active = False  # existing behavior — unlike Meta
+                is_new = record_token_failure(
+                    db,
+                    connection=c,
+                    notif_type="token_expired",
+                    title="TikTok connection needs attention",
+                    body=body,
+                )
+                should_email = is_new
             logger.warning("Deactivated connection %s — refresh token may be expired", conn.id)
+            if should_email:
+                with get_worker_db() as db:
+                    c = db.get(PlatformConnection, conn.id)
+                    if c:
+                        send_token_failure_email(
+                            db,
+                            connection=c,
+                            subject="TikTok connection needs attention",
+                            body=body,
+                        )

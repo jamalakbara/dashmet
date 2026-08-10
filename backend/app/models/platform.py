@@ -48,6 +48,13 @@ class PlatformConnection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     last_used_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Connection health — health status is derived from token_expires_at +
+    # last_error (no separate enum column). Populated by worker sync/refresh
+    # paths on failure; cleared/ignored when the connection recovers.
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_error_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     platform: Mapped["Platform"] = relationship()
     connected_by: Mapped[Optional["User"]] = relationship(

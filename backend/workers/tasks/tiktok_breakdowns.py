@@ -125,6 +125,7 @@ def sync_tiktok_breakdowns_for_account(self, account_id: str, date_preset: str =
 
     job_id = create_sync_job(account_uuid, "tiktok", "breakdown")
 
+    connection_id = None
     try:
         with get_worker_db() as db:
             account = db.get(Account, account_uuid)
@@ -137,6 +138,7 @@ def sync_tiktok_breakdowns_for_account(self, account_id: str, date_preset: str =
                 return
 
             conn = db.get(PlatformConnection, account.platform_connection_id)
+            connection_id = str(conn.id) if conn else None
             access_token = decrypt_token(conn.access_token)
             advertiser_id = account.external_id
             account_timezone = account.timezone
@@ -234,6 +236,11 @@ def sync_tiktok_breakdowns_for_account(self, account_id: str, date_preset: str =
                     logger.info("[%s] TikTok breakdown %s: %s rows", account_id, bd_type, len(bd_rows))
 
         finalize_sync_job(job_id, "completed", rows_written=total)
+        # Recovery (P-2): a clean run clears any prior token alert for this
+        # connection. Helper self-guards on last_error and swallows its own errors.
+        if connection_id:
+            from workers.token_alerts import clear_connection_token_failure
+            clear_connection_token_failure(connection_id)
         logger.info("[%s] TikTok breakdown sync complete: %s rows", account_id, total)
 
     except SoftTimeLimitExceeded as exc:
@@ -241,6 +248,11 @@ def sync_tiktok_breakdowns_for_account(self, account_id: str, date_preset: str =
         finalize_sync_job(job_id, "failed", error=exc)
         return
     except TikTokAPIError as exc:
+        if exc.is_auth and connection_id:
+            from workers.token_alerts import alert_connection_token_failure
+            alert_connection_token_failure(
+                connection_id, platform_label="TikTok", detail=str(exc)
+            )
         logger.error("TikTok API error for breakdowns %s: %s", account_id, exc)
         finalize_sync_job(job_id, "failed", error=exc)
         raise self.retry(exc=exc)

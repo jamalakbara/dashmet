@@ -15,6 +15,7 @@ import logging
 
 from google.ads.googleads.client import GoogleAdsClient as _SDKClient
 from google.ads.googleads.errors import GoogleAdsException
+from google.auth.exceptions import RefreshError
 from google.protobuf.json_format import MessageToDict
 
 from app.config import settings
@@ -23,11 +24,23 @@ logger = logging.getLogger(__name__)
 
 
 class GoogleAdsClientError(Exception):
-    """Wraps GoogleAdsException with a flat message + quota flag for backoff."""
+    """Wraps GoogleAdsException with a flat message + classification flags.
 
-    def __init__(self, message: str, request_id: str | None = None, is_quota: bool = False):
+    ``is_quota`` drives backoff/reschedule; ``is_auth`` marks an
+    authentication/refresh-token failure (expired/revoked/invalid_grant) so the
+    sync task can raise a durable token-failure alert instead of silently
+    retrying forever."""
+
+    def __init__(
+        self,
+        message: str,
+        request_id: str | None = None,
+        is_quota: bool = False,
+        is_auth: bool = False,
+    ):
         self.request_id = request_id
         self.is_quota = is_quota
+        self.is_auth = is_auth
         super().__init__(message)
 
 
@@ -70,15 +83,35 @@ class GoogleClient:
         except Exception:
             msg = str(ex)
         is_quota = False
+        is_auth = False
         try:
             import grpc
-            if ex.error.code() == grpc.StatusCode.RESOURCE_EXHAUSTED:
+            code = ex.error.code()
+            if code == grpc.StatusCode.RESOURCE_EXHAUSTED:
                 is_quota = True
+            if code in (grpc.StatusCode.UNAUTHENTICATED, grpc.StatusCode.PERMISSION_DENIED):
+                is_auth = True
+        except Exception:
+            pass
+        # GAQL failures carry typed AuthenticationError/AuthorizationError enums;
+        # detect them from the failure errors so an expired/revoked OAuth grant
+        # is flagged even when the gRPC status code isn't UNAUTHENTICATED.
+        try:
+            for e in ex.failure.errors:
+                ec = e.error_code
+                if ec.authentication_error or ec.authorization_error:
+                    is_auth = True
+                    break
         except Exception:
             pass
         if not is_quota and "quota" in (msg or "").lower():
             is_quota = True
-        return GoogleAdsClientError(msg, request_id=getattr(ex, "request_id", None), is_quota=is_quota)
+        return GoogleAdsClientError(
+            msg,
+            request_id=getattr(ex, "request_id", None),
+            is_quota=is_quota,
+            is_auth=is_auth,
+        )
 
     def search(self, customer_id: str, query: str) -> list[dict]:
         """Run a GAQL query via search_stream and return flattened row dicts."""
@@ -93,6 +126,11 @@ class GoogleClient:
                     rows.append(_flatten(d))
         except GoogleAdsException as ex:
             raise self._wrap(ex)
+        except RefreshError as ex:
+            # OAuth token refresh failed (invalid_grant: refresh token expired
+            # or revoked). Surface as an auth error so the task raises a durable
+            # token-failure alert instead of retrying a dead grant forever.
+            raise GoogleAdsClientError(f"OAuth refresh failed: {ex}", is_auth=True)
         return rows
 
     def list_accessible_customers(self) -> list[str]:

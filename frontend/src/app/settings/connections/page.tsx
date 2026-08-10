@@ -23,7 +23,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { connectionsApi } from "@/lib/api/connections";
+import { connectionsApi, type Connection } from "@/lib/api/connections";
+import { ConnectionHealthBadge } from "@/components/shared/connection-health-badge";
 import { accountsApi } from "@/lib/api/accounts";
 import { syncApi } from "@/lib/api/sync";
 import { queryKeys } from "@/lib/query-keys";
@@ -34,17 +35,6 @@ const tokenSchema = z.object({
   access_token: z.string().min(10, "Token is too short"),
 });
 type TokenForm = z.infer<typeof tokenSchema>;
-
-interface Connection {
-  id: string;
-  platform: string;
-  is_active: boolean;
-  token_type?: string;
-  connected_by?: string;
-  connected_at?: string;
-  last_used_at?: string;
-  scopes?: string[];
-}
 
 const PLATFORMS = [
   {
@@ -225,7 +215,7 @@ function ConnectionsSettingsPageInner() {
     if (tiktokStatus === "connected") {
       clearPlatformSnapshots("tiktok");
       clearInsightCache();
-      qc.invalidateQueries({ queryKey: ["connections"] });
+      qc.invalidateQueries({ queryKey: queryKeys.connections() });
       qc.invalidateQueries({ queryKey: queryKeys.accounts() });
       toast.success("TikTok connected. Syncing your data…");
       setConnectSuccess(true);
@@ -251,7 +241,7 @@ function ConnectionsSettingsPageInner() {
     if (googleStatus === "connected") {
       clearPlatformSnapshots("google_ads");
       clearInsightCache();
-      qc.invalidateQueries({ queryKey: ["connections"] });
+      qc.invalidateQueries({ queryKey: queryKeys.connections() });
       qc.invalidateQueries({ queryKey: queryKeys.accounts() });
       toast.success("Google Ads connected. Syncing your data…");
       setConnectSuccess(true);
@@ -275,9 +265,14 @@ function ConnectionsSettingsPageInner() {
   }, [searchParams, qc, router, pathname]);
 
   const { data: connectionsRes, isLoading } = useQuery({
-    queryKey: ["connections"],
+    queryKey: queryKeys.connections(),
     queryFn: () => connectionsApi.list(),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
+    // Keep the health badge live so it clears when the backend reports healthy
+    // (P-2) and lights up when a token expires, without a page reload.
+    refetchInterval: 60 * 1000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
   const connections: Connection[] = connectionsRes?.data?.data ?? [];
 
@@ -290,7 +285,7 @@ function ConnectionsSettingsPageInner() {
     onSuccess: (_data, { platform }) => {
       clearPlatformSnapshots(platform);
       clearInsightCache();
-      qc.invalidateQueries({ queryKey: ["connections"] });
+      qc.invalidateQueries({ queryKey: queryKeys.connections() });
       qc.invalidateQueries({ queryKey: queryKeys.accounts() });
       toast.success("Connected. Syncing your data…");
       setConnectSuccess(true);
@@ -325,7 +320,7 @@ function ConnectionsSettingsPageInner() {
       const platform = connections.find((c) => c.id === id)?.platform;
       if (platform) clearPlatformSnapshots(platform);
       clearInsightCache();
-      qc.invalidateQueries({ queryKey: ["connections"] });
+      qc.invalidateQueries({ queryKey: queryKeys.connections() });
       qc.invalidateQueries({ queryKey: queryKeys.accounts() });
       setDisconnectId(null);
     },
@@ -402,8 +397,8 @@ function ConnectionsSettingsPageInner() {
                       <div className="min-w-0">
                         <p className="font-medium">{platform.name}</p>
                         {conn ? (
-                          <div className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
-                            <div className="flex flex-wrap items-center gap-x-1">
+                          <div className="mt-0.5 space-y-1 text-xs text-muted-foreground">
+                            <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
                               <AnimatedIcon
                                 icon={CheckCircle2}
                                 motionPreset="pop"
@@ -414,6 +409,8 @@ function ConnectionsSettingsPageInner() {
                               />
                               <span>Connected</span>
                               {conn.token_type && <span>· {conn.token_type.replace(/_/g, " ")}</span>}
+                              {/* Health chip renders only when degraded (P-2). */}
+                              <ConnectionHealthBadge conn={conn} />
                             </div>
                             {conn.connected_by && (
                               <p>Connected by {conn.connected_by}
@@ -434,16 +431,37 @@ function ConnectionsSettingsPageInner() {
                     </div>
 
                     {conn ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={!isOwner}
-                        title={!isOwner ? "Owner only" : undefined}
-                        className="shrink-0 text-destructive border-destructive/30 hover:bg-destructive/5"
-                        onClick={() => setDisconnectId(conn.id)}
-                      >
-                        Disconnect
-                      </Button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {/* Reconnect surfaces only when the token is dead or the
+                            connection is erroring — the recovery path for cases
+                            auto-refresh can't heal (plan Piece 1 hard ceiling). */}
+                        {(conn.health === "expired" || conn.health === "error") && (
+                          <Button
+                            size="sm"
+                            className="group"
+                            disabled={!isOwner || oauthLoading}
+                            title={!isOwner ? "Owner only" : undefined}
+                            onClick={() =>
+                              platform.auth_type === "oauth"
+                                ? handleOAuthConnect(platform)
+                                : openConnect(platform)
+                            }
+                          >
+                            <AnimatedIcon icon={Plug} motionPreset="draw" iconClassName="size-3.5" />
+                            Reconnect
+                          </Button>
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={!isOwner}
+                          title={!isOwner ? "Owner only" : undefined}
+                          className="text-destructive border-destructive/30 hover:bg-destructive/5"
+                          onClick={() => setDisconnectId(conn.id)}
+                        >
+                          Disconnect
+                        </Button>
+                      </div>
                     ) : platform.auth_type === "oauth" ? (
                       <Button
                         size="sm"

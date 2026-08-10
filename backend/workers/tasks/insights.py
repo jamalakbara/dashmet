@@ -488,6 +488,10 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
             total_rows += upsert_metrics_daily(db, ad_unique_rows)
 
         finalize_sync_job(job_id, "completed", rows_written=total_rows)
+        # Recovery (P-2): a clean run clears any prior token alert for this
+        # connection. Helper self-guards on last_error and swallows its own errors.
+        from workers.token_alerts import clear_connection_token_failure
+        clear_connection_token_failure(connection_id)
         logger.info(f"[{account_id}] Insights sync complete: {total_rows} rows")
 
     except RateLimitBackoff as b:
@@ -508,6 +512,11 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
             logger.warning(f"[{account_id}] Meta rate-limit error (code {e.code}) — pausing connection {HARD_PAUSE_SECONDS}s")
             self.apply_async(args=[account_id, date_preset, force], countdown=HARD_PAUSE_SECONDS)
             return
+        if e.is_auth and connection_id:
+            from workers.token_alerts import alert_connection_token_failure
+            alert_connection_token_failure(
+                connection_id, platform_label="Meta", detail=str(e)
+            )
         finalize_sync_job(job_id, "failed", error=e)
         logger.error(f"[{account_id}] Insights sync failed: {e}")
         raise self.retry(exc=e)
@@ -749,6 +758,10 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
             logger.info(f"[{account_id}] Breakdown sync complete: {total} rows")
 
         finalize_sync_job(job_id, "completed", rows_written=total)
+        # Recovery (P-2): a clean run clears any prior token alert for this
+        # connection. Helper self-guards on last_error and swallows its own errors.
+        from workers.token_alerts import clear_connection_token_failure
+        clear_connection_token_failure(connection_id)
 
     except RateLimitBackoff as b:
         # Throttled mid-run: reschedule off the error-retry budget (skipped, not failed).
@@ -767,6 +780,11 @@ def sync_breakdowns_for_account(self, account_id: str, date_preset: str = "last_
             logger.warning(f"[{account_id}] Breakdown Meta rate-limit (code {e.code}) — pausing connection {HARD_PAUSE_SECONDS}s")
             self.apply_async(args=[account_id, date_preset], countdown=HARD_PAUSE_SECONDS)
             return
+        if e.is_auth and connection_id:
+            from workers.token_alerts import alert_connection_token_failure
+            alert_connection_token_failure(
+                connection_id, platform_label="Meta", detail=str(e)
+            )
         finalize_sync_job(job_id, "failed", error=e)
         logger.error(f"[{account_id}] Breakdown sync failed: {e}")
         raise self.retry(exc=e)

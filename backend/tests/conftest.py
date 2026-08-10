@@ -22,10 +22,11 @@ from app.config import settings
 from app.database import Base
 
 # Import every model module so Base.metadata is fully populated before create_all.
-import app.models.auth        # noqa: F401
-import app.models.platform    # noqa: F401
-import app.models.structure   # noqa: F401
-import app.models.metrics     # noqa: F401
+import app.models.auth          # noqa: F401
+import app.models.platform      # noqa: F401
+import app.models.structure     # noqa: F401
+import app.models.metrics       # noqa: F401
+import app.models.notifications # noqa: F401
 
 TEST_SCHEMA = "test_compare_prev"
 

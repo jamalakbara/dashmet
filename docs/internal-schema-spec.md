@@ -144,11 +144,17 @@ Stores the access token per org per platform. Replaces any notion of a global `M
 | `scopes` | varchar[] | e.g. `["ads_read", "read_insights"]` |
 | `connected_by_user_id` | uuid FK → users | Who connected this |
 | `is_active` | boolean | False = disconnected |
+| `refresh_token` | text nullable | Encrypted at rest. Used by the TikTok/Google refresh paths (Meta uses `fb_exchange_token` on the access token itself). *Predates the health/notifications change — this row was missing from the doc (pre-existing drift), reconciled here.* |
+| `token_expires_at` | timestamp nullable | Real token expiry. `NULL` = never-expiring (e.g. true system-user token) or an unprobed connection. For Meta, captured at connect via `/debug_token`; drives the derived `expiring`/`expired` health state and the proactive refresh window. *Predates the health/notifications change — was missing from the doc (pre-existing drift), reconciled here.* |
 | `last_used_at` | timestamp | |
+| `last_error` | text nullable | Last sync/refresh failure message. Set by worker paths on failure; health status derived from `token_expires_at` + `last_error` (no enum column) |
+| `last_error_at` | timestamp nullable | When `last_error` was recorded |
 | `created_at` | timestamp | |
 | `updated_at` | timestamp | |
 
 > **Security:** `access_token` is encrypted at rest (e.g. AES-256 via a KMS key). It is never returned in any API response. The sync worker reads it directly from the DB at job execution time.
+
+**Derived `health`** (not a stored column — computed on read in `app/schemas/accounts.py::_derive_health`, surfaced only on `GET /connections`): precedence `error` (a live `last_error`) → `expired` (`token_expires_at` in the past) → `expiring` (`token_expires_at` within 7 days) → `healthy`. A `NULL` `token_expires_at` is treated as not-expiring for the expiry checks.
 
 ---
 
@@ -523,6 +529,28 @@ Tracks every background fetch from a platform API. Used to diagnose failures, pr
 | `insights_async` | 60 min | Async jobs are expensive — cache aggressively |
 | `creatives` | 60 min | Very rarely change |
 | `breakdown` | 30 min | On-demand only |
+
+### `notifications`
+
+Dashboard/in-app alerts for connection health — token expiry, refresh failure, sync failure. **Created only by worker/refresh/sync-failure code paths, never as a side effect of a GET** (anti-req §2.3).
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `organization_id` | uuid FK → organizations (`ON DELETE CASCADE`) | Tenant owner |
+| `type` | varchar | `token_expiring` \| `token_expired` \| `refresh_failed` \| `sync_failed` |
+| `severity` | varchar | `info` \| `warning` \| `error` |
+| `title` | varchar | |
+| `body` | text | |
+| `deep_link` | varchar nullable | **Stored column — never inferred from message text** (anti-req §2.3) |
+| `dedup_key` | varchar | e.g. `token_expired:{connection_id}` |
+| `status` | varchar, default `unread` | `unread` \| `read` \| `resolved` |
+| `resolved_at` | timestamp nullable | Set when a matching recovery (successful refresh / recovered sync) auto-resolves the row (P-2) |
+| `created_at` | timestamp | |
+
+- **`UNIQUE (organization_id, dedup_key)`** (`uq_notifications_org_dedup`) — DB-level dedup, not an app-side time window (anti-req §2.3). Emission upserts `ON CONFLICT DO NOTHING`, so re-running a check never dupes.
+- Index `ix_notifications_org_status` on `(organization_id, status)` — tenant-scoped unread-count / list query.
+- **Auto-resolve (P-2):** a successful refresh / recovered sync marks the matching row `resolved` so the badge and banner disappear — no permanently-lit warning.
 
 ---
 

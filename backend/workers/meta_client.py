@@ -19,12 +19,35 @@ BASE_URL = "https://graph.facebook.com/v25.0"
 MAX_PAGES = 50
 
 
+# Meta OAuth error codes that mean "the token is dead/insufficient", not
+# "transient / rate-limited". Code 190 = access token expired/invalid/revoked;
+# code 102 = session/API auth failure. These are the codes a sync task should
+# turn into a durable token-failure alert rather than retry forever.
+META_AUTH_ERROR_CODES = frozenset({190, 102})
+# OAuth error_subcodes under code 190/102 that specifically flag an
+# expired/revoked/invalidated session (vs. e.g. a generic app-level issue).
+META_AUTH_ERROR_SUBCODES = frozenset({458, 459, 460, 463, 464, 467, 492})
+
+
 class MetaAPIError(Exception):
     def __init__(self, code: int, subcode: int | None, message: str, fbtrace_id: str | None = None):
         self.code = code
         self.subcode = subcode
         self.fbtrace_id = fbtrace_id
         super().__init__(message)
+
+    @property
+    def is_auth(self) -> bool:
+        """True for token/permission failures (expired/invalid/revoked session).
+
+        Mirrors ``GoogleAdsClientError.is_auth`` so sync-task ``except`` blocks
+        read the same across platforms: a dead OAuth token must raise a durable
+        token-failure alert (P-8) instead of retrying a dead grant forever.
+        Matches Meta code 190/102 or any of the OAuth auth subcodes."""
+        return (
+            self.code in META_AUTH_ERROR_CODES
+            or (self.subcode in META_AUTH_ERROR_SUBCODES if self.subcode else False)
+        )
 
 
 class MetaClient:
@@ -158,6 +181,29 @@ class MetaClient:
 
     def validate_token(self) -> dict:
         data, _ = self.get("/me", {"fields": "id,name"})
+        return data
+
+    def exchange_long_lived_token(
+        self, app_id: str, app_secret: str, fb_exchange_token: str
+    ) -> dict:
+        """Exchange a still-valid long-lived token for a fresh one via the
+        `fb_exchange_token` grant. Returns {"access_token", "expires_in", ...}.
+
+        Must run while the current token is still alive — a dead token cannot be
+        exchanged, which is why the refresh task fires proactively before expiry.
+        `app_id`/`app_secret` must be the same Meta app that minted the token,
+        or Meta rejects the exchange. Uses the same graph version + httpx get
+        plumbing as every other call; `_check_error` raises MetaAPIError on a
+        Meta error body."""
+        data, _ = self.get(
+            "/oauth/access_token",
+            {
+                "grant_type": "fb_exchange_token",
+                "client_id": app_id,
+                "client_secret": app_secret,
+                "fb_exchange_token": fb_exchange_token,
+            },
+        )
         return data
 
     def get_insights(

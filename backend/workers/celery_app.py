@@ -23,6 +23,7 @@ celery_app = Celery(
         "workers.tasks.insights",
         "workers.tasks.async_jobs",
         "workers.tasks.creatives",
+        "workers.tasks.meta_token_refresh",
         "workers.tasks.tiktok_structure",
         "workers.tasks.tiktok_insights",
         "workers.tasks.tiktok_breakdowns",
@@ -62,6 +63,7 @@ celery_app.conf.update(
         "workers.tasks.structure.*": {"queue": "meta"},
         "workers.tasks.insights.*": {"queue": "meta"},
         "workers.tasks.creatives.*": {"queue": "meta"},
+        "workers.tasks.meta_token_refresh.*": {"queue": "meta"},
         "workers.tasks.async_jobs.*": {"queue": "meta"},
         # TikTok
         "workers.tasks.tiktok_structure.*": {"queue": "tiktok"},
@@ -96,6 +98,10 @@ celery_app.conf.update(
         "poll-async-jobs": {
             "task": "workers.tasks.async_jobs.poll_async_jobs",
             "schedule": 2 * 60,  # every 2 min
+        },
+        "refresh-meta-tokens": {
+            "task": "workers.tasks.meta_token_refresh.refresh_meta_tokens",
+            "schedule": crontab(hour=0, minute=45),  # daily 00:45 UTC (staggered off TikTok 00:30)
         },
         # TikTok
         "sync-tiktok-structure-all": {

@@ -13,27 +13,50 @@ from app.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.schemas.accounts import ConnectionResponse, CreateConnectionRequest
 from app.schemas.common import DataResponse
 from app.services import accounts as acc_svc
+from app.services.notifications import resolve_platform_token_alerts
 
 router = APIRouter()
+
+
+def _probe_meta_token_expiry(access_token: str):
+    """Read a Meta token's real expiry via /debug_token.
+
+    Returns a tz-aware ``datetime`` when the token has a finite expiry, or
+    ``None`` when it never expires (``expires_at == 0``), when META_APP_ID/
+    SECRET are unconfigured, or when the debug_token call errors. A failure
+    here is logged and swallowed — the token was already validated by the
+    /me/adaccounts call, so debug_token must never break the connect flow.
+
+    Called inline via the existing generic MetaClient GET; no methods are added
+    to MetaClient (that's workers-sync's file).
+    """
+    if not settings.META_APP_ID or not settings.META_APP_SECRET:
+        logger.info("debug_token skipped: META_APP_ID/SECRET not configured")
+        return None
+
+    app_access_token = f"{settings.META_APP_ID}|{settings.META_APP_SECRET}"
+    try:
+        from workers.meta_client import MetaClient
+
+        data, _ = MetaClient(app_access_token).get(
+            "/debug_token", {"input_token": access_token}
+        )
+        info = data.get("data", {}) if isinstance(data, dict) else {}
+        expires_at = info.get("expires_at")
+        # 0 (or missing) == never expires → leave token_expires_at NULL.
+        if expires_at and int(expires_at) > 0:
+            return datetime.fromtimestamp(int(expires_at), tz=timezone.utc)
+        return None
+    except Exception as e:
+        logger.warning("debug_token probe failed (continuing): %s", e)
+        return None
 
 
 @router.get("")
 def list_connections(current_user: CurrentUser, db: DbSession):
     conns = acc_svc.list_connections(db, current_user["org_id"])
     return DataResponse(
-        data=[
-            ConnectionResponse(
-                id=str(c.id),
-                platform=c.platform_id,
-                is_active=c.is_active,
-                scopes=c.scopes,
-                token_type=c.token_type,
-                connected_by=c.connected_by.name if c.connected_by else None,
-                connected_at=c.created_at,
-                last_used_at=c.last_used_at,
-            )
-            for c in conns
-        ]
+        data=[ConnectionResponse.from_orm_connection(c) for c in conns]
     )
 
 
@@ -42,6 +65,7 @@ def create_connection(
     body: CreateConnectionRequest, current_user: OwnerUser, db: DbSession
 ):
     try:
+        token_expires_at = None
         if body.platform == "meta":
             from workers.meta_client import MetaClient, MetaAPIError
             import httpx
@@ -56,6 +80,12 @@ def create_connection(
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Could not verify Meta token: {e}")
 
+            # The token is now validated. Probe its real expiry via debug_token
+            # so token_expires_at is populated (never-expiring system-user tokens
+            # report 0 → stays NULL). A debug_token failure must NOT break the
+            # connect flow — the token was already accepted above.
+            token_expires_at = _probe_meta_token_expiry(body.access_token)
+
         conn = acc_svc.create_connection(
             db,
             org_id=current_user["org_id"],
@@ -64,8 +94,19 @@ def create_connection(
             access_token=body.access_token,
             token_type=body.token_type,
         )
+        if token_expires_at is not None:
+            conn.token_expires_at = token_expires_at
         db.commit()
         db.refresh(conn)
+
+        # A validated reconnect clears any open token-expiry alert for this
+        # org+platform (P-2). Reconnecting INSERTs a NEW connection row, so the
+        # old alert's dedup key points at the dead connection — clear at the
+        # org+platform level, not just this new id. Only reached on SUCCESS.
+        resolve_platform_token_alerts(
+            db, org_id=current_user["org_id"], platform=body.platform
+        )
+        db.commit()
 
         from workers.tasks.structure import sync_accounts_for_connection
         sync_accounts_for_connection.delay(str(conn.id), current_user["org_id"])
@@ -156,6 +197,11 @@ def tiktok_oauth_callback(
     )
     db.commit()
     db.refresh(conn)
+
+    # Successful OAuth reconnect clears any open TikTok token-expiry alert for
+    # the org (org+platform level — the old dead connection lingers). P-2.
+    resolve_platform_token_alerts(db, org_id=org_id, platform="tiktok")
+    db.commit()
 
     from workers.tasks.tiktok_structure import sync_tiktok_accounts_for_connection
     sync_tiktok_accounts_for_connection.delay(str(conn.id), org_id, advertiser_ids)
@@ -250,6 +296,13 @@ def google_oauth_callback(
     )
     db.commit()
     db.refresh(conn)
+
+    # Successful OAuth reconnect clears any open Google token-expiry alert for
+    # the org. NOTE: create_google_connection stores platform_id="google_ads",
+    # so the org+platform clear must match that stored id, not the "google"
+    # display label used in the callback URL. P-2.
+    resolve_platform_token_alerts(db, org_id=org_id, platform="google_ads")
+    db.commit()
 
     from workers.tasks.google_structure import sync_google_accounts_for_connection
     sync_google_accounts_for_connection.delay(str(conn.id), org_id)
