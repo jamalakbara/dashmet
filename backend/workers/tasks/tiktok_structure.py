@@ -144,11 +144,20 @@ def sync_tiktok_accounts_for_connection(
                         db.add(AccountConfig(account_id=account.id))
                     sync_tiktok_structure_for_account.delay(str(account.id))
 
+        # Recovery (P-2): a clean account import clears any prior token alert for
+        # this connection. Helper self-guards on last_error and swallows errors.
+        from workers.token_alerts import clear_connection_token_failure
+        clear_connection_token_failure(connection_id)
         logger.info(
             "Imported %s TikTok advertiser accounts for connection %s",
             len(advertiser_ids), connection_id,
         )
     except TikTokAPIError as exc:
+        if exc.is_auth:
+            from workers.token_alerts import alert_connection_token_failure
+            alert_connection_token_failure(
+                connection_id, platform_label="TikTok", detail=str(exc)
+            )
         logger.error("TikTok API error syncing accounts for %s: %s", connection_id, exc)
         raise self.retry(exc=exc)
     except Exception as exc:
@@ -206,6 +215,7 @@ def sync_tiktok_structure_for_account(self, account_id: str):
 
     job_id = create_sync_job(account_uuid, "tiktok", "structure")
 
+    connection_id = None
     try:
         with get_worker_db() as db:
             account = db.get(Account, account_uuid)
@@ -218,6 +228,7 @@ def sync_tiktok_structure_for_account(self, account_id: str):
                 return
 
             conn = db.get(PlatformConnection, account.platform_connection_id)
+            connection_id = str(conn.id) if conn else None
             access_token = decrypt_token(conn.access_token)
             advertiser_id = account.external_id
 
@@ -418,6 +429,11 @@ def sync_tiktok_structure_for_account(self, account_id: str):
                 rows_written += 1
 
         finalize_sync_job(job_id, "completed", rows_written=rows_written)
+        # Recovery (P-2): a clean run clears any prior token alert for this
+        # connection. Helper self-guards on last_error and swallows its own errors.
+        if connection_id:
+            from workers.token_alerts import clear_connection_token_failure
+            clear_connection_token_failure(connection_id)
         logger.info(
             "TikTok structure sync done for account %s — %s rows", account_id, rows_written
         )
@@ -433,6 +449,11 @@ def sync_tiktok_structure_for_account(self, account_id: str):
         finalize_sync_job(job_id, "failed", error=exc)
         return
     except TikTokAPIError as exc:
+        if exc.is_auth and connection_id:
+            from workers.token_alerts import alert_connection_token_failure
+            alert_connection_token_failure(
+                connection_id, platform_label="TikTok", detail=str(exc)
+            )
         logger.error("TikTok API error for account %s: %s", account_id, exc)
         finalize_sync_job(job_id, "failed", error=exc)
         raise self.retry(exc=exc)

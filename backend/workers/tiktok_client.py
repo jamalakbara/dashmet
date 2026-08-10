@@ -19,11 +19,27 @@ VIDEO_BATCH_SIZE = 100
 TIKTOK_APP_QPS_CAP = 8
 
 
+# TikTok business-level `code` values (HTTP 200 body) that mean the access
+# token is dead or the app lacks permission — a durable token-failure alert,
+# not a retry. Confirmed from docs/tiktok-api-dashboard-contract.md §10:
+#   40100 = Invalid access token, 40101 = Access token expired,
+#   40200 = Permission denied.
+TIKTOK_AUTH_ERROR_CODES = frozenset({40100, 40101, 40200})
+
+
 class TikTokAPIError(Exception):
     def __init__(self, code: int, message: str, request_id: str | None = None):
         self.code = code
         self.request_id = request_id
         super().__init__(message)
+
+    @property
+    def is_auth(self) -> bool:
+        """True for token/permission failures (invalid/expired token, denied).
+
+        Mirrors ``MetaAPIError.is_auth`` / ``GoogleAdsClientError.is_auth`` so
+        sync-task ``except`` blocks read identically across platforms."""
+        return self.code in TIKTOK_AUTH_ERROR_CODES
 
 
 class TikTokClient:

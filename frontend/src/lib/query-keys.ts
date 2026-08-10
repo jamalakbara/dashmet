@@ -24,6 +24,8 @@ export type OverviewFilter = {
 
 export const queryKeys = {
   me: () => ["me"] as const,
+  notifications: (status?: string) => ["notifications", status ?? "unread"] as const,
+  connections: () => ["connections"] as const,
   accounts: () => ["accounts"] as const,
   accountsSearch: (platform: string | null, search: string) =>
     ["accounts", "search", platform, search] as const,

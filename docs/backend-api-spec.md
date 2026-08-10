@@ -540,11 +540,24 @@ List all platform connections for the current org.
       "token_type":  "system_user",
       "connected_by": "Akbar",
       "connected_at": "2026-02-01T10:00:00Z",
-      "last_used_at": "2026-05-30T11:45:00Z"
+      "last_used_at": "2026-05-30T11:45:00Z",
+      "token_expires_at": "2026-08-01T10:00:00Z",
+      "last_error": null,
+      "last_error_at": null,
+      "health": "healthy"
     }
   ]
 }
 ```
+
+Connection-health fields (all pure reads; no notification is emitted by this GET):
+
+| Field | Type | Notes |
+|---|---|---|
+| `token_expires_at` | datetime? | Real token expiry. For Meta, captured at connect via `/debug_token`; `null` for never-expiring (system-user) tokens or when Meta app creds are unconfigured. |
+| `last_error` | string? | Last sync/refresh error text, set by worker paths; `null` when healthy. |
+| `last_error_at` | datetime? | Timestamp of `last_error`. |
+| `health` | string | Derived: `"error"` if `last_error` set, else `"expired"` if `token_expires_at` is past, else `"expiring"` if within 7 days, else `"healthy"`. |
 
 > The `access_token` itself is **never returned** — only metadata about the connection.
 
@@ -561,7 +574,7 @@ Connect a new platform ad account. **Owner only.**
 }
 ```
 
-The backend validates the token immediately by calling `/me` on the platform API before saving. If the token is invalid or missing required scopes, returns `400`.
+The backend validates the token immediately by calling `/me` on the platform API before saving. If the token is invalid or missing required scopes, returns `400`. For Meta, after validation the backend probes `/debug_token` to capture the token's real expiry into `token_expires_at` (never-expiring tokens stay `null`; a `debug_token` failure is logged and does not break the connect flow).
 
 **Response `201`**
 ```json
@@ -576,7 +589,7 @@ The backend validates the token immediately by calling `/me` on the platform API
 }
 ```
 
-On success, immediately triggers a `structure` sync job to import the org's ad accounts.
+On success, immediately triggers a `structure` sync job to import the org's ad accounts. It also **resolves any open token-expiry alerts** for this org+platform — the `token_expired` / `token_expiring` / `refresh_failed` notifications and the `last_error` / `last_error_at` health fields on every `platform_connection` for that org+platform are cleared (P-2). This is org+platform-scoped, not new-connection-scoped: reconnecting inserts a *new* connection row, so a per-id clear would leave the old alert (keyed on the dead connection id) lit forever. Clearing only happens on a successful connect — a rejected token leaves the alert untouched.
 
 #### `DELETE /api/v1/connections/:id`
 
@@ -1547,6 +1560,64 @@ to run it (PRD P-8). The producer matrix:
 (no-producer) job_types do not appear.
 
 > This endpoint enqueues Celery tasks and returns immediately — it does not wait for completion. The frontend should poll `GET /sync/status` to track progress.
+
+---
+
+### 6.15 Notifications
+
+Tenant-scoped alert center (token expiry, refresh/sync failures). Notifications
+are created **only** by worker/refresh/sync-failure paths through the single
+writer `app/services/notifications.py` — never as a side effect of a read.
+Dedup is enforced by a DB unique constraint on `(organization_id, dedup_key)`:
+one row per `(org, dedup_key)`, deduped while open, and **re-opened on
+recurrence** if it was previously resolved. A recovered condition is
+auto-resolved (P-2) so the badge clears itself; a condition that recurs after
+recovery re-alerts rather than staying silent.
+
+#### `GET /api/v1/notifications`
+
+List the current org's notifications (newest first) plus the unread count.
+Read-only — emits nothing.
+
+**Query params**
+
+| Param | Type | Notes |
+|---|---|---|
+| `status` | string? | Optional filter: `unread` \| `read` \| `resolved`. Omit for all. |
+
+**Response `200`**
+```json
+{
+  "data": {
+    "items": [
+      {
+        "id":          "uuid",
+        "type":        "token_expired",
+        "severity":    "error",
+        "title":       "Meta token expired",
+        "body":        "Reconnect your Meta account to resume syncing.",
+        "deep_link":   "/settings/connections",
+        "dedup_key":   "token_expired:<connection_id>",
+        "status":      "unread",
+        "resolved_at": null,
+        "created_at":  "2026-08-10T09:00:00Z"
+      }
+    ],
+    "unread_count": 1
+  }
+}
+```
+
+`unread_count` counts rows with `status = "unread"` (excludes `read` and
+`resolved`). `deep_link` is a stored column, never inferred from message text.
+
+#### `POST /api/v1/notifications/:id/read`
+
+Mark a notification `read`. Tenant-scoped: a notification id that is not in the
+caller's org returns `404` (never mutates another org's row).
+
+**Response `200`** — the updated `NotificationOut` object under `data`.
+**Response `404`** — `Notification not found` (unknown id, or not in this org).
 
 ---
 

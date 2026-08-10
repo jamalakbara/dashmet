@@ -63,6 +63,30 @@ Authorization: Bearer <SYSTEM_USER_TOKEN>
 
 > **Security:** Never expose the token client-side. All API calls should be proxied through your backend.
 
+### Token lifecycle — expiry probe & refresh
+
+DashMet accepts a pasted long-lived / system-user token at connect, then manages its lifecycle via two Graph calls (both use the same app credentials — must be the Meta app that minted the token):
+
+**`GET /debug_token`** — read a token's real expiry at connect time. Called with an **app access token** (`{META_APP_ID}|{META_APP_SECRET}`) and the pasted token as `input_token`:
+
+```http
+GET /debug_token?input_token=<TOKEN>&access_token=<APP_ID>|<APP_SECRET>
+```
+
+Response `data.expires_at` is a unix timestamp; **`0` (or absent) means the token never expires** (true system-user token). DashMet stores a finite `expires_at` into `platform_connections.token_expires_at` and leaves it `NULL` for never-expiring tokens. A `debug_token` failure is logged and swallowed — it must not break the connect flow (the token was already validated by a `/me/adaccounts` call).
+
+**`GET /oauth/access_token?grant_type=fb_exchange_token`** — refresh a still-valid long-lived token for a fresh ~60-day one:
+
+```http
+GET /oauth/access_token
+  ?grant_type=fb_exchange_token
+  &client_id=<META_APP_ID>
+  &client_secret=<META_APP_SECRET>
+  &fb_exchange_token=<CURRENT_LONG_LIVED_TOKEN>
+```
+
+Returns `{ "access_token", "expires_in", ... }`. **Must run while the current token is still alive** — a dead token cannot be exchanged, so the refresh worker fires proactively (within 7 days of expiry), not after. Hard ceilings this does **not** solve: it does not reset Meta's ~90-day data-access expiration, cannot regenerate a true system-user token, and cannot heal a revoked/permission-changed token — those require a manual re-paste (see `docs/sync-worker-spec.md` → "Token refresh & token-failure alerting").
+
 ---
 
 ## 2. App Access Tiers

@@ -200,6 +200,7 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
 
     job_id = create_sync_job(account_uuid, "tiktok", job_type)
 
+    connection_id = None
     try:
         with get_worker_db() as db:
             account = db.get(Account, account_uuid)
@@ -208,6 +209,7 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
                 return
 
             conn = db.get(PlatformConnection, account.platform_connection_id)
+            connection_id = str(conn.id) if conn else None
             access_token = decrypt_token(conn.access_token)
             advertiser_id = account.external_id
 
@@ -358,6 +360,11 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
 
         total_rows = total_metric_rows + total_action_rows
         finalize_sync_job(job_id, "completed", rows_written=total_rows)
+        # Recovery (P-2): a clean run clears any prior token alert for this
+        # connection. Helper self-guards on last_error and swallows its own errors.
+        if connection_id:
+            from workers.token_alerts import clear_connection_token_failure
+            clear_connection_token_failure(connection_id)
         logger.info(
             "TikTok insights sync done for account %s — %s metric rows, %s action rows",
             account_id, total_metric_rows, total_action_rows,
@@ -368,6 +375,11 @@ def sync_tiktok_insights_for_account(self, account_id: str, date_preset: str = "
         finalize_sync_job(job_id, "failed", error=exc)
         return
     except TikTokAPIError as exc:
+        if exc.is_auth and connection_id:
+            from workers.token_alerts import alert_connection_token_failure
+            alert_connection_token_failure(
+                connection_id, platform_label="TikTok", detail=str(exc)
+            )
         logger.error("TikTok API error for insights %s: %s", account_id, exc)
         finalize_sync_job(job_id, "failed", error=exc)
         raise self.retry(exc=exc)

@@ -250,6 +250,11 @@ def sync_google_breakdowns_for_account(self, account_id: str, date_preset: str =
             logger.info("[%s] Google breakdown %s: %s rows", account_id, bd_type, len(bd_rows))
 
         finalize_sync_job(job_id, "completed", rows_written=total)
+        # Recovery (P-2): a clean run clears any prior token alert for this
+        # connection. Helper self-guards on last_error and swallows its own errors.
+        if connection_id:
+            from workers.token_alerts import clear_connection_token_failure
+            clear_connection_token_failure(connection_id)
         logger.info("[%s] Google breakdown sync complete: %s rows", account_id, total)
 
     except SoftTimeLimitExceeded as exc:
@@ -264,6 +269,11 @@ def sync_google_breakdowns_for_account(self, account_id: str, date_preset: str =
             finalize_sync_job(job_id, "skipped")
             self.apply_async(args=[account_id, date_preset], countdown=300)
             return
+        if exc.is_auth and connection_id:
+            from workers.token_alerts import alert_connection_token_failure
+            alert_connection_token_failure(
+                connection_id, platform_label="Google Ads", detail=str(exc)
+            )
         logger.error("Google API error for breakdowns %s: %s", account_id, exc)
         finalize_sync_job(job_id, "failed", error=exc)
         raise self.retry(exc=exc)

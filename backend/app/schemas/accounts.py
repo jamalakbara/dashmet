@@ -1,6 +1,11 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict
+
+# A token within this window of expiry is "expiring" (warn before it dies so a
+# proactive refresh/re-paste can happen — the connect flow captures the real
+# expiry from Meta debug_token).
+TOKEN_EXPIRING_WINDOW = timedelta(days=7)
 
 
 class AccountConfigPublic(BaseModel):
@@ -50,6 +55,29 @@ class AccountResponse(BaseModel):
         )
 
 
+def _derive_health(
+    token_expires_at: Optional[datetime], last_error: Optional[str]
+) -> str:
+    """Derived connection health (pure read, no stored enum column).
+
+    Precedence: a live ``last_error`` is the strongest signal ("error"); then
+    an expired token ("expired"); then a token expiring within the window
+    ("expiring"); otherwise "healthy". A NULL ``token_expires_at`` (e.g. a true
+    never-expiring system-user token, or an un-probed connection) is treated as
+    not-expiring for the expiry checks.
+    """
+    if last_error:
+        return "error"
+    if token_expires_at is not None:
+        now = datetime.now(timezone.utc)
+        # token_expires_at is stored tz-aware (DateTime(timezone=True)).
+        if token_expires_at <= now:
+            return "expired"
+        if token_expires_at <= now + TOKEN_EXPIRING_WINDOW:
+            return "expiring"
+    return "healthy"
+
+
 class ConnectionResponse(BaseModel):
     id: str
     platform: str
@@ -59,6 +87,27 @@ class ConnectionResponse(BaseModel):
     connected_by: Optional[str] = None
     connected_at: Optional[datetime] = None
     last_used_at: Optional[datetime] = None
+    token_expires_at: Optional[datetime] = None
+    last_error: Optional[str] = None
+    last_error_at: Optional[datetime] = None
+    health: str = "healthy"
+
+    @classmethod
+    def from_orm_connection(cls, c) -> "ConnectionResponse":
+        return cls(
+            id=str(c.id),
+            platform=c.platform_id,
+            is_active=c.is_active,
+            scopes=c.scopes,
+            token_type=c.token_type,
+            connected_by=c.connected_by.name if c.connected_by else None,
+            connected_at=c.created_at,
+            last_used_at=c.last_used_at,
+            token_expires_at=c.token_expires_at,
+            last_error=c.last_error,
+            last_error_at=c.last_error_at,
+            health=_derive_health(c.token_expires_at, c.last_error),
+        )
 
 
 class CreateConnectionRequest(BaseModel):

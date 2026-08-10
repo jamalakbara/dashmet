@@ -136,6 +136,11 @@ def sync_accounts_for_connection(self, connection_id: str, org_id: str):
                 else:
                     raise
         except MetaAPIError as e:
+            if e.is_auth:
+                from workers.token_alerts import alert_connection_token_failure
+                alert_connection_token_failure(
+                    connection_id, platform_label="Meta", detail=str(e)
+                )
             logger.error(f"[conn:{connection_id}] Failed to fetch ad accounts: {e}")
             raise self.retry(exc=e)
 
@@ -205,6 +210,11 @@ def sync_accounts_for_connection(self, connection_id: str, org_id: str):
 
         db.commit()
         logger.info(f"[conn:{connection_id}] Imported {len(ad_accounts)} ad accounts")
+
+    # Recovery (P-2): a clean account import clears any prior token alert for this
+    # connection. Helper self-guards on last_error and swallows its own errors.
+    from workers.token_alerts import clear_connection_token_failure
+    clear_connection_token_failure(connection_id)
 
     # Structure fans out globally (staggered, skips-fresh — cheap).
     sync_structure_all.delay()
@@ -482,6 +492,10 @@ def sync_structure_for_account(self, account_id: str):
 
         total = len(campaign_rows) + len(adgroup_rows) + len(ad_rows)
         finalize_sync_job(job_id, "completed", rows_written=total)
+        # Recovery (P-2): a clean run clears any prior token alert for this
+        # connection. Helper self-guards on last_error and swallows its own errors.
+        from workers.token_alerts import clear_connection_token_failure
+        clear_connection_token_failure(connection_id)
         logger.info(f"[{account_id}] Structure sync complete: {total} rows")
         structure_synced = True
 
@@ -501,6 +515,11 @@ def sync_structure_for_account(self, account_id: str):
             logger.warning(f"[{account_id}] Structure Meta rate-limit (code {e.code}) — pausing connection {HARD_PAUSE_SECONDS}s")
             self.apply_async(args=[account_id], countdown=HARD_PAUSE_SECONDS)
             return
+        if e.is_auth and connection_id:
+            from workers.token_alerts import alert_connection_token_failure
+            alert_connection_token_failure(
+                connection_id, platform_label="Meta", detail=str(e)
+            )
         finalize_sync_job(job_id, "failed", error=e)
         logger.error(f"[{account_id}] Structure sync failed: {e}")
         raise self.retry(exc=e)

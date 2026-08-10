@@ -2,6 +2,7 @@
 
 import { Menu } from "lucide-react";
 import { UserMenu } from "@/components/shared/user-menu";
+import { NotificationCenter } from "@/components/shared/notification-center";
 import { useMe } from "@/hooks/use-me";
 import { useUIStore } from "@/stores/ui-store";
 
@@ -25,6 +26,7 @@ export function Header() {
         <Menu className="size-5" />
       </button>
       <div className="flex items-center gap-2.5 ml-auto">
+        <NotificationCenter />
         <div className="hidden text-right leading-tight sm:block">
           <p className="text-sm font-semibold">{me?.name ?? "—"}</p>
           <p className="max-w-[160px] truncate text-xs text-muted-foreground">

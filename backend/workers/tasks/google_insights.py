@@ -262,6 +262,11 @@ def sync_google_insights_for_account(self, account_id: str, date_preset: str = "
                     total_action_rows += bulk_upsert_action_stats(db, action_rows)
 
         finalize_sync_job(job_id, "completed", rows_written=total_metric_rows + total_action_rows)
+        # Recovery (P-2): a clean run clears any prior token alert for this
+        # connection. Helper self-guards on last_error and swallows its own errors.
+        if connection_id:
+            from workers.token_alerts import clear_connection_token_failure
+            clear_connection_token_failure(connection_id)
         logger.info(
             "Google insights sync done for account %s — %s metric rows, %s action rows",
             account_id, total_metric_rows, total_action_rows,
@@ -279,6 +284,11 @@ def sync_google_insights_for_account(self, account_id: str, date_preset: str = "
             finalize_sync_job(job_id, "skipped")
             self.apply_async(args=[account_id, date_preset, job_type], countdown=300)
             return
+        if exc.is_auth and connection_id:
+            from workers.token_alerts import alert_connection_token_failure
+            alert_connection_token_failure(
+                connection_id, platform_label="Google Ads", detail=str(exc)
+            )
         logger.error("Google API error for insights %s: %s", account_id, exc)
         finalize_sync_job(job_id, "failed", error=exc)
         raise self.retry(exc=exc)

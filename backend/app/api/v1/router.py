@@ -8,6 +8,7 @@ from app.api.v1.endpoints import (
     campaigns,
     connections,
     insights,
+    notifications,
     org,
     sync,
 )
@@ -23,6 +24,7 @@ router.include_router(adgroups.router,    prefix="/adgroups",    tags=["adgroups
 router.include_router(ads.router,         prefix="/ads",         tags=["ads"])
 router.include_router(insights.router,    prefix="/insights",    tags=["insights"])
 router.include_router(sync.router,        prefix="/sync",        tags=["sync"])
+router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
 
 
 @router.get("/ping", tags=["health"])

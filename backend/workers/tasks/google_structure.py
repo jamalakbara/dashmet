@@ -191,10 +191,22 @@ def sync_google_accounts_for_connection(self, connection_id: str, org_id: str):
                         db.add(AccountConfig(account_id=account.id))
                     sync_google_structure_for_account.delay(str(account.id))
 
+        # Recovery (P-2): a clean account import clears any prior token alert for
+        # this connection. Helper self-guards on last_error and swallows errors.
+        from workers.token_alerts import clear_connection_token_failure
+        clear_connection_token_failure(connection_id)
         logger.info(
             "Imported %s Google Ads accounts for connection %s", len(seen), connection_id
         )
     except GoogleAdsClientError as exc:
+        if getattr(exc, "is_auth", False):
+            # Account import is the first Google call against a connection, so a
+            # revoked/expired grant surfaces here first — leave a durable token
+            # trace + owner email (P-8/P-2). Additive; the retry below still runs.
+            from workers.token_alerts import alert_connection_token_failure
+            alert_connection_token_failure(
+                connection_id, platform_label="Google Ads", detail=str(exc)
+            )
         logger.error("Google API error syncing accounts for %s: %s", connection_id, exc)
         raise self.retry(exc=exc)
     except Exception as exc:
@@ -463,6 +475,11 @@ def sync_google_structure_for_account(self, account_id: str):
                 rows_written += 1
 
         finalize_sync_job(job_id, "completed", rows_written=rows_written)
+        # Recovery (P-2): a clean run clears any prior token alert for this
+        # connection. Helper self-guards on last_error and swallows its own errors.
+        if connection_id:
+            from workers.token_alerts import clear_connection_token_failure
+            clear_connection_token_failure(connection_id)
         logger.info(
             "Google structure sync done for account %s — %s rows", account_id, rows_written
         )
@@ -487,6 +504,13 @@ def sync_google_structure_for_account(self, account_id: str):
             finalize_sync_job(job_id, "skipped")
             self.apply_async(args=[account_id], countdown=300)
             return
+        if exc.is_auth and connection_id:
+            # Durable token-failure trace + owner email (P-8/P-2). Still fails
+            # the sync_job below — the alert is additive, not a swallow.
+            from workers.token_alerts import alert_connection_token_failure
+            alert_connection_token_failure(
+                connection_id, platform_label="Google Ads", detail=str(exc)
+            )
         logger.error("Google API error for account %s: %s", account_id, exc)
         finalize_sync_job(job_id, "failed", error=exc)
         raise self.retry(exc=exc)

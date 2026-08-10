@@ -2,6 +2,7 @@ from app.models.auth import Organization, User, OrganizationMembership
 from app.models.platform import Platform, PlatformConnection, Account, AccountConfig
 from app.models.structure import Campaign, AdGroup, Creative, Ad
 from app.models.metrics import MetricsDaily, MetricActionStats, MetricBreakdowns, SyncJob
+from app.models.notifications import Notification
 
 __all__ = [
     "Organization",
@@ -19,4 +20,5 @@ __all__ = [
     "MetricActionStats",
     "MetricBreakdowns",
     "SyncJob",
+    "Notification",
 ]

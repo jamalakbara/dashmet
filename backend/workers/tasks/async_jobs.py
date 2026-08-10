@@ -157,6 +157,11 @@ def submit_async_job_for_account(self, account_id: str, date_preset: str = "last
             logger.warning(f"[{account_id}] Async submit Meta rate-limit (code {e.code}) — pausing connection {HARD_PAUSE_SECONDS}s")
             self.apply_async(args=[account_id, date_preset], countdown=HARD_PAUSE_SECONDS)
             return
+        if e.is_auth and connection_id:
+            from workers.token_alerts import alert_connection_token_failure
+            alert_connection_token_failure(
+                connection_id, platform_label="Meta", detail=str(e)
+            )
         finalize_sync_job(job_id, "failed", error=e)
         logger.error(f"[{account_id}] Async submit failed: {e}")
         raise self.retry(exc=e)
@@ -172,7 +177,7 @@ def submit_async_job_for_account(self, account_id: str, date_preset: str = "last
 )
 def poll_async_jobs(self):
     from workers.db_helpers import get_worker_db
-    from workers.meta_client import MetaClient
+    from workers.meta_client import MetaClient, MetaAPIError
     from app.models.platform import Account, PlatformConnection
     from app.models.metrics import SyncJob
     from app.services.auth import decrypt_token
@@ -214,6 +219,13 @@ def poll_async_jobs(self):
                     job.completed_at = datetime.now(timezone.utc)
                     submit_async_job_for_account.delay(str(job.account_id))
 
+            except MetaAPIError as e:
+                if e.is_auth:
+                    from workers.token_alerts import alert_connection_token_failure
+                    alert_connection_token_failure(
+                        str(conn.id), platform_label="Meta", detail=str(e)
+                    )
+                logger.error(f"Poll error for job {job.platform_job_id}: {e}")
             except Exception as e:
                 logger.error(f"Poll error for job {job.platform_job_id}: {e}")
 
@@ -230,7 +242,7 @@ def fetch_async_results(self, job_id: str, report_run_id: str):
         get_worker_db, upsert_metrics_daily, bulk_upsert_action_stats,
         finalize_sync_job,
     )
-    from workers.meta_client import MetaClient
+    from workers.meta_client import MetaClient, MetaAPIError
     from app.models.platform import Account, PlatformConnection
     from app.models.structure import Campaign
     from app.models.metrics import SyncJob
@@ -247,6 +259,7 @@ def fetch_async_results(self, job_id: str, report_run_id: str):
         conn = db.get(PlatformConnection, account.platform_connection_id)
         account_id_obj = account.id
         platform_id = account.platform_id
+        connection_id = str(conn.id) if conn else None
         token = decrypt_token(conn.access_token)
 
         camp_map = {
@@ -297,8 +310,22 @@ def fetch_async_results(self, job_id: str, report_run_id: str):
             total += bulk_upsert_action_stats(db, action_rows)
 
         finalize_sync_job(job_uuid, "completed", rows_written=total)
+        # Recovery (P-2): a clean fetch clears any prior token alert for this
+        # connection. Helper self-guards on last_error and swallows its own errors.
+        if connection_id:
+            from workers.token_alerts import clear_connection_token_failure
+            clear_connection_token_failure(connection_id)
         logger.info(f"Async results fetched: {total} rows for job {report_run_id}")
 
+    except MetaAPIError as e:
+        if e.is_auth and connection_id:
+            from workers.token_alerts import alert_connection_token_failure
+            alert_connection_token_failure(
+                connection_id, platform_label="Meta", detail=str(e)
+            )
+        finalize_sync_job(job_uuid, "failed", error=e)
+        logger.error(f"Fetch async results failed for {report_run_id}: {e}")
+        raise self.retry(exc=e)
     except Exception as e:
         finalize_sync_job(job_uuid, "failed", error=e)
         logger.error(f"Fetch async results failed for {report_run_id}: {e}")

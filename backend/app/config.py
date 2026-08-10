@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     # Encryption (for platform tokens at rest)
     ENCRYPTION_KEY: str
 
+    # Meta app credentials. Used by the connect-flow debug_token expiry read and
+    # (later) the worker fb_exchange_token refresh task. Must be the same Meta
+    # app that minted the pasted token, else debug_token/exchange fails.
+    META_APP_ID: str = ""
+    META_APP_SECRET: str = ""
+
     # TikTok OAuth
     TIKTOK_APP_ID: str = ""
     TIKTOK_APP_SECRET: str = ""
