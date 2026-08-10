@@ -10,6 +10,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { passwordSchema } from "@/lib/validation";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { orgApi } from "@/lib/api/org";
@@ -17,7 +18,7 @@ import { setAuthCookie } from "@/lib/api/client";
 
 const schema = z.object({
   name: z.string().min(1, "Name is required"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  password: passwordSchema,
 });
 type FormValues = z.infer<typeof schema>;
 

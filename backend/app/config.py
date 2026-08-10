@@ -15,6 +15,13 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
 
+    # Login rate limiting (redis-backed, see services/auth.py). Two independent
+    # gates: per-account (brute force against one email) and per-IP (credential
+    # spraying across many emails from one source). Either tripping → HTTP 429.
+    LOGIN_MAX_ATTEMPTS_PER_ACCOUNT: int = 5
+    LOGIN_MAX_ATTEMPTS_PER_IP: int = 20
+    LOGIN_LOCKOUT_WINDOW_SECONDS: int = 900  # 15 minutes
+
     # Encryption (for platform tokens at rest)
     ENCRYPTION_KEY: str
 
