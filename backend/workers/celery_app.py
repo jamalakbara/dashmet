@@ -32,6 +32,7 @@ celery_app = Celery(
         "workers.tasks.google_insights",
         "workers.tasks.google_breakdowns",
         "workers.tasks.google_creatives",
+        "workers.tasks.maintenance",
     ],
 )
 
@@ -126,6 +127,11 @@ celery_app.conf.update(
         "sync-google-breakdowns": {
             "task": "workers.tasks.google_breakdowns.sync_google_breakdowns_all",
             "schedule": 60 * 60,  # every 1 hour
+        },
+        # Maintenance
+        "prune-sync-jobs": {
+            "task": "workers.tasks.maintenance.prune_sync_jobs",
+            "schedule": crontab(hour=3, minute=0, day_of_week="sunday"),  # weekly Sun 03:00 UTC
         },
     },
 )
