@@ -113,14 +113,14 @@ function SyncProgressBanner({ platformKey, platformName, onDismiss }: {
     refetchInterval: (query) => {
       const data = query.state.data ?? [];
       const found = data.some((a: { platform: string; account_status: string }) =>
-        a.platform === platformKey && a.account_status === "active"
+        a.platform === platformKey && a.account_status !== "disabled"
       );
       return found ? false : 5000;
     },
     staleTime: 0,
   });
 
-  const account = accounts.find(a => a.platform === platformKey && a.account_status === "active");
+  const account = accounts.find(a => a.platform === platformKey && a.account_status !== "disabled");
   const accountId = account?.id;
 
   const { data: statusRes } = useQuery({

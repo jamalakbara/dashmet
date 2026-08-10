@@ -144,7 +144,7 @@ def sync_google_insights_daily_all(self):
         pairs = [
             (str(aid), str(cid) if cid else None)
             for aid, cid in db.query(Account.id, Account.platform_connection_id)
-            .filter(Account.account_status == "active", Account.platform_id == "google_ads")
+            .filter(Account.account_status != "disabled", Account.platform_id == "google_ads")
             .all()
         ]
     count = stagger_dispatch(sync_google_insights_for_account, pairs)

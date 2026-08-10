@@ -156,7 +156,7 @@ def sync_insights_daily_all(self):
         pairs = [
             (str(aid), str(cid) if cid else None)
             for aid, cid in db.query(Account.id, Account.platform_connection_id)
-            .filter(Account.account_status == "active", Account.platform_id == "meta")
+            .filter(Account.account_status != "disabled", Account.platform_id == "meta")
             .all()
         ]
     count = stagger_dispatch(sync_insights_for_account, pairs)
@@ -177,7 +177,7 @@ def sync_breakdowns_all(self):
         pairs = [
             (str(aid), str(cid) if cid else None)
             for aid, cid in db.query(Account.id, Account.platform_connection_id)
-            .filter(Account.account_status == "active", Account.platform_id == "meta")
+            .filter(Account.account_status != "disabled", Account.platform_id == "meta")
             .all()
         ]
     count = stagger_dispatch(sync_breakdowns_for_account, pairs, extra_args=("last_30d",))

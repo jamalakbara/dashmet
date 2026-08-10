@@ -19,6 +19,10 @@ export interface Account {
   account_type: AccountType;
   external_id?: string;
   business_name?: string | null;
+  // "active" | "disabled" | "unsettled" — plain string from the API. Optional
+  // because pinned/recent rows are rebuilt from localStorage snapshots that
+  // don't persist status.
+  account_status?: string;
 }
 
 export const PICKER_PAGE_SIZE = 50;

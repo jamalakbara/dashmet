@@ -87,13 +87,13 @@ def _is_stale(account_id: str, db) -> bool:
 
 META_ACCOUNT_STATUS_MAP = {
     1: "active",
-    2: "disabled",
-    3: "disabled",   # UNSETTLED
-    7: "disabled",   # PENDING_RISK_REVIEW
-    8: "disabled",   # PENDING_SETTLEMENT
-    9: "active",     # IN_GRACE_PERIOD
-    100: "disabled", # PENDING_CLOSURE
-    101: "disabled", # CLOSED
+    2: "disabled",     # DISABLED
+    3: "unsettled",    # UNSETTLED (unpaid balance — data still readable)
+    7: "unsettled",    # PENDING_RISK_REVIEW
+    8: "unsettled",    # PENDING_SETTLEMENT
+    9: "active",       # IN_GRACE_PERIOD
+    100: "disabled",   # PENDING_CLOSURE
+    101: "disabled",   # CLOSED
 }
 
 
@@ -146,7 +146,11 @@ def sync_accounts_for_connection(self, connection_id: str, org_id: str):
             raw_id = acc.get("id", "")
             external_id = raw_id if raw_id.startswith("act_") else f"act_{raw_id}"
             status_int = acc.get("account_status", 1)
-            status = META_ACCOUNT_STATUS_MAP.get(status_int, "disabled")
+            # Unknown/unrecognized status defaults to "unsettled", never "disabled":
+            # a status we don't recognize must stay visible and syncable rather than
+            # silently vanishing the account (P-2/P-4). Only known terminal states
+            # (DISABLED/PENDING_CLOSURE/CLOSED) map to "disabled".
+            status = META_ACCOUNT_STATUS_MAP.get(status_int, "unsettled")
             business = acc.get("business") or {}
 
             stmt = pg_insert(Account).values(
@@ -221,7 +225,7 @@ def sync_accounts_for_connection(self, connection_id: str, org_id: str):
             for aid, cid in db.query(Account.id, Account.platform_connection_id)
             .filter(
                 Account.platform_connection_id == conn_uuid,
-                Account.account_status == "active",
+                Account.account_status != "disabled",
             )
             .all()
         ]
@@ -245,7 +249,7 @@ def sync_structure_all(self):
         pairs = [
             (str(aid), str(cid) if cid else None)
             for aid, cid in db.query(Account.id, Account.platform_connection_id)
-            .filter(Account.account_status == "active", Account.platform_id == "meta")
+            .filter(Account.account_status != "disabled", Account.platform_id == "meta")
             .all()
         ]
     count = stagger_dispatch(sync_structure_for_account, pairs)

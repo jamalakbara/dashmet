@@ -90,7 +90,7 @@ def sync_tiktok_breakdowns_all(self):
         pairs = [
             (str(aid), str(cid) if cid else None)
             for aid, cid in db.query(Account.id, Account.platform_connection_id)
-            .filter(Account.account_status == "active", Account.platform_id == "tiktok")
+            .filter(Account.account_status != "disabled", Account.platform_id == "tiktok")
             .all()
         ]
     count = stagger_dispatch(sync_tiktok_breakdowns_for_account, pairs)

@@ -596,7 +596,7 @@ List ad accounts the authenticated user has access to. Supports server-side sear
 | `page` | int | 1 | Page number |
 | `per_page` | int | 25 | Page size (max 200) |
 
-Disabled accounts (`account_status = "disabled"`) are always excluded.
+`account_status` is one of `"active"`, `"unsettled"`, or `"disabled"` (derived from the platform's account state — see the Meta status mapping in `docs/sync-worker-spec.md`). `"unsettled"` (e.g. Meta unpaid balance / pending review) still returns readable data and is **included** in this list. Only `"disabled"` accounts are always excluded.
 
 **Response `200`**
 ```json

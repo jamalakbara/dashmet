@@ -40,7 +40,7 @@ def submit_async_jobs(self, date_preset: str = "last_90d"):
         pairs = [
             (str(aid), str(cid) if cid else None)
             for aid, cid in db.query(Account.id, Account.platform_connection_id)
-            .filter(Account.account_status == "active")
+            .filter(Account.account_status != "disabled")
             .all()
         ]
     # Wider spread — async submit is a 6h cadence, no need to cluster.
