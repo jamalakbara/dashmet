@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Literal, Optional
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from app.schemas.auth import validate_password_strength
 
 
 class OrgResponse(BaseModel):
@@ -33,6 +35,8 @@ class AcceptInviteRequest(BaseModel):
     token: str
     name: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=8)
+
+    _validate_password = field_validator("password")(validate_password_strength)
 
 
 class SetMemberAccountsRequest(BaseModel):

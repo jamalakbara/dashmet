@@ -10,13 +10,14 @@ import { Eye, EyeOff } from "lucide-react";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { passwordSchema } from "@/lib/validation";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { authApi } from "@/lib/api/auth";
 
 const schema = z
   .object({
-    new_password: z.string().min(8, "Password must be at least 8 characters"),
+    new_password: passwordSchema,
     confirm_password: z.string(),
   })
   .refine((d) => d.new_password === d.confirm_password, {

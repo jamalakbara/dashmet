@@ -10,13 +10,14 @@ import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { passwordSchema } from "@/lib/validation";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { authApi } from "@/lib/api/auth";
 
 const schema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  password: passwordSchema,
   org_name: z.string().min(1, "Organization name is required"),
 });
 

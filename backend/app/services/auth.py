@@ -52,6 +52,41 @@ def is_token_blacklisted(jti: str, redis_client) -> bool:
     return bool(redis_client.exists(f"token:blacklist:{jti}"))
 
 
+def _login_keys(email: str, ip: str) -> tuple[str, str]:
+    return f"login:fail:acct:{email.lower()}", f"login:fail:ip:{ip}"
+
+
+def login_rate_limited(redis_client, email: str, ip: str) -> bool:
+    """True if the account OR the source IP has already exceeded its failed-login
+    budget within the rolling window. Checked BEFORE verifying the password so a
+    locked account can't be probed further."""
+    acct_key, ip_key = _login_keys(email, ip)
+    acct = int(redis_client.get(acct_key) or 0)
+    src = int(redis_client.get(ip_key) or 0)
+    return (
+        acct >= settings.LOGIN_MAX_ATTEMPTS_PER_ACCOUNT
+        or src >= settings.LOGIN_MAX_ATTEMPTS_PER_IP
+    )
+
+
+def record_login_failure(redis_client, email: str, ip: str) -> None:
+    """Increment both counters on a failed attempt, setting the window TTL on the
+    first failure. TTL is refreshed each failure so sustained probing stays locked."""
+    window = settings.LOGIN_LOCKOUT_WINDOW_SECONDS
+    for key in _login_keys(email, ip):
+        pipe = redis_client.pipeline()
+        pipe.incr(key)
+        pipe.expire(key, window)
+        pipe.execute()
+
+
+def clear_login_failures(redis_client, email: str, ip: str) -> None:
+    """Reset the per-account counter on a successful login. The per-IP counter is
+    left to expire on its own so one good login can't unlock a spraying source."""
+    acct_key, _ = _login_keys(email, ip)
+    redis_client.delete(acct_key)
+
+
 def encrypt_token(plain_token: str) -> str:
     f = Fernet(settings.ENCRYPTION_KEY.encode())
     return f.encrypt(plain_token.encode()).decode()

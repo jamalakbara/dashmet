@@ -1,7 +1,7 @@
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, DbSession, redis_client
@@ -85,11 +85,29 @@ def verify_email(body: VerifyEmailRequest, db: DbSession):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+def _client_ip(request: Request) -> str:
+    # Railway/other proxies set X-Forwarded-For; trust the first hop. Falls back
+    # to the socket peer for direct connections.
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 @router.post("/login")
-def login(body: LoginRequest, db: DbSession):
+def login(body: LoginRequest, request: Request, db: DbSession):
+    ip = _client_ip(request)
+
+    if auth_svc.login_rate_limited(redis_client, body.email, ip):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed login attempts. Try again later.",
+        )
+
     user = db.query(User).filter(User.email == body.email.lower()).first()
 
     if not user or not auth_svc.verify_password(body.password, user.password_hash):
+        auth_svc.record_login_failure(redis_client, body.email, ip)
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     if not user.email_verified:
@@ -119,6 +137,8 @@ def login(body: LoginRequest, db: DbSession):
     from datetime import datetime, timezone
     user.last_login_at = datetime.now(timezone.utc)
     db.commit()
+
+    auth_svc.clear_login_failures(redis_client, body.email, ip)
 
     return DataResponse(
         data=LoginResponse(

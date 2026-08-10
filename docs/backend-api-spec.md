@@ -93,6 +93,8 @@ Create a new user and organization in one step.
 
 > User cannot log in until email is verified.
 
+**Password policy** — `password` must be **≥8 chars and contain at least one lowercase letter, one uppercase letter, and one digit**. A violation returns `422` (Pydantic validation) with `detail[].msg` = `"Password must contain ..."`. Same policy applies to `new_password` on reset-password (single validator, `app/schemas/auth.py::validate_password_strength`).
+
 ---
 
 ### `POST /api/v1/auth/verify-email`
@@ -149,6 +151,8 @@ Create a new user and organization in one step.
 }
 ```
 
+**Rate limiting** — failed logins are throttled via Redis (see `sync-worker-spec` / `app/services/auth.py`). Two independent gates over a rolling 15-minute window: **per-account** (default 5 failures for one email) and **per-IP** (default 20 failures from one source, catches credential spraying). Either exceeded → `429` `{"detail": "Too many failed login attempts. Try again later."}`, checked *before* the password is verified. A successful login clears the per-account counter; the per-IP counter is left to expire. Source IP is taken from `X-Forwarded-For` (first hop) when present, else the socket peer. Tunables: `LOGIN_MAX_ATTEMPTS_PER_ACCOUNT`, `LOGIN_MAX_ATTEMPTS_PER_IP`, `LOGIN_LOCKOUT_WINDOW_SECONDS`.
+
 ---
 
 ### `POST /api/v1/auth/forgot-password`
@@ -179,6 +183,8 @@ Create a new user and organization in one step.
 ```json
 { "data": { "message": "Password updated. You can now log in." } }
 ```
+
+> `new_password` must satisfy the same password policy as signup (≥8 chars, lower + upper + digit) — else `422`.
 
 ---
 
@@ -331,7 +337,7 @@ All responses wrap their payload in a standard envelope.
 | `401` | Missing or invalid token |
 | `403` | Valid token but no access to this resource |
 | `404` | Resource not found |
-| `429` | Internal rate limit (platform API exhausted — try again later) |
+| `429` | Rate limited — platform API quota exhausted (insights), **or** too many failed login attempts (`POST /auth/login`, see that endpoint) |
 | `500` | Unexpected server error |
 | `503` | Platform API unavailable / sync not yet run |
 
