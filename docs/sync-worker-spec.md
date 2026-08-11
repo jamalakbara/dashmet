@@ -916,7 +916,26 @@ the just-connected connection**, not fanned out globally — `insights_daily`
 skips-fresh so a global fan-out would be cheap, but `sync_breakdowns_for_account`
 has **no staleness guard**, so a global breakdown fan-out on every connect would
 re-fetch every account's breakdowns. `sync_insights_for_account` runs its
-retry-until-structure-ready guard if it is picked up before structure completes.
+structure-dependency guard if it is picked up before structure completes.
+
+> **Structure-dependency guard (livelock prevention).** `sync_insights_for_account`
+> checks `camp_map` right after reading it, **before constructing `MetaClient` or
+> making any API call**. If the account has no campaigns yet:
+> - a `structure` job has already `completed` → return cleanly (the account
+>   genuinely has 0 campaigns; nothing to sync, no failed `sync_jobs` row);
+> - otherwise → trigger `sync_structure_for_account.delay(...)` and defer,
+>   **without hitting Meta**. Structure re-kicks insights on completion
+>   (`structure.py`), and the 15-min beat is a backstop, so no self-reschedule.
+>
+> Why before the API call: on a rate-limited shared Meta app, `structure`'s
+> up-front `apply_backoff` trips the 80% (`SOFT_PCT`) app-usage gate and finalizes
+> `skipped`, so `campaigns` stays empty. If insights instead fetched campaign +
+> per-campaign adset/ad insights and only *then* raised on the empty `adgroup_map`,
+> that doomed run would drain the exact app quota structure needs — a **livelock**
+> (insights drains quota → structure skips → maps stay empty → insights fails). The
+> pre-existing `adgroup_map`/`ad_map` empty-guard `RuntimeError`s are kept as a
+> safety net for the rarer campaigns-present-but-adsets-lagging case. Enforced by
+> `tests/test_insights_structure_guard.py`.
 
 > **Not eager on connect: `submit_async_job_for_account` (Meta 90d async).** It
 > is driven only by its 6-hourly Beat task + 6hr staleness guard. So for a fresh

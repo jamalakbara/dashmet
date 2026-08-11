@@ -236,6 +236,42 @@ def sync_insights_for_account(self, account_id: str, date_preset: str = "last_7d
             c.platform_campaign_id: c.id
             for c in db.query(Campaign).filter(Campaign.account_id == account.id).all()
         }
+
+        # Livelock guard (P-5): structure must populate `campaigns` before insights
+        # can map any adset/ad row. If there are no campaigns yet, DO NOT call Meta.
+        # A run past this point fetches campaign + per-campaign adset/ad insights and
+        # then raises on the empty adgroup_map/ad_map (below) — burning the shared
+        # Meta *app* quota that structure needs to complete. That mutual starvation
+        # is a livelock: insights drains quota -> structure's apply_backoff trips and
+        # skips -> `campaigns` stays empty -> insights fails again. Bail before any
+        # API call. Structure re-kicks insights on completion (structure.py), and the
+        # 15-min beat is a backstop, so no self-reschedule is needed here.
+        if not camp_map:
+            from app.models.metrics import SyncJob
+            structure_done = (
+                db.query(SyncJob)
+                .filter(
+                    SyncJob.account_id == account.id,
+                    SyncJob.job_type == "structure",
+                    SyncJob.status == "completed",
+                )
+                .first()
+            )
+            if structure_done:
+                # Structure has completed and there are genuinely no campaigns —
+                # nothing to sync. Return cleanly: no Meta call, no failed job.
+                logger.info(f"[{account_id}] No campaigns after structure sync — nothing to sync")
+                return
+            # Structure hasn't populated campaigns yet: trigger it and defer insights
+            # WITHOUT hitting Meta, so we stop starving structure of app quota.
+            from workers.tasks.structure import sync_structure_for_account
+            sync_structure_for_account.delay(account_id)
+            logger.info(
+                f"[{account_id}] Campaigns not synced yet — deferring insights without "
+                f"calling Meta; triggered structure (re-kicks insights on completion)"
+            )
+            return
+
         adgroup_map = {
             ag.platform_adgroup_id: ag.id
             for ag in db.query(AdGroup).filter(AdGroup.account_id == account.id).all()
